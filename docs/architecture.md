@@ -38,7 +38,7 @@
 | 提取 | `getRows()`：兼容 thead 直接嵌 th（无 tr）；过滤 virtual-spacer 占位行、`display:none` 隐藏行 |
 | 单元格 | `cellText()`：视觉上分离的文本块（换行/连续空格/nbsp）统一压缩为单个空格，本来连在一起的文本保持相连。含 input/textarea/select 时克隆单元格、**从原元素读取实时值**（cloneNode 只复制特性，Vue 属性设值会丢）替换控件后离屏渲染取文本。离屏容器**不能加 `visibility:hidden`**（innerText 按规范排除不可见文本） |
 | 合并单元格 | `extractTable()`：rowspan/colspan 展开成网格 + 生成 SheetJS `!merges` |
-| 虚拟滚动 | `isVirtualTable()` 识别（占位行类名/带高度空 tr）→ `collectVirtual()`：回顶 → 按视口 80% 步长下滚 → 每窗口提取可见行按内容签名去重（表头天然只留一份）→ 还原滚动位置。采集期间锁交互（`collecting`），`genToken` 代际令牌防退出后回调写入 |
+| 虚拟滚动 | `isVirtualTable()` 识别（类名含 virtual 的占位元素 / 带高度空 tr，宁可误报——误报时采集流程无损）→ `collectVirtual()`：回顶 → 按视口 80% 步长下滚 → 每窗口提取：先比对**行 DOM 引用**（同批节点 = 无新行），再用「后缀/前缀重叠合并」衔接数据行（表头剥离只留一份）。无新行时补等 250ms 重试。采集期间锁交互，`genToken` 代际令牌防退出后回调写入 |
 | 导出 | 多表 → 多 Sheet（caption/aria-label/id 命名，31 字符截断去重）→ `XLSX.write` ArrayBuffer → base64 → 优先 `chrome.runtime.sendMessage` 走后台下载；失败回退页面内 `blob:` 链接下载 |
 
 ## 关键设计决策
@@ -48,13 +48,14 @@
 | 按需注入而非静态 content_scripts | SheetJS 体积大，避免所有页面常驻开销；activeTab 权限利于商店审核 |
 | 下载走后台 chrome.downloads | 页面 CSP（如 ERP 后台）会拦截 blob: 下载且静默失败；扩展 downloads API 不受页面策略限制。失败时仍回退 blob |
 | UI 全部 Shadow DOM + 内联样式 | 不注入 CSS 文件，`all:initial` 阻断页面样式污染 |
-| 虚拟表格内容签名去重 | 滚动时 DOM 行被销毁重建，无法靠元素身份判断重复；步长 80% 视口保证不跳行但有重叠，需去重。代价：全列完全相同的合法重复行会被合并 |
+| 虚拟采集用「DOM 引用判定 + 相邻窗口重叠合并」 | DOM 引用相同 = 窗口没变（非虚拟表格误报 / 渲染未完成），直接跳过；引用变了才做内容对齐。后缀/前缀匹配消除窗口重叠区的重复，同时保留数据中合法的重复行（全局内容去重做不到）。算法回归测试：`node test/algo-check.cjs` |
 | genToken 代际令牌 | 异步采集过程中用户可能退出/重选，令牌使旧任务的回调失效 |
 | 下载文件名 sanitize | 过滤 `\/:*?"<>|`、去首部点号（chrome.downloads 限制）、补 .xlsx 后缀 |
 
 ## 已知限制
 
-- 仅顶层文档表格，iframe 内表格不处理（点三咪页面有 1 个 iframe，目标表格在主文档）
+- 仅顶层文档表格，iframe 内表格不处理
 - 单元格导出纯文本，不保留颜色/字体样式；图片列导出为空
 - 无设置持久化（每次进入选择模式重填默认文件名）
-- 合法全同重复行在虚拟表格采集中会被去重合并
+- 虚拟滚动 + 整行内容完全相同且相邻出现时，理论上可能少采（内容对齐的固有歧义；分散出现的重复行不受影响）
+- 组件库把一个表格拆成多个 `<table>`（固定表头/固定列的布局）时不自动合并，需分别选择

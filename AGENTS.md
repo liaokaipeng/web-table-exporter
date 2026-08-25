@@ -13,6 +13,7 @@ Chrome MV3 扩展（原生 JS，零构建）。架构与产品信息见 [docs/ar
 ```powershell
 node --check content/content.js
 node --check background/service-worker.js
+node test/algo-check.cjs
 ```
 
 注意：PowerShell 不支持 `&&` 和 heredoc；多行提交信息用 `git commit -F <文件>`。

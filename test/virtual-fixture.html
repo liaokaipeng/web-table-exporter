@@ -6,7 +6,7 @@
 <style>
   body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 40px auto; max-width: 1000px; color: #333; }
   h2 { border-left: 4px solid #2e7d32; padding-left: 10px; }
-  /* 复刻点三咪结构：外层容器滚动，sticky 表头 */
+  /* 复刻常见虚拟滚动表格结构：外层容器滚动，sticky 表头 */
   .origin-table-container { max-height: 500px; overflow-y: auto; border: 1px solid #ddd; }
   table { border-collapse: collapse; width: 100%; }
   thead { position: sticky; top: 0; background: #f0f4f8; }
@@ -18,8 +18,9 @@
 </head>
 <body>
 <h1>虚拟滚动表格测试页</h1>
-<p>下方表格复刻点三咪 ERP 的结构：thead 直接嵌 th（无 tr）、virtual-spacer 占位行、
-单元格内含 input。共 <b id="total">60</b> 行数据，DOM 中任意时刻只渲染约 12 行。</p>
+<p>下方表格复刻常见组件库/ERP 的结构：thead 直接嵌 th（无 tr）、virtual-spacer 占位行、
+单元格内含 input。共 <b id="total">60</b> 行数据，DOM 中任意时刻只渲染约 12 行。
+其中序号 1、26、41 三行内容完全相同（模拟合法重复行），导出应全部保留。</p>
 
 <h2>虚拟滚动表格（点击后扩展应自动滚动采集全部 60 行）</h2>
 <div class="origin-table-container" id="vcontainer">
@@ -59,6 +60,8 @@
     limit: i % 3 === 0 ? '' : String((i + 1) * 10),
     on: i % 5 !== 0
   }));
+  // 合法重复行：序号 1/26/41（i=0/25/40）内容完全相同，验证采集不误删
+  [25, 40].forEach(j => { DATA[j] = { ...DATA[0] }; });
 
   const container = document.getElementById('vcontainer');
   const tbody = document.getElementById('vtbody');

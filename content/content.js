@@ -8,6 +8,10 @@
  *  - 兼容 thead 直接嵌 th（无 tr 包裹）的组件表格；过滤虚拟占位空行/隐藏行
  *  - 单元格文本归一化：视觉上分离的文本块（换行/连续空格）统一为单个空格，
  *    本来连在一起的文本不加空格
+ * v1.1.1（通用化）：
+ *  - 采集改用「相邻窗口重叠合并」替代全局内容去重：保留数据中合法的重复行
+ *  - 虚拟表格识别放宽为类名含 virtual / 带高度空占位行；识别误报时采集流程无损
+ *  - 多行表头完整保留；渲染慢的组件自动补等重试
  */
 (() => {
   'use strict';
@@ -48,7 +52,7 @@
     const origs = cell.querySelectorAll('input,textarea,select');
     let target = cell, holder = null;
     if (origs.length) {
-      // 含表单控件（如 ERP 编辑表格中的一口价 input）：克隆单元格并把控件替换为其实时值，
+      // 含表单控件（如可编辑表格中的 input）：克隆单元格并把控件替换为其实时值，
       // 离屏渲染后取 innerText。注意：值必须从页面原元素读取——cloneNode 只复制 value 特性，
       // 用户输入/框架（Vue 等）通过 JS 属性设置的值不在特性里，克隆会丢失。
       const clone = cell.cloneNode(true);
@@ -86,23 +90,25 @@
 
   function getRows(table) {
     const rows = [];
-    const push = (cells, el) => { if (cells && cells.length) rows.push({ cells, el }); };
+    const push = (cells, el, isHeader) => {
+      if (cells && cells.length) rows.push({ cells, el, isHeader: !!isHeader });
+    };
 
-    // 表头：常规 thead>tr>th；部分组件（如点三咪 ERP）thead 直接嵌 th 无 tr
+    // 表头：常规 thead>tr>th；部分组件库 thead 直接嵌 th（无 tr 包裹）
     if (table.tHead) {
       const trs = table.tHead.querySelectorAll('tr');
       if (trs.length) {
-        for (const tr of trs) push(tr.cells, tr);
+        for (const tr of trs) push(tr.cells, tr, true);
       } else {
-        push([...table.tHead.children].filter(el => el.tagName === 'TH' || el.tagName === 'TD'), table.tHead);
+        push([...table.tHead.children].filter(el => el.tagName === 'TH' || el.tagName === 'TD'), table.tHead, true);
       }
     }
     for (const tb of table.tBodies) for (const tr of tb.rows) push(tr.cells, tr);
-    if (table.tFoot) for (const tr of table.tFoot.querySelectorAll('tr')) push(tr.cells, tr);
+    if (table.tFoot) for (const tr of table.tFoot.querySelectorAll('tr')) push(tr.cells, tr, true);
 
     return rows.filter(({ cells, el }) => {
-      if (!cells.length) return false; // 虚拟滚动占位空行（virtual-spacer）
-      if (el.className && /virtual-(spacer|top|bottom|row|placeholder)/.test(el.className)) return false;
+      if (!cells.length) return false; // 虚拟滚动占位空行（无内容）
+      if (el.className && /virtual/.test(el.className)) return false; // 各类虚拟滚动占位行
       if (getComputedStyle(el).display === 'none') return false; // 隐藏行
       return true;
     });
@@ -154,8 +160,8 @@
   /* ---------------- 虚拟滚动表格支持 ---------------- */
 
   function isVirtualTable(table) {
-    // 显式占位行类名
-    if (table.querySelector('tr[class*="virtual-spacer"],tr[class*="virtual-top"],tr[class*="virtual-bottom"],[class*="vxe-virtual"]')) return true;
+    // 显式虚拟滚动标记（占位行/占位元素类名，覆盖各类组件库）
+    if (table.querySelector('[class*="virtual"]')) return true;
     // 兜底：tbody 里存在带高度的无单元格占位 tr
     for (const tb of table.tBodies) {
       for (const tr of tb.rows) {
@@ -177,22 +183,61 @@
 
   const settle = (ms) => new Promise(res => { requestAnimationFrame(() => setTimeout(res, ms)); });
 
+  /** 已累积行（签名数组）的后缀与当前窗口前缀的最长公共长度，即两窗口的重叠行数。
+   *  k 上限 cap 到一个视口的行数：滑动窗口的重叠不可能超过一屏，同时避免大表格 O(n²) 比较 */
+  function overlapLen(acc, win) {
+    const max = Math.min(acc.length, win.length, 200);
+    for (let k = max; k >= 1; k--) {
+      let ok = true;
+      for (let i = 0; i < k; i++) {
+        if (acc[acc.length - k + i] !== win[i]) { ok = false; break; }
+      }
+      if (ok) return k;
+    }
+    return 0;
+  }
+
   /**
-   * 自动滚动采集虚拟表格全部行：回到顶部 → 逐步下滚 → 每个窗口提取可见行并按内容去重。
-   * 表头行在每个窗口都存在，靠去重只保留一份且天然位于首行。
+   * 自动滚动采集虚拟表格全部行：回顶 → 按视口 80% 步长逐步下滚 → 逐窗口提取。
+   * 表头行剥离只保留一份；数据行用「相邻窗口重叠合并」（后缀/前缀匹配）衔接，
+   * 既消除窗口重叠区的重复，也保留数据中合法的重复行。
+   * 识别误报时（普通表格被当作虚拟表格）采集流程同样无损：每窗口都返回全量行，重叠合并后不变。
    */
   async function collectVirtual(table, onProgress, isCancelled) {
     const container = findScrollContainer(table);
-    const seen = new Set();
-    const rows = [];
+    let headers = [];          // 表头行（值数组），首窗口确定，支持多行表头
+    const dataSigs = [];       // 已累积数据行签名（重叠匹配用）
+    const dataRows = [];       // 已累积数据行（值数组）
 
-    const take = () => {
-      for (const { cells } of getRows(table)) {
+    // 提取当前窗口：表头只记录一份；数据行与已累积部分做后缀/前缀重叠合并
+    let prevRefs = null; // 上一窗口数据行的 DOM 元素引用（判定窗口是否真的变化）
+    const takeWindow = () => {
+      const firstWin = prevRefs === null; // 首窗口收集全部表头行，后续窗口跳过
+      const winRows = [];
+      const winRefs = [];
+      for (const { cells, el, isHeader } of getRows(table)) {
         const vals = [...cells].map(cellText);
-        const sig = vals.join('\x01');
-        if (sig && !seen.has(sig)) { seen.add(sig); rows.push(vals); }
+        if (isHeader) { if (firstWin) headers.push(vals); continue; }
+        winRows.push(vals);
+        winRefs.push(el);
       }
+      // DOM 行元素与上一窗口完全相同（同一批节点）：
+      // 非虚拟表格被误判时每窗口都是同一批行；虚拟表格渲染未完成时同理。均无新行。
+      if (!firstWin && winRefs.length === prevRefs.length &&
+          winRefs.every((el, i) => el === prevRefs[i])) {
+        return 0;
+      }
+      prevRefs = winRefs;
+      const winSigs = winRows.map(r => r.join('\x01'));
+      const k = overlapLen(dataSigs, winSigs);
+      for (let i = k; i < winRows.length; i++) {
+        dataSigs.push(winSigs[i]);
+        dataRows.push(winRows[i]);
+      }
+      return winRows.length - k; // 新增行数
     };
+
+    const progress = () => onProgress(dataRows.length + headers.length);
     const getTop = () => (container ? container.scrollTop : window.scrollY);
     const setTop = (v) => { if (container) container.scrollTop = v; else window.scrollTo(0, v); };
     const getMax = () => container
@@ -203,8 +248,8 @@
     try {
       setTop(0); // 回顶，保证采集从第一行开始
       await settle(180);
-      take();
-      onProgress(rows.length);
+      takeWindow();
+      progress();
 
       const step = Math.max(240, (container ? container.clientHeight : window.innerHeight) * 0.8);
       let lastTop = -1;
@@ -213,15 +258,20 @@
         if (getTop() >= getMax() - 1) break; // 已到底
         setTop(Math.min(getTop() + step, getMax()));
         await settle(180); // 等组件重渲染窗口
-        take();
-        onProgress(rows.length);
+        let added = takeWindow();
+        if (added === 0) {
+          // 渲染慢的组件：补等一次再采，仍无新行才视为稳定
+          await settle(250);
+          added = takeWindow();
+        }
+        progress();
         const nowTop = getTop();
-        if (nowTop === lastTop) break; // 滚动卡住（异常容器），防死循环
+        if (nowTop === lastTop && added === 0) break; // 滚动卡住且无新行，防死循环
         lastTop = nowTop;
       }
-      take(); // 收尾补一次
-      onProgress(rows.length);
-      return rows;
+      takeWindow(); // 收尾补一次
+      progress();
+      return [...headers, ...dataRows];
     } finally {
       setTop(originTop); // 还原用户滚动位置
     }

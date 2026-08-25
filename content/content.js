@@ -12,6 +12,10 @@
  *  - 采集改用「相邻窗口重叠合并」替代全局内容去重：保留数据中合法的重复行
  *  - 虚拟表格识别放宽为类名含 virtual / 带高度空占位行；识别误报时采集流程无损
  *  - 多行表头完整保留；渲染慢的组件自动补等重试
+ * v1.2（控件值全覆盖）：
+ *  - 单元格控件取值改为三层判定：原生表单 → ARIA 角色 → 组件库类名，见 controlValue()
+ *  - select 导出「显示文本(value)」，多选用顿号分隔；input[type=hidden] 忽略
+ *  - 开关/勾选类（含 ARIA switch、el/ant/van 组件开关）统一「是/否」
  */
 (() => {
   'use strict';
@@ -46,27 +50,74 @@
     return (s || '').replace(/[\\/:*?"<>|]/g, '_').trim();
   }
 
+  /* ---------------- 控件值提取（A 原生 → B ARIA → C 组件类名） ---------------- */
+
+  // 控件候选选择器：原生表单 + ARIA 控件角色 + 类名含 switch 的元素。
+  // 候选统一送 controlValue() 精确判定，误匹配返回 null 保留原样（由 innerText 兜底）
+  const CONTROL_SEL = 'input,textarea,select,output,[role=switch],[role=checkbox],[role=radio],' +
+    '[role=slider],[role=spinbutton],[role=combobox],[role=listbox],[class*="switch"]';
+
+  /** 原生 option 的统一格式：文本(value)；value 为空或与文本相同则只留文本 */
+  function optionText(opt) {
+    const text = (opt.textContent || '').trim();
+    const value = (opt.value || '').trim();
+    return (!value || text === value) ? text : (text + '(' + value + ')');
+  }
+
+  /** 控件取值（从页面原元素读取实时状态）。返回替换文本；
+   *  返回 null 表示该元素不按控件处理，保留原样由 innerText 兜底 */
+  function controlValue(el) {
+    const tag = el.tagName;
+    // A 原生表单
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'OUTPUT') {
+      if (el.type === 'hidden') return ''; // 用户不可见，忽略
+      if (el.type === 'checkbox' || el.type === 'radio') return el.checked ? '是' : '否';
+      return el.value || '';
+    }
+    if (tag === 'SELECT') {
+      const opts = [...el.selectedOptions];
+      return opts.length ? opts.map(optionText).join('、') : ''; // 多选用顿号分隔
+    }
+    // B ARIA 控件角色
+    const role = el.getAttribute('role');
+    if (role === 'switch' || role === 'checkbox' || role === 'radio') {
+      return el.getAttribute('aria-checked') === 'true' ? '是' : '否';
+    }
+    if (role === 'slider' || role === 'spinbutton') {
+      return el.getAttribute('aria-valuenow') || '';
+    }
+    if (role === 'combobox' || role === 'listbox') {
+      // 选项列表渲染在单元格内时取选中项；触发器场景无选中项则交由 innerText 兜底
+      const sel = el.querySelectorAll('[aria-selected="true"]');
+      if (!sel.length) return null;
+      return [...sel].map(o => (o.textContent || '').trim()).filter(Boolean).join('、') || null;
+    }
+    // C 组件库类名兜底：el-switch / ant-switch / van-switch / n-switch 等开关
+    if (typeof el.className === 'string') {
+      const tokens = el.className.trim().split(/\s+/).filter(Boolean);
+      if (tokens.some(t => t === 'switch' || t.endsWith('-switch'))) {
+        const on = tokens.some(t =>
+          (/checked/i.test(t) && !/unchecked/i.test(t)) || /--on$/i.test(t) || /--active$/i.test(t));
+        return on ? '是' : '否';
+      }
+    }
+    return null;
+  }
+
   /* ---------------- 单元格文本（含表单控件值） ---------------- */
 
   function cellText(cell) {
-    const origs = cell.querySelectorAll('input,textarea,select');
+    const origs = cell.querySelectorAll(CONTROL_SEL);
     let target = cell, holder = null;
     if (origs.length) {
-      // 含表单控件（如可编辑表格中的 input）：克隆单元格并把控件替换为其实时值，
+      // 含控件候选（如可编辑表格中的 input）：克隆单元格并把控件替换为其实时值，
       // 离屏渲染后取 innerText。注意：值必须从页面原元素读取——cloneNode 只复制 value 特性，
       // 用户输入/框架（Vue 等）通过 JS 属性设置的值不在特性里，克隆会丢失。
       const clone = cell.cloneNode(true);
-      const clones = clone.querySelectorAll('input,textarea,select');
+      const clones = clone.querySelectorAll(CONTROL_SEL);
       origs.forEach((orig, i) => {
-        let v;
-        if (orig.tagName === 'SELECT') {
-          const o = orig.selectedOptions && orig.selectedOptions[0];
-          v = o ? o.textContent.trim() : '';
-        } else if (orig.type === 'checkbox' || orig.type === 'radio') {
-          v = orig.checked ? '是' : '否';
-        } else {
-          v = orig.value || '';
-        }
+        const v = controlValue(orig);
+        if (v === null) return; // 非控件候选命中：保留原样，由 innerText 兜底
         // 前后补空格作为与相邻文本的分隔（如 "2249" 与 "PHP"），最终统一归一化
         clones[i].replaceWith(document.createTextNode(' ' + v + ' '));
       });

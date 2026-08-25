@@ -18,7 +18,7 @@ node test/algo-check.cjs
 
 注意：PowerShell 不支持 `&&` 和 heredoc；多行提交信息用 `git commit -F <文件>`。
 
-改代码后的浏览器验证：`chrome://extensions` 刷新扩展 → 刷新目标页 → 用 `test/virtual-fixture.html`（虚拟滚动+input 列）和 `test/fixture.html`（合并单元格）回归。
+改代码后的浏览器验证：`chrome://extensions` 刷新扩展 → 刷新目标页 → 用 `test/virtual-fixture.html`（虚拟滚动+表单控件列）和 `test/fixture.html`（合并单元格+控件取值，第 4 节行内标注预期值）回归。控件取值规则见 [docs/controls.md](docs/controls.md)。
 
 ## 坑（已踩过，勿再踩）
 

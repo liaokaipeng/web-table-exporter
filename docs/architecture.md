@@ -36,7 +36,7 @@
 | UI | 单个 Shadow DOM host（`all:initial` 隔离页面样式），含悬浮高亮层、已选覆盖层（Shadow 内动态增删）、底部工具栏 |
 | 事件 | `mouseover`（委托找 table）、`click`（捕获阶段拦截页面跳转，工具栏自身放行）、`keydown`（Esc 退出 / Enter 导出）、`scroll`/`resize`（rAF 节流重定位） |
 | 提取 | `getRows()`：兼容 thead 直接嵌 th（无 tr）；过滤 virtual-spacer 占位行、`display:none` 隐藏行 |
-| 单元格 | `cellText()`：视觉上分离的文本块（换行/连续空格/nbsp）统一压缩为单个空格，本来连在一起的文本保持相连。含 input/textarea/select 时克隆单元格、**从原元素读取实时值**（cloneNode 只复制特性，Vue 属性设值会丢）替换控件后离屏渲染取文本。离屏容器**不能加 `visibility:hidden`**（innerText 按规范排除不可见文本） |
+| 单元格 | `cellText()`：视觉上分离的文本块（换行/连续空格/nbsp）统一压缩为单个空格，本来连在一起的文本保持相连。控件值经 `controlValue()` 三层判定（A 原生表单 → B ARIA 角色 → C 组件类名，详见 docs/controls.md），命中后克隆单元格、**从原元素读取实时值**（cloneNode 只复制特性，Vue 属性设值会丢）替换控件再离屏渲染取文本；未命中候选保留原样由 innerText 兜底。离屏容器**不能加 `visibility:hidden`**（innerText 按规范排除不可见文本） |
 | 合并单元格 | `extractTable()`：rowspan/colspan 展开成网格 + 生成 SheetJS `!merges` |
 | 虚拟滚动 | `isVirtualTable()` 识别（类名含 virtual 的占位元素 / 带高度空 tr，宁可误报——误报时采集流程无损）→ `collectVirtual()`：回顶 → 按视口 80% 步长下滚 → 每窗口提取：先比对**行 DOM 引用**（同批节点 = 无新行），再用「后缀/前缀重叠合并」衔接数据行（表头剥离只留一份）。无新行时补等 250ms 重试。采集期间锁交互，`genToken` 代际令牌防退出后回调写入 |
 | 导出 | 多表 → 多 Sheet（caption/aria-label/id 命名，31 字符截断去重）→ `XLSX.write` ArrayBuffer → base64 → 优先 `chrome.runtime.sendMessage` 走后台下载；失败回退页面内 `blob:` 链接下载 |

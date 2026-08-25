@@ -10,7 +10,7 @@
 2. 页面有多个表格，我想一次性导出 → 多选表格，每个变成一个 Sheet
 3. 表格有合并的表头 → Excel 里保持合并效果
 4. 表格是虚拟滚动的长列表 → 扩展自动滚动采集全部行
-5. 表格里有输入框（一口价等编辑值） → 导出的是当前显示/输入的值
+5. 表格里有输入框/下拉/开关等控件（一口价等编辑值） → 导出的是当前显示/输入的值（规则见 docs/controls.md）
 6. 我想自己命名文件 → 工具栏可改文件名
 
 ## 交互规范
@@ -63,6 +63,7 @@
 | 1.0.0 | 悬浮高亮多选、合并单元格、多 Sheet、自定义文件名；下载走 chrome.downloads（修复页面 CSP 拦截导致的导出无反应） |
 | 1.1 | 虚拟滚动表格自动采集全量行；导出 input/select 实时值（修复 visibility:hidden 导致取空值、cloneNode 丢失属性设值两个 bug）；兼容无 tr 表头；过滤占位行；单元格文本归一化——视觉分离的文本块以单个空格连接（如 `2249 PHP`），连在一起的文本不加空格 |
 | 1.1.1 | 通用化改造：采集改用「相邻窗口重叠合并」替代全局内容去重，保留数据中合法的重复行；虚拟表格识别放宽（类名含 virtual / 带高度空占位行），识别误报时采集流程无损；多行表头完整保留；渲染慢的组件自动补等重试 |
+| 1.2 | 控件值全覆盖：三层判定（原生表单 → ARIA 角色 → 组件类名）；select 导出「显示文本(value)」，多选顿号分隔；`input[type=hidden]` 忽略；开关/勾选类（含 ARIA switch、el/ant/van/n 组件开关）统一「是/否」；详见 docs/controls.md |
 
 ## 已知限制（用户须知）
 
@@ -74,9 +75,9 @@
 
 ## 测试清单
 
-`test/fixture.html`：普通表格、rowspan/colspan 合并（带 caption）、空单元格/长文本、选择模式下链接不跳转。
+`test/fixture.html`：普通表格、rowspan/colspan 合并（带 caption）、空单元格/长文本、表单控件取值（第 4 节：select 单/多选、空值/value=文本、checkbox/radio、hidden、date/textarea/output、一格多控件、ARIA switch/slider/listbox/combobox 兜底、el/ant/van 组件开关、嵌套开关、类名形似非开关的回退，行内标注预期导出值）、选择模式下链接不跳转。
 
-`test/virtual-fixture.html`：60 行虚拟滚动（thead 无 tr、input 列由 JS 属性设值模拟 Vue）→ 应采集 61 行（60 数据 + 表头），input 值完整导出；其中序号 1/26/41 三行内容完全相同，应全部保留（验证重复行不误删）。
+`test/virtual-fixture.html`：60 行虚拟滚动（thead 无 tr、input 与 select 列由 JS 属性设值模拟 Vue、el-switch 开关列）→ 应采集 61 行（60 数据 + 表头），input 值完整导出；发货仓列导出「华东仓(1)/华南仓(2)」、开关列导出「是/否」；其中序号 1/26/41 三行内容完全相同，应全部保留（验证重复行不误删）。
 
 `test/algo-check.cjs`（Node 直接运行）：采集算法的回归测试——滑动窗口去重、合法重复行保留、非虚拟表格误报无损、渲染延迟、性能。
 

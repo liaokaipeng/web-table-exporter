@@ -11,7 +11,12 @@
   table { border-collapse: collapse; width: 100%; }
   thead { position: sticky; top: 0; background: #f0f4f8; }
   th, td { border-bottom: 1px solid #e5e5e5; padding: 12px 10px; font-size: 13px; text-align: left; }
-  td input { width: 90px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; }
+  td input, td select { width: 90px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; }
+  /* 复刻 el-switch 外观（仅测试取值，无交互） */
+  .el-switch { display: inline-block; width: 36px; height: 18px; border-radius: 9px; background: #c0ccda; position: relative; vertical-align: middle; }
+  .el-switch.is-checked { background: #2e7d32; }
+  .el-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; transition: left .2s; }
+  .el-switch.is-checked::after { left: 20px; }
   .virtual-spacer { height: 0; }
   .gray { color: #999; font-size: 12px; }
 </style>
@@ -19,8 +24,9 @@
 <body>
 <h1>虚拟滚动表格测试页</h1>
 <p>下方表格复刻常见组件库/ERP 的结构：thead 直接嵌 th（无 tr）、virtual-spacer 占位行、
-单元格内含 input。共 <b id="total">60</b> 行数据，DOM 中任意时刻只渲染约 12 行。
-其中序号 1、26、41 三行内容完全相同（模拟合法重复行），导出应全部保留。</p>
+单元格内含 input（JS 属性设值）/ select（JS 属性设值）/ el-switch 开关。共 <b id="total">60</b> 行数据，
+DOM 中任意时刻只渲染约 12 行。其中序号 1、26、41 三行内容完全相同（模拟合法重复行），导出应全部保留。
+预期：发货仓列导出「华东仓(1)/华南仓(2)」、开关列导出「是/否」。</p>
 
 <h2>虚拟滚动表格（点击后扩展应自动滚动采集全部 60 行）</h2>
 <div class="origin-table-container" id="vcontainer">
@@ -32,6 +38,8 @@
       <th style="min-width:110px">本地展示价</th>
       <th style="min-width:150px">一口价</th>
       <th style="min-width:120px">限购总量</th>
+      <th style="min-width:130px">发货仓</th>
+      <th style="min-width:90px">上架开关</th>
       <th width="80">状态</th>
     </thead>
     <tbody id="vtbody">
@@ -58,6 +66,7 @@
     price: 4722,
     promo: (i % 4 === 0 ? 2249 : i % 4 === 1 ? 1639 : 1899),
     limit: i % 3 === 0 ? '' : String((i + 1) * 10),
+    wh: i % 3 === 0 ? '1' : '2',
     on: i % 5 !== 0
   }));
   // 合法重复行：序号 1/26/41（i=0/25/40）内容完全相同，验证采集不误删
@@ -85,6 +94,8 @@
         '<td>' + d.price + ' PHP</td>' +
         '<td><input type="text" value="' + d.promo + '"> PHP</td>' +
         '<td><input type="text" value="' + d.limit + '"></td>' +
+        '<td><select><option value="">全部</option><option value="1">华东仓</option><option value="2">华南仓</option></select></td>' +
+        '<td><div class="el-switch' + (d.on ? ' is-checked' : '') + '"></div></td>' +
         '<td>' + (d.on ? '开启' : '关闭') + '</td>';
       // 模拟 Vue/React：值改由 JS 属性写入（不保留在 value 特性上），
       // 验证导出读取的是元素实时值而非克隆后的特性值
@@ -92,6 +103,7 @@
         inp.removeAttribute('value');
         inp.value = idx === 0 ? String(d.promo) : d.limit;
       });
+      tr.querySelector('select').value = d.wh; // 同样走 JS 属性设值
       tbody.insertBefore(tr, bottomSpacer);
     }
   }

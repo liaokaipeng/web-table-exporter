@@ -49,5 +49,38 @@
   <tr><td>空值测试</td><td></td><td>上一格为空</td></tr>
   <tr><td>长文本</td><td>这是一段很长的文本内容，用于验证导出后单元格内容不会被截断，Excel 中应完整显示。</td><td></td></tr>
 </table>
+
+<h2>4. 表单控件取值（v1.2：原生 / ARIA / 组件类名）</h2>
+<table id="controls">
+  <tr><th>场景</th><th>单元格内容</th><th>预期导出</th></tr>
+  <tr><td>文本输入（JS 设值）</td><td><input class="js-set" type="text"></td><td>JS设的值</td></tr>
+  <tr><td>select 单选</td><td><select><option value="">全部</option><option value="3" selected>已发货</option></select></td><td>已发货(3)</td></tr>
+  <tr><td>select 多选</td><td><select multiple size="3"><option value="a" selected>甲</option><option value="b" selected>乙</option><option value="c">丙</option></select></td><td>甲(a)、乙(b)</td></tr>
+  <tr><td>checkbox 勾选</td><td><input type="checkbox" checked></td><td>是</td></tr>
+  <tr><td>checkbox 未选</td><td><input type="checkbox"></td><td>否</td></tr>
+  <tr><td>hidden 输入（忽略）</td><td><input type="hidden" value="secret-id"></td><td>(空)</td></tr>
+  <tr><td>ARIA switch 开</td><td><div role="switch" aria-checked="true"></div></td><td>是</td></tr>
+  <tr><td>ARIA switch 关</td><td><div role="switch" aria-checked="false"></div></td><td>否</td></tr>
+  <tr><td>组件开关 el-switch</td><td><div class="el-switch is-checked"></div></td><td>是</td></tr>
+  <tr><td>组件开关 ant-switch</td><td><div class="ant-switch"></div></td><td>否</td></tr>
+  <tr><td>组件开关 van-switch</td><td><div class="van-switch van-switch--on"></div></td><td>是</td></tr>
+  <tr><td>ARIA slider</td><td><div role="slider" aria-valuenow="60"></div></td><td>60</td></tr>
+  <tr><td>ARIA listbox 选中项</td><td><div role="listbox"><div role="option">甲</div><div role="option" aria-selected="true">乙</div></div></td><td>乙</td></tr>
+  <tr><td>combobox 触发器（innerText 兜底）</td><td><div role="combobox"><span>已发货</span></div></td><td>已发货</td></tr>
+  <tr><td>select 空值选中</td><td><select><option value="" selected>全部</option><option value="3">已发货</option></select></td><td>全部</td></tr>
+  <tr><td>select value 与文本相同</td><td><select><option value="已发货" selected>已发货</option></select></td><td>已发货</td></tr>
+  <tr><td>select 多选全未选</td><td><select multiple size="2"><option value="x">甲</option><option value="y">乙</option></select></td><td>(空)</td></tr>
+  <tr><td>嵌套开关（el-switch 内含 checkbox）</td><td><div class="el-switch is-checked"><input type="checkbox" checked></div></td><td>是（只输出一次）</td></tr>
+  <tr><td>radio 勾选</td><td><input type="radio" checked></td><td>是</td></tr>
+  <tr><td>date 输入</td><td><input type="date" value="2026-08-25"></td><td>2026-08-25</td></tr>
+  <tr><td>textarea</td><td><textarea>初始备注</textarea></td><td>初始备注</td></tr>
+  <tr><td>output 元素</td><td><output>42</output></td><td>42</td></tr>
+  <tr><td>一格多控件（range + color）</td><td><input type="range" value="70"><input type="color" value="#ff0000"></td><td>70 #ff0000</td></tr>
+  <tr><td>类名含 switch 但非开关（兜底）</td><td><span class="switcher-large">排序切换器</span></td><td>排序切换器</td></tr>
+</table>
+<script>
+  // 模拟框架（Vue 等）通过 JS 属性设值：验证导出从原元素读取实时值
+  document.querySelector('#controls .js-set').value = 'JS设的值';
+</script>
 </body>
 </html>

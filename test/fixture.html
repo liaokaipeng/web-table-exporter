@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HTML2XLSX 测试页</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 40px auto; max-width: 900px; color: #333; }
+  table { border-collapse: collapse; margin: 16px 0 40px; }
+  th, td { border: 1px solid #bbb; padding: 8px 14px; font-size: 14px; }
+  th { background: #f0f4f8; }
+  caption { font-weight: bold; padding: 6px; }
+  h2 { border-left: 4px solid #2e7d32; padding-left: 10px; }
+</style>
+</head>
+<body>
+<h1>HTML2XLSX 测试页</h1>
+<p>点击扩展图标进入选择模式。
+<a href="https://example.com/">这个链接在选择模式下点击不应发生跳转</a>（导出完成后恢复正常）。</p>
+
+<h2>1. 普通表格</h2>
+<table id="staff">
+  <tr><th>姓名</th><th>部门</th><th>入职日期</th></tr>
+  <tr><td>张三</td><td>研发部</td><td>2021-03-15</td></tr>
+  <tr><td>李四</td><td>市场部</td><td>2022-07-01</td></tr>
+  <tr><td>王五</td><td>财务部</td><td>2019-11-20</td></tr>
+</table>
+
+<h2>2. 合并单元格表格（带 caption，验证 rowspan/colspan）</h2>
+<table aria-label="销售数据">
+  <caption>季度销售报表</caption>
+  <tr>
+    <th rowspan="2">地区</th>
+    <th colspan="2">上半年</th>
+    <th colspan="2">下半年</th>
+    <th rowspan="2">全年合计</th>
+  </tr>
+  <tr>
+    <th>Q1</th><th>Q2</th><th>Q3</th><th>Q4</th>
+  </tr>
+  <tr><td>华东</td><td>120</td><td>150</td><td>180</td><td>210</td><td>660</td></tr>
+  <tr><td>华南</td><td>100</td><td>110</td><td>125</td><td>140</td><td>475</td></tr>
+  <tr><td colspan="5">全国总计（跨列合并）</td><td>1135</td></tr>
+</table>
+
+<h2>3. 空单元格与长文本</h2>
+<table>
+  <tr><th>项目</th><th>说明</th><th>备注</th></tr>
+  <tr><td>空值测试</td><td></td><td>上一格为空</td></tr>
+  <tr><td>长文本</td><td>这是一段很长的文本内容，用于验证导出后单元格内容不会被截断，Excel 中应完整显示。</td><td></td></tr>
+</table>
+</body>
+</html>

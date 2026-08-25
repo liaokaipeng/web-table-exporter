@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>虚拟滚动表格测试页</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 40px auto; max-width: 1000px; color: #333; }
+  h2 { border-left: 4px solid #2e7d32; padding-left: 10px; }
+  /* 复刻点三咪结构：外层容器滚动，sticky 表头 */
+  .origin-table-container { max-height: 500px; overflow-y: auto; border: 1px solid #ddd; }
+  table { border-collapse: collapse; width: 100%; }
+  thead { position: sticky; top: 0; background: #f0f4f8; }
+  th, td { border-bottom: 1px solid #e5e5e5; padding: 12px 10px; font-size: 13px; text-align: left; }
+  td input { width: 90px; padding: 4px 6px; border: 1px solid #ccc; border-radius: 4px; }
+  .virtual-spacer { height: 0; }
+  .gray { color: #999; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>虚拟滚动表格测试页</h1>
+<p>下方表格复刻点三咪 ERP 的结构：thead 直接嵌 th（无 tr）、virtual-spacer 占位行、
+单元格内含 input。共 <b id="total">60</b> 行数据，DOM 中任意时刻只渲染约 12 行。</p>
+
+<h2>虚拟滚动表格（点击后扩展应自动滚动采集全部 60 行）</h2>
+<div class="origin-table-container" id="vcontainer">
+  <table id="vt" class="origin-table">
+    <thead class="sticky-header">
+      <!-- 复刻：th 直接嵌在 thead 里，无 tr 包裹 -->
+      <th width="40">序号</th>
+      <th style="min-width:200px">标题/产品ID</th>
+      <th style="min-width:110px">本地展示价</th>
+      <th style="min-width:150px">一口价</th>
+      <th style="min-width:120px">限购总量</th>
+      <th width="80">状态</th>
+    </thead>
+    <tbody id="vtbody">
+      <tr class="virtual-spacer virtual-spacer-top" style="height:0"></tr>
+      <!-- 数据行由 JS 渲染 -->
+      <tr class="virtual-spacer virtual-spacer-bottom" style="height:0"></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2>普通表格（回归验证）</h2>
+<table id="normal">
+  <tr><th>姓名</th><th>部门</th></tr>
+  <tr><td>张三</td><td>研发部</td></tr>
+  <tr><td>李四</td><td>市场部</td></tr>
+</table>
+
+<script>
+  // 简易虚拟滚动实现：仅渲染可视窗口附近的行，其余用 spacer 占位
+  const TOTAL = 60, ROW_H = 52, BUFFER = 4;
+  const DATA = Array.from({ length: TOTAL }, (_, i) => ({
+    id: 1731340859035700000 + i,
+    title: 'AHNX00' + String(i + 100).slice(1) + '_Test Product ' + (i + 1),
+    price: 4722,
+    promo: (i % 4 === 0 ? 2249 : i % 4 === 1 ? 1639 : 1899),
+    limit: i % 3 === 0 ? '' : String((i + 1) * 10),
+    on: i % 5 !== 0
+  }));
+
+  const container = document.getElementById('vcontainer');
+  const tbody = document.getElementById('vtbody');
+  const topSpacer = tbody.querySelector('.virtual-spacer-top');
+  const bottomSpacer = tbody.querySelector('.virtual-spacer-bottom');
+
+  function render() {
+    const first = Math.max(0, Math.floor(container.scrollTop / ROW_H) - 1);
+    const last = Math.min(TOTAL, first + Math.ceil(container.clientHeight / ROW_H) + BUFFER);
+    topSpacer.style.height = first * ROW_H + 'px';
+    bottomSpacer.style.height = (TOTAL - last) * ROW_H + 'px';
+    // 移除旧数据行（保留两个 spacer）
+    [...tbody.querySelectorAll('tr:not(.virtual-spacer)')].forEach(tr => tr.remove());
+    // 在 bottom spacer 前插入当前窗口的行
+    for (let i = first; i < last; i++) {
+      const d = DATA[i];
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + (i + 1) + '</td>' +
+        '<td><div>' + d.title + '</div><div class="gray">' + d.id + '</div></td>' +
+        '<td>' + d.price + ' PHP</td>' +
+        '<td><input type="text" value="' + d.promo + '"> PHP</td>' +
+        '<td><input type="text" value="' + d.limit + '"></td>' +
+        '<td>' + (d.on ? '开启' : '关闭') + '</td>';
+      // 模拟 Vue/React：值改由 JS 属性写入（不保留在 value 特性上），
+      // 验证导出读取的是元素实时值而非克隆后的特性值
+      tr.querySelectorAll('input').forEach((inp, idx) => {
+        inp.removeAttribute('value');
+        inp.value = idx === 0 ? String(d.promo) : d.limit;
+      });
+      tbody.insertBefore(tr, bottomSpacer);
+    }
+  }
+  container.addEventListener('scroll', render);
+  render();
+</script>
+</body>
+</html>

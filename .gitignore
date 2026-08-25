@@ -1,0 +1,9 @@
+# IDE / 工具生成
+.trae/
+
+# 含真实业务数据的分析文件（勿提交）
+test/dianxiaomi-table.html
+
+# 系统文件
+Thumbs.db
+.DS_Store

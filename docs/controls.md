@@ -2,7 +2,7 @@
 
 目标：**所见即所得**——导出用户看到的展示值，其次取控件实时状态。
 
-> v1.2 已实现。实现见 `content/content.js` 的 `controlValue()`，测试用例见 `test/fixture.html` 第 4 节。
+> v1.2 已实现。实现见 `extension/content/controls.js` 的 `controlValue()`，测试用例见 `test/fixture.html` 第 4 节。
 
 ## 判定流程
 
@@ -23,7 +23,7 @@
 
 ### A 原生表单元素
 
-| 控件 | 取值规则 | 实现状态 |
+| 控件 | 取值规则 | 状态 |
 |---|---|---|
 | `input` 文本类 / `date` / `number` / `color` / `range`、`textarea`、`output` | `el.value`（实时值，从原元素读取） | ✅ |
 | `select` 单选 | 选中项「显示文本(value)」 | ✅ |
@@ -35,7 +35,7 @@ option 格式细节：value 为空或与显示文本相同则只留文本（避�
 
 ### B ARIA 控件角色（非 input 但承担控件语义）
 
-| 角色 | 取值规则 | 实现状态 |
+| 角色 | 取值规则 | 状态 |
 |---|---|---|
 | `[role=switch]` / `[role=checkbox]` / `[role=radio]` | `aria-checked` → 是 / 否 | ✅ |
 | `[role=combobox]` / `[role=listbox]` | 单元格内选中项（`aria-selected=true`）文本，顿号分隔；无选中项（触发器场景）→ 保留原样由 innerText 兜底 | ✅ |
@@ -43,7 +43,7 @@ option 格式细节：value 为空或与显示文本相同则只留文本（避�
 
 ### C 组件库类名兜底（B 层不足时）
 
-| 形态 | 取值规则 | 实现状态 |
+| 形态 | 取值规则 | 状态 |
 |---|---|---|
 | `el-switch` / `ant-switch` / `van-switch` / `n-switch` 等（类名 token 为 `switch` 或以 `-switch` 结尾） | 类名含 `checked` / `--on` / `--active` → 是，否则否（`unchecked` 排除） | ✅ |
 | `el-date-editor` / `ant-picker` 等日期组件 | 内部展示 input 的 `value`，天然经 A 层覆盖 | ✅（经 A 层） |
@@ -52,31 +52,19 @@ option 格式细节：value 为空或与显示文本相同则只留文本（避�
 
 无任何控件 → `innerText` 归一化（换行/连续空格/nbsp 压缩为单个空格）。✅
 
-## 已确认的取值策略
-
-- select（含多选）：导出「显示文本(value)」，多选用顿号「、」隔开
-- 隐藏控件（`input[type=hidden]`）：忽略
-- 开关/勾选类：统一「是 / 否」
-
 ## 实现要点
 
 - `controlValue(el)`：A→B→C 逐层判定返回控件值；返回 `null` 表示非控件、保留原样
-- `cellText()` 仅两处改动：选择器换成 `CONTROL_SEL`、替换分支调用 `controlValue`；clone 替换、空格归一化、虚拟滚动采集全部复用不动
 - 单元格内多个控件按 DOM 顺序各取各值，替换原位后统一归一化
 - 嵌套命中（如 el-switch 外层 div + 内部原生 checkbox）按文档序先替换外层，内层克隆已脱离、替换自动失效，不产生重复输出
 
 ## 边界与风险
 
 - 类名匹配最脆弱（组件库改版可能失效）：未命中时静默回退 `innerText`，不报错、不阻塞导出；极少数类名形似开关的非开关元素（如 `tab-switch--active`）理论上会误判
-- 选择器变宽带来的性能开销可忽略（逐单元格子树扫描）
-- ARIA/类名判定依赖组件实现，无法穷尽所有组件库，以常见库（Element / Ant Design / Vant / Naive UI）为主
+- ARIA/类名判定以常见库（Element / Ant Design / Vant / Naive UI）为主，无法穷尽所有组件库
 - 下拉类组件（el-select / ant-select）的当前值以触发器展示文本经 innerText 导出，不依赖弹层
+- 选择器变宽的性能开销可忽略（逐单元格子树扫描）
 
-## 测试用例
+## 测试
 
-| 页面 | 覆盖 | 预期 |
-|---|---|---|
-| `test/fixture.html` 第 4 节 | A/B/C/D 四层逐项 + 边界：select 空值/value=文本/多选全未选、嵌套开关（el-switch 内含 checkbox）、一格多控件（range+color）、类名形似非开关（switcher-large）回退 | 行内「预期导出」列 |
-| `test/virtual-fixture.html` | 虚拟滚动 × 控件组合：input/select 由 JS 属性设值（模拟 Vue）、el-switch 开关列 | 发货仓「华东仓(1)/华南仓(2)」、开关「是/否」；61 行全采集、重复行保留 |
-
-回归方式：`chrome://extensions` 刷新扩展 → 刷新测试页 → 选择表格导出 → 对照预期列。
+覆盖与预期见 [test/README.md](../test/README.md)：fixture.html 第 4 节（四层逐项 + 边界）、virtual-fixture.html（虚拟滚动 × 控件组合）。

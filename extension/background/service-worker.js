@@ -1,12 +1,24 @@
 /**
  * 点击扩展图标 → 按需注入内容脚本（避免在所有页面常驻加载 SheetJS）
- * 注入顺序：xlsx.full.min.js（提供全局 XLSX）→ content.js（选择模式）
+ * 注入顺序即依赖顺序：xlsx.full.min.js（全局 XLSX）→ entry（守卫+命名空间）
+ * → util → controls → split → cell → table → virtual → panel → main（主 UI）
  */
 chrome.action.onClicked.addListener(async (tab) => {
   try {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      files: ['lib/xlsx.full.min.js', 'content/content.js']
+      files: [
+        'lib/xlsx.full.min.js',
+        'content/entry.js',
+        'content/util.js',
+        'content/controls.js',
+        'content/split.js',
+        'content/cell.js',
+        'content/table.js',
+        'content/virtual.js',
+        'content/panel.js',
+        'content/main.js'
+      ]
     });
   } catch (e) {
     // chrome:// 等受限页面无法注入，静默失败

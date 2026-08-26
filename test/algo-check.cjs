@@ -1,20 +1,21 @@
 // 算法回归测试：验证「相邻窗口重叠合并」采集算法与「列拆分」纯函数的各场景
-// - 采集场景与 content.js 中 overlapLen + takeWindow 逻辑一致
-// - 列拆分函数从 content/content.js 按标记提取（保证与实现同步）
+// - overlapLen 直接加载 extension/content/virtual.js 的实现（保证与实现同步）；
+//   takeWindow 逻辑在测试内模拟
+// - 列拆分函数直接加载 extension/content/split.js 整个模块（零依赖纯函数文件）
 const fs = require('fs');
 const path = require('path');
 
-function overlapLen(acc, win) {
-  const max = Math.min(acc.length, win.length, 200);
-  for (let k = max; k >= 1; k--) {
-    let ok = true;
-    for (let i = 0; i < k; i++) {
-      if (acc[acc.length - k + i] !== win[i]) { ok = false; break; }
-    }
-    if (ok) return k;
-  }
-  return 0;
+// 以伪 window 加载内容脚本模块（模块均为 IIFE，挂载到 window.__h2x.*）
+function loadModule(relPath, modName) {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'extension', 'content', relPath), 'utf8');
+  return new Function('window', src + '\n;return window.__h2x.' + modName + ';')({ __h2x: {} });
 }
+
+const { overlapLen } = loadModule('virtual.js', 'virtual');
+const {
+  splitByDelimiter, splitBlocks, limitBlocks, splitSegments, splitColName,
+  resolveRuleCol, applyColumnSplits
+} = loadModule('split.js', 'split');
 
 // 模拟 takeWindow 完整逻辑（含 DOM 引用判定 + 重叠合并）
 // 窗口输入：{ rows: string[], refs: object[] }（refs 模拟 DOM 行元素引用）
@@ -111,20 +112,7 @@ if (bigResult.length !== 5000) { fail++; console.log('FAIL 大表行数'); }
 // 已知限制（不在断言内，记录用）：数据全同 + 虚拟滚动 + 整窗重建时，
 // 内容匹配无法区分重叠与新行，理论上会少采。普通场景（行内容各异或部分重复）均正确。
 
-/* ================= 列拆分（applyColumnSplits 等，从 content.js 提取） ================= */
-
-const contentSrc = fs.readFileSync(path.join(__dirname, '..', 'content', 'content.js'), 'utf8');
-const MARK_A = '// [h2x-split-begin]';
-const MARK_B = '// [h2x-split-end]';
-const posA = contentSrc.indexOf(MARK_A);
-const posB = contentSrc.indexOf(MARK_B);
-if (posA < 0 || posB < 0 || posB < posA) {
-  console.log('FAIL 未在 content.js 中找到列拆分标记');
-  process.exit(1);
-}
-const chunk = contentSrc.slice(posA + MARK_A.length, posB);
-const { splitByDelimiter, splitBlocks, limitBlocks, resolveRuleCol, applyColumnSplits } =
-  new Function(chunk + '\nreturn { splitByDelimiter, splitBlocks, limitBlocks, resolveRuleCol, applyColumnSplits };')();
+/* ================= 列拆分（split.js 模块函数，文件头部已加载） ================= */
 
 // 8. splitByDelimiter：基础拆分 / 无命中 / 空值 / 段首尾空白 / 段数上限
 check('split 空格', splitByDelimiter('4722 PHP', ' ', null), ['4722', 'PHP']);

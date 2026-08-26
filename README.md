@@ -7,7 +7,7 @@ Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页
 ## 安装
 
 1. 打开 `chrome://extensions` → 开启「开发者模式」
-2. 「加载已解压的扩展程序」→ 选择本项目目录
+2. 「加载已解压的扩展程序」→ 选择本项目的 `extension/` 目录
 3. （可选）如需在本地 HTML 文件上使用：扩展详情 → 打开「允许访问文件网址」
 
 ## 使用
@@ -23,22 +23,37 @@ Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页
 ## 目录结构
 
 ```
-├── manifest.json              # MV3 配置（activeTab / scripting / downloads）
-├── background/service-worker.js  # 图标点击注入 + 后台下载
-├── content/content.js         # 选择模式 UI + 表格提取 + 导出
-├── lib/xlsx.full.min.js       # SheetJS 0.20.3（Apache-2.0）
-├── icons/icon128.png
-├── test/fixture.html          # 基础测试页（合并单元格/多表/控件取值/列拆分）
-├── test/virtual-fixture.html  # 虚拟滚动测试页（60 行，含 input 列/列拆分回归）
-└── docs/                      # 架构文档 / 产品文档
+├── extension/                  # 插件本体（chrome://extensions 加载此目录）
+│   ├── manifest.json           # MV3 配置（activeTab / scripting / downloads）
+│   ├── background/service-worker.js  # 图标点击注入 + 后台下载
+│   ├── content/                # 内容脚本（按依赖序注入，零构建无模块系统）
+│   │   ├── entry.js            #   注入守卫 + window.__h2x 命名空间
+│   │   ├── util.js             #   工具函数
+│   │   ├── controls.js         #   控件值三层判定（详见 docs/controls.md）
+│   │   ├── split.js            #   列拆分纯函数（测试整文件加载）
+│   │   ├── cell.js             #   单元格四通道取值
+│   │   ├── table.js            #   行获取 / 合并单元格展开 / Sheet 命名
+│   │   ├── virtual.js          #   虚拟滚动表格采集
+│   │   ├── panel.js            #   拆分列配置面板
+│   │   └── main.js             #   主 UI / 事件 / 导出
+│   ├── lib/xlsx.full.min.js    # SheetJS 0.20.3（Apache-2.0）
+│   └── icons/icon128.png
+├── test/                       # 测试材料（不随插件分发）
+│   ├── algo-check.cjs          # 采集算法 + 列拆分回归测试（Node 直接运行）
+│   ├── fixture.html            # 基础测试页（合并单元格/多表/控件取值/列拆分）
+│   └── virtual-fixture.html    # 虚拟滚动测试页（60 行，含 input 列/列拆分回归）
+└── docs/                       # 文档（架构 / 产品 / 控件规则 / 归档规划）
 ```
 
 ## 开发与测试
 
 ```powershell
-# 语法检查
-node --check content/content.js
-node --check background/service-worker.js
+# 语法检查（内容脚本 9 文件 + 后台脚本）
+Get-ChildItem extension/content/*.js | ForEach-Object { node --check $_.FullName }
+node --check extension/background/service-worker.js
+
+# 回归测试（采集算法 + 列拆分纯函数）
+node test/algo-check.cjs
 
 # 启动本地静态服务后访问 http://localhost:3000/test/virtual-fixture.html
 npx -y serve .
@@ -50,4 +65,6 @@ npx -y serve .
 
 - [架构文档](docs/architecture.md)：模块划分、数据流、关键设计决策
 - [产品文档](docs/product.md)：功能清单、交互规范、已知限制
-- [列拆分规划](docs/column-split-plan.md)：列拆分的模式、规则模型与边界情况
+- [控件值规则](docs/controls.md)：三层判定与覆盖矩阵
+- [测试与回归](test/README.md)：测试页覆盖矩阵、命令、浏览器回归步骤
+- [列拆分规划（已实施归档）](docs/archive/column-split-plan.md)：列拆分的模式、规则模型与边界情况

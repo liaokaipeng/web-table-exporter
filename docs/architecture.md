@@ -34,11 +34,12 @@
 | 模块 | 职责 |
 |---|---|
 | UI | 单个 Shadow DOM host（`all:initial` 隔离页面样式），含悬浮高亮层、已选覆盖层（Shadow 内动态增删）、底部工具栏 |
-| 事件 | `mouseover`（委托找 table）、`click`（捕获阶段拦截页面跳转，工具栏自身放行）、`keydown`（Esc 退出 / Enter 导出）、`scroll`/`resize`（rAF 节流重定位） |
+| 事件 | `mouseover`（委托找 table）、`click`（捕获阶段拦截页面跳转，工具栏自身放行）、`keydown`（Esc 退出 / Enter 导出；拆分面板打开时 Esc 只关面板、Enter 保存）、`scroll`/`resize`（rAF 节流重定位） |
 | 提取 | `getRows()`：兼容 thead 直接嵌 th（无 tr）；过滤 virtual-spacer 占位行、`display:none` 隐藏行 |
-| 单元格 | `cellText()`：视觉上分离的文本块（换行/连续空格/nbsp）统一压缩为单个空格，本来连在一起的文本保持相连。控件值经 `controlValue()` 三层判定（A 原生表单 → B ARIA 角色 → C 组件类名，详见 docs/controls.md），命中后克隆单元格、**从原元素读取实时值**（cloneNode 只复制特性，Vue 属性设值会丢）替换控件再离屏渲染取文本；未命中候选保留原样由 innerText 兜底。离屏容器**不能加 `visibility:hidden`**（innerText 按规范排除不可见文本） |
-| 合并单元格 | `extractTable()`：rowspan/colspan 展开成网格 + 生成 SheetJS `!merges` |
-| 虚拟滚动 | `isVirtualTable()` 识别（类名含 virtual 的占位元素 / 带高度空 tr，宁可误报——误报时采集流程无损）→ `collectVirtual()`：回顶 → 按视口 80% 步长下滚 → 每窗口提取：先比对**行 DOM 引用**（同批节点 = 无新行），再用「后缀/前缀重叠合并」衔接数据行（表头剥离只留一份）。无新行时补等 250ms 重试。采集期间锁交互，`genToken` 代际令牌防退出后回调写入 |
+| 单元格 | `cellParts()` 四通道取值：merged（控件替换为实时值后的完整文本，默认导出，v1.2 行为不变）/ ctrl（控件实时值，多控件格过滤空值顿号连接）/ text（移除命中控件后的页面文本）/ blocks（视觉文本块数组，按换行即块级元素边界切分，控件已替换为实时值；如「标题/产品ID」双行格 → [标题, 产品ID]）。归一化规则：视觉上分离的文本块（换行/连续空格/nbsp）统一压缩为单个空格，本来连在一起的文本保持相连。控件值经 `controlValue()` 三层判定（A 原生表单 → B ARIA 角色 → C 组件类名，详见 docs/controls.md），命中后克隆单元格、**从原元素读取实时值**（cloneNode 只复制特性，Vue 属性设值会丢）替换控件再离屏渲染取文本；未命中候选保留原样由 innerText 兜底。离屏容器**不能加 `visibility:hidden`**（innerText 按规范排除不可见文本） |
+| 列拆分 | `applyColumnSplits(ch, rules)` 纯函数（test/algo-check.cjs 按标记提取回归）：control 模式取 ctrl/text 通道各成一列，block 模式按 blocks 通道的视觉块拆（行内空格不拆），delimiter 模式按分隔符拆段（段数上限并入末段）；多规则按目标列**从右到左**应用；原列保留、新列追加其后；含 merges 或规则解析不到时原样返回（零回归 + 二次防御）。「拆分列」面板（Shadow DOM 内）：智能预填（多块文本列预设 block 且默认勾选，含 ctrl 通道的列预设 control 不勾选，纯文本列探测分隔符）、前 3 行实时预览、硬校验（分隔符非空、上限 ≥2 或不限）；普通表现跑 extractTable 取样，虚拟表须采集完成后用快照取样 |
+| 合并单元格 | `extractTable()`：rowspan/colspan 展开成网格 + 生成 SheetJS `!merges`；通道（ctrl/text/blocks）同形状同步产出 |
+| 虚拟滚动 | `isVirtualTable()` 识别（类名含 virtual 的占位元素 / 带高度空 tr，宁可误报——误报时采集流程无损）→ `collectVirtual()`：回顶 → 按视口 80% 步长下滚 → 每窗口提取：先比对**行 DOM 引用**（同批节点 = 无新行），再用「后缀/前缀重叠合并」衔接数据行（表头剥离只留一份；ctrl/text/blocks 通道与行数组同索引累积，重叠合并同步裁剪）。无新行时补等 250ms 重试。采集期间锁交互，`genToken` 代际令牌防退出后回调写入。快照为 `{ rows, ctrl, text, blocks, headerRows }` 四通道，与 extractTable 结果同构（列拆分数据流统一） |
 | 导出 | 多表 → 多 Sheet（caption/aria-label/id 命名，31 字符截断去重）→ `XLSX.write` ArrayBuffer → base64 → 优先 `chrome.runtime.sendMessage` 走后台下载；失败回退页面内 `blob:` 链接下载 |
 
 ## 关键设计决策
@@ -50,12 +51,13 @@
 | UI 全部 Shadow DOM + 内联样式 | 不注入 CSS 文件，`all:initial` 阻断页面样式污染 |
 | 虚拟采集用「DOM 引用判定 + 相邻窗口重叠合并」 | DOM 引用相同 = 窗口没变（非虚拟表格误报 / 渲染未完成），直接跳过；引用变了才做内容对齐。后缀/前缀匹配消除窗口重叠区的重复，同时保留数据中合法的重复行（全局内容去重做不到）。算法回归测试：`node test/algo-check.cjs` |
 | genToken 代际令牌 | 异步采集过程中用户可能退出/重选，令牌使旧任务的回调失效 |
+| 列拆分用「四通道 + 纯函数」 | merged/ctrl/text/blocks 采集时一次取齐（额外成本仅 innerText 的两轮读取 + 按换行 split），默认导出走 merged 通道与 v1.2 完全一致；blocks 通道保留块级元素边界（innerText 的换行），使「标题/产品ID」类双行格能按行拆而块内空格不拆（按空格分隔符拆做不到）；applyColumnSplits 不碰 DOM 可离线回归；规则按目标列从右到左应用避免索引重排错位；规则存内存 Map（权限最小化，不碰 chrome.storage） |
 | 下载文件名 sanitize | 过滤 `\/:*?"<>|`、去首部点号（chrome.downloads 限制）、补 .xlsx 后缀 |
 
 ## 已知限制
 
 - 仅顶层文档表格，iframe 内表格不处理
 - 单元格导出纯文本，不保留颜色/字体样式；图片列导出为空
-- 无设置持久化（每次进入选择模式重填默认文件名）
+- 无设置持久化（每次进入选择模式重填默认文件名；列拆分规则同为内存态，退出即清空）
 - 虚拟滚动 + 整行内容完全相同且相邻出现时，理论上可能少采（内容对齐的固有歧义；分散出现的重复行不受影响）
 - 组件库把一个表格拆成多个 `<table>`（固定表头/固定列的布局）时不自动合并，需分别选择

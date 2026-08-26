@@ -2,7 +2,7 @@
 
 Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页表格，一键导出为 xlsx。
 
-支持：合并单元格（rowspan/colspan）、多表格多 Sheet、自定义文件名、虚拟滚动表格全量采集、表单控件值（input/select）导出、单元格多段文本以空格连接。
+支持：合并单元格（rowspan/colspan）、多表格多 Sheet、自定义文件名、虚拟滚动表格全量采集、表单控件值（input/select）导出、单元格多段文本以空格连接、导出前列拆分（控件值/换行/分隔符三种模式）。
 
 ## 安装
 
@@ -14,8 +14,9 @@ Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页
 
 1. 打开含表格的页面，点击扩展图标进入选择模式（再次点击图标或按 `Esc` 退出）
 2. 鼠标悬浮表格出现蓝色高亮；点击选中/取消（可多选，绿色覆盖层 + 序号徽标）
-3. 工具栏中修改文件名（预填为 页面标题_时间戳）
-4. 点击「导出 Excel」或按 `Enter`
+3. （可选）点「拆分列」配置导出前的列拆分：控件值拆分（如「一口价」input 值与 PHP 文本分列）/ 按换行拆分（如「标题/产品ID」双行格 → 标题列 + ID 列）/ 分隔符拆分；智能预填 + 前 3 行实时预览，原列保留
+4. 工具栏中修改文件名（预填为 页面标题_时间戳）
+5. 点击「导出 Excel」或按 `Enter`
 
 虚拟滚动表格（如 ERP 列表）点击后会自动滚动采集全部行，工具栏实时显示进度，采完后还原滚动位置。
 
@@ -27,8 +28,8 @@ Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页
 ├── content/content.js         # 选择模式 UI + 表格提取 + 导出
 ├── lib/xlsx.full.min.js       # SheetJS 0.20.3（Apache-2.0）
 ├── icons/icon128.png
-├── test/fixture.html          # 基础测试页（合并单元格/多表/链接拦截）
-├── test/virtual-fixture.html  # 虚拟滚动测试页（60 行，含 input 列）
+├── test/fixture.html          # 基础测试页（合并单元格/多表/控件取值/列拆分）
+├── test/virtual-fixture.html  # 虚拟滚动测试页（60 行，含 input 列/列拆分回归）
 └── docs/                      # 架构文档 / 产品文档
 ```
 
@@ -49,3 +50,4 @@ npx -y serve .
 
 - [架构文档](docs/architecture.md)：模块划分、数据流、关键设计决策
 - [产品文档](docs/product.md)：功能清单、交互规范、已知限制
+- [列拆分规划](docs/column-split-plan.md)：列拆分的模式、规则模型与边界情况

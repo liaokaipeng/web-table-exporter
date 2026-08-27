@@ -1,7 +1,8 @@
 /**
  * 单元格四通道取值（v1.3 列拆分的数据基础）
  * - merged：控件替换为实时值后的完整文本（默认导出通道，行为与 v1.2 一致）
- * - ctrl：控件实时值（多控件格过滤空值后按出现顺序顿号连接；无命中控件为 null）
+ * - ctrl：控件实时值数组（按 DOM 顺序逐个保留，空值也占位以保证多控件列对齐；
+ *   无命中控件为 null）——control 拆分模式据此一格多控件各成一列
  * - text：移除命中控件后的页面文本（未命中候选的文本留在其中）
  * - blocks：视觉文本块数组（块级元素边界即换行处切分，控件已替换为实时值），
  *   如「标题/产品ID」列（两个 div 堆叠）→ [标题, 产品ID]；块内空格不拆
@@ -55,8 +56,8 @@
       text = normText(clone.innerText);
     }
     holder.remove();
-    const vals = hits.map(h => h.v).filter(Boolean);
-    return { merged: merged, ctrl: vals.length ? vals.join('、') : null, text: text, blocks: blocks };
+    // ctrl 通道保持数组（空值占位不串列）；merged 通道已含全部控件值，展示不受影响
+    return { merged: merged, ctrl: hits.length ? hits.map(h => h.v) : null, text: text, blocks: blocks };
   }
 
   ns.cell = { cellParts: cellParts };

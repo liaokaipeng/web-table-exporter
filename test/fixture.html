@@ -93,18 +93,19 @@
 </table>
 <h2>5. 列拆分（v1.3：选中表格后点工具栏「列设置」配置）</h2>
 <table id="split">
-  <tr><th>商品</th><th>标题/产品ID</th><th>一口价</th><th>发货仓</th><th>适用站点</th></tr>
-  <tr><td>连衣裙 A 款</td><td><div>Dress Blue Style</div><div class="sub">1731340859035700001</div></td><td><input class="js-promo" type="text"> PHP</td><td><select><option value="">全部</option><option value="1" selected>华东仓</option></select></td><td>美国、英国</td></tr>
-  <tr><td>T恤 B 款</td><td><div>T Shirt Cotton White</div><div class="sub">1731340859035700002</div></td><td><input class="js-promo" type="text"> PHP</td><td><select><option value="">全部</option><option value="2" selected>华南仓</option></select></td><td>美国、英国、德国</td></tr>
-  <tr><td>短裤 C 款</td><td><div>Shorts Summer</div><div class="sub">1731340859035700003</div></td><td><input class="js-promo" type="text"> PHP</td><td><select><option value="">全部</option><option value="1" selected>华东仓</option></select></td><td>德国、法国</td></tr>
+  <tr><th>商品</th><th>标题/产品ID</th><th>一口价</th><th>秒杀价/库存</th><th>发货仓</th><th>适用站点</th></tr>
+  <tr><td>连衣裙 A 款</td><td><div>Dress Blue Style</div><div class="sub">1731340859035700001</div></td><td><input class="js-promo" type="text"> PHP</td><td><input class="js-skprice" type="text"> / <input class="js-skstock" type="text"></td><td><select><option value="">全部</option><option value="1" selected>华东仓</option></select></td><td>美国、英国</td></tr>
+  <tr><td>T恤 B 款</td><td><div>T Shirt Cotton White</div><div class="sub">1731340859035700002</div></td><td><input class="js-promo" type="text"> PHP</td><td><input class="js-skprice" type="text"> / <input class="js-skstock" type="text"></td><td><select><option value="">全部</option><option value="2" selected>华南仓</option></select></td><td>美国、英国、德国</td></tr>
+  <tr><td>短裤 C 款</td><td><div>Shorts Summer</div><div class="sub">1731340859035700003</div></td><td><input class="js-promo" type="text"> PHP</td><td><input class="js-skprice" type="text"> / <input class="js-skstock" type="text"></td><td><select><option value="">全部</option><option value="1" selected>华东仓</option></select></td><td>德国、法国</td></tr>
 </table>
 <p class="note">
 预期（列设置面板勾选/参数）：<br>
 - 标题/产品ID列（复刻店小秘双行格：标题一个 div、产品ID一个 div）：按换行拆分（默认勾选并带「多行」徽标）→ 新增「标题/产品ID1」= Dress Blue Style / T Shirt Cotton White / Shorts Summer（块内空格不拆），「标题/产品ID2」= 1731340859035700001/2/3，原列保留归一化合并文本<br>
 - 一口价列：控件值拆分 → 新增「一口价_控件」= 2249 / 1639 / 1899（input 由 JS 属性设值，见页底脚本），「一口价_文本」= PHP（各行相同），原列保留「2249 PHP」<br>
+- 秒杀价/库存列（复刻店小秘同格双输入，v1.5.1）：控件值拆分 → 新增「秒杀价/库存_控件1」= 99 / 199 / 59（秒杀价，同格控件不再顿号合并），「秒杀价/库存_控件2」= 10 / 20 / 5（秒杀库存），「秒杀价/库存_文本」= / （各行相同），原列保留「99 / 10」归一化文本<br>
 - 发货仓列：控件值拆分 → 「发货仓_控件」= 华东仓(1) / 华南仓(2) / 华东仓(1)，「发货仓_文本」= (空)<br>
 - 适用站点列：分隔符拆分、分隔符「、」→ 新增「适用站点1」= 美国（各行），「适用站点2」= 英国 / 英国 / 法国，「适用站点3」= (空) / 德国 / (空)（段数不足补空）<br>
-- 面板打开时：智能预填只默认勾选拆分标题/产品ID（多行）；一口价/发货仓（含控件徽标）预设「控件值拆分」但不勾选，适用站点列预填分隔符「、」但不勾选<br>
+- 面板打开时：智能预填只默认勾选拆分标题/产品ID（多行）；一口价/秒杀价/发货仓（含控件徽标）预设「控件值拆分」但不勾选，适用站点列预填分隔符「、」但不勾选<br>
 - 不配置任何规则直接导出：结果与 v1.2 完全一致（零回归）<br>
 - 另选第 2 节合并单元格表格打开面板：应显示「该表格含合并单元格，拆分与列筛选不可用」，导出保持原样
 </p>
@@ -171,6 +172,11 @@
   // 列拆分测试：一口价 input 同样走 JS 属性设值（拆分后控件值列应取到这些实时值）
   const promos = ['2249', '1639', '1899'];
   document.querySelectorAll('#split .js-promo').forEach((inp, i) => { inp.value = promos[i]; });
+  // 秒杀价/库存（同格双输入）：同样走 JS 属性设值（控件值拆分应各成一列）
+  const skPrices = ['99', '199', '59'];
+  const skStocks = ['10', '20', '5'];
+  document.querySelectorAll('#split .js-skprice').forEach((inp, i) => { inp.value = skPrices[i]; });
+  document.querySelectorAll('#split .js-skstock').forEach((inp, i) => { inp.value = skStocks[i]; });
   // 分体表格（第 6 节）：同样走 JS 属性设值
   const promosEl = ['2249', '1639', '1899', '2058', '1558', '1269'];
   document.querySelectorAll('#eltable .js-promo-el').forEach((inp, i) => { inp.value = promosEl[i]; });

@@ -6,9 +6,9 @@
 
 | 材料 | 覆盖 | 预期 |
 |---|---|---|
-| `fixture.html` | 普通表格、rowspan/colspan 合并（带 caption）、空单元格/长文本、控件取值（第 4 节：select 单/多选、空值/value=文本、checkbox/radio、hidden、date/textarea/output、一格多控件、ARIA switch/slider/listbox/combobox、el/ant/van 组件开关、嵌套开关、类名形似非开关回退）、列拆分（第 5 节：控件值拆分、按换行拆分、分隔符拆分、智能预填、段数不足补空、合并表格禁用）、分体表格合并（第 6 节：表头/表体两个 table 复刻 Element Plus el-table，垂直+水平双向滚动裁剪（表宽 860 > 容器 620，表头 scrollLeft 同步）、gutter 占位列）、选择模式下链接不跳转 | 行内「预期导出」列 |
+| `fixture.html` | 普通表格、rowspan/colspan 合并（带 caption）、空单元格/长文本、控件取值（第 4 节：select 单/多选、空值/value=文本、checkbox/radio、hidden、date/textarea/output、一格多控件、ARIA switch/slider/listbox/combobox、el/ant/van 组件开关、嵌套开关、类名形似非开关回退）、列拆分（第 5 节：控件值拆分（含同格多控件各自成列，复刻店小秘秒杀价/库存双输入）、按换行拆分、分隔符拆分、智能预填、段数不足补空、合并表格禁用）、分体表格合并（第 6 节：表头/表体两个 table 复刻 Element Plus el-table，垂直+水平双向滚动裁剪（表宽 860 > 容器 620，表头 scrollLeft 同步）、gutter 占位列）、选择模式下链接不跳转 | 行内「预期导出」列 |
 | `virtual-fixture.html` | 60 行虚拟滚动（thead 无 tr、input/select 由 JS 属性设值模拟 Vue、el-switch 开关列）；分体表格 + 虚拟滚动组合（表头/表体两个 table 复刻 vxe-table，滚动容器在数据表上层）；采集后拆分列面板回归（预期值见页内说明） | 61 行全采集（60 数据 + 表头）；序号 1/26/41 三行内容完全相同应全部保留（重复行不误删）；发货仓「华东仓(1)/华南仓(2)」、开关「是/否」；分体表悬浮整体高亮、一次点选、采集 41 行（40 数据 + 表头）、一口价取 JS 实时值 |
-| `algo-check.cjs` | 采集算法回归：滑动窗口去重、合法重复行保留、非虚拟误报无损、渲染延迟、5000 行性能。列拆分纯函数回归：三模式（control/block/delimiter）、段数上限、从右到左多规则、块内空格不拆（对照 delimiter）、参差行补齐、多行表头、含 merges 禁用。分体配对纯函数回归（table.js `pairSplitGroup`）：基础配对、gutter 列容忍（列数差 1）、间隙/对齐/宽度/列数阈值、轻微重叠容忍、完整表格零回归（两侧均不参与）、颠倒不配对、多候选首个命中 | 全部 PASS |
+| `algo-check.cjs` | 采集算法回归：滑动窗口去重、合法重复行保留、非虚拟误报无损、渲染延迟、5000 行性能。列拆分纯函数回归：三模式（control/block/delimiter，control 含多控件各自成列/参差补齐/空值占位）、段数上限、从右到左多规则、块内空格不拆（对照 delimiter）、参差行补齐、多行表头、含 merges 禁用。分体配对纯函数回归（table.js `pairSplitGroup`）：基础配对、gutter 列容忍（列数差 1）、间隙/对齐/宽度/列数阈值、轻微重叠容忍、完整表格零回归（两侧均不参与）、颠倒不配对、多候选首个命中 | 全部 PASS |
 
 ## 命令
 

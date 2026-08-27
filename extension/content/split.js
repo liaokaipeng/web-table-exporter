@@ -55,6 +55,27 @@
     return base ? base + (k + 1) : String(k + 1);
   }
 
+  /** control 模式控件列数：数据行最大控件数（至少 1，无控件列保持单控件列结构，
+   *  与旧版「_控件/_文本」两列行为兼容）；ctrl 通道为按位控件值数组 */
+  function ctrlCountOf(src, ctrlCh, c, headerRows) {
+    let n = 1;
+    for (let r = headerRows; r < src.length; r++) {
+      const cv = (ctrlCh[r] || [])[c];
+      const k = Array.isArray(cv) ? cv.length : 0;
+      if (k > n) n = k;
+    }
+    return n;
+  }
+
+  /** control 模式新列名（含末尾文本列）：单控件「原名_控件/原名_文本」（与旧版一致）；
+   *  多控件「原名_控件1..N」各成一列（如店小秘秒杀价格/库存双输入格）+「原名_文本」 */
+  function ctrlColNames(base, n) {
+    const names = [];
+    for (let k = 1; k <= n; k++) names.push(n === 1 ? base + '_控件' : base + '_控件' + k);
+    names.push(base + '_文本');
+    return names;
+  }
+
   /** 规则列定位：col 为表头文本（取首行表头首个命中）或列序号；未命中/越界返回 -1 */
   function resolveRuleCol(aoa, col, maxCols) {
     let idx = -1;
@@ -97,7 +118,8 @@
    *  - 原列：key = colKeys 的列标识，seg = null
    *  - 拆分新列：key = 列标识 + '#' + 段号（1 起），seg = 段号
    *  与 applyColumnSplits 的短路条件（无规则 / 含 merges / 规则解析不到）及
-   *  段数计算（数据行最大段数；control 固定 2）保持一致，保证过滤列号不错位。
+   *  段数计算（数据行最大段数；control 为最大控件数 + 1 文本列）保持一致，
+   *  保证过滤列号不错位。
    *  同列多条规则仅取首条（面板交互不会产生，手工构造的 rules 属未定义行为） */
   function columnLayout(ch, rules) {
     const src = ch.aoa || ch.rows;
@@ -105,6 +127,7 @@
     const keys = colKeys(ch);
     const maxCols = keys.length;
     const blocksCh = ch.blocks || [];
+    const ctrlCh = ch.ctrl || [];
     const ruleMap = new Map(); // 列号 -> 规则
     if (rules && rules.length && !(ch.merges && ch.merges.length)) {
       for (const rule of rules) {
@@ -117,8 +140,10 @@
       layout.push({ key: keys[c], srcCol: c, seg: null });
       const rule = ruleMap.get(c);
       if (!rule) continue;
-      let segCount = 2;
-      if (rule.mode !== 'control') {
+      let segCount;
+      if (rule.mode === 'control') {
+        segCount = ctrlCountOf(src, ctrlCh, c, headerRows) + 1;
+      } else {
         segCount = 1;
         for (let r = headerRows; r < src.length; r++) {
           const row = src[r] || [];
@@ -150,7 +175,7 @@
   /** 列拆分主函数：把通道中命中的列拆为多列（原列保留，新列追加其后，错了可删）。
    *  ch：extractTable 结果 { aoa, merges, ctrl, text, blocks, headerRows }
    *      或虚拟快照 { rows, ctrl, text, blocks, headerRows }；rules：[{ col, mode, pattern, limit }]
-   *  mode：control（控件值列+文本列）/ block（按换行视觉块拆）/ delimiter（按分隔符拆）
+   * mode：control（每控件一列 + 文本列）/ block（按换行视觉块拆）/ delimiter（按分隔符拆）
    *  返回新 aoa；未配规则 / 含合并单元格 / 规则全部解析不到时原样返回（零回归 + 二次防御） */
   function applyColumnSplits(ch, rules) {
     const src = ch.aoa || ch.rows;
@@ -190,19 +215,25 @@
 
     for (const { idx, rule } of resolved) {
       if (rule.mode === 'control') {
-        // control：控件值列 + 页面文本列；ctrl/text 通道按原始索引读取（不随插入重排）
+        // control：每个控件值各成一列（同格多控件不合并，如店小秘秒杀价格/库存
+        // 双输入格）+ 末尾文本列；ctrl 通道为按位控件值数组，短行补空对齐。
+        // ctrl/text 通道按原始索引读取（不随插入重排）
         const base = baseName(idx) || ('列' + (idx + 1)); // 空表头名按列序号兜底
+        const nCtrl = ctrlCountOf(aoa, ctrl, idx, headerRows);
         for (let r = 0; r < aoa.length; r++) {
           let cells;
           if (r < headerRows) {
             // 多行表头只在首行写名，其余表头行留空
-            cells = r === 0 ? [base + '_控件', base + '_文本'] : ['', ''];
+            cells = r === 0 ? ctrlColNames(base, nCtrl)
+              : Array.from({ length: nCtrl + 1 }, () => '');
           } else {
             const cv = ctrl[r] ? ctrl[r][idx] : null;
+            const vals = Array.isArray(cv) ? cv.slice() : [];
+            while (vals.length < nCtrl) vals.push('');
             const tv = text[r] ? text[r][idx] : null;
-            cells = [cv == null ? '' : cv, tv == null ? '' : tv];
+            cells = vals.concat([tv == null ? '' : tv]);
           }
-          aoa[r].splice(idx + 1, 0, cells[0], cells[1]);
+          aoa[r].splice(idx + 1, 0, ...cells);
         }
       } else {
         // block / delimiter 共用一套骨架，段值由 splitSegments 按模式取：
@@ -238,6 +269,7 @@
   ns.split = {
     splitByDelimiter: splitByDelimiter, splitBlocks: splitBlocks, limitBlocks: limitBlocks,
     splitSegments: splitSegments, splitColName: splitColName,
+    ctrlCountOf: ctrlCountOf, ctrlColNames: ctrlColNames,
     resolveRuleCol: resolveRuleCol, colKeys: colKeys, columnLayout: columnLayout,
     filterColumns: filterColumns, applyColumnSplits: applyColumnSplits
   };

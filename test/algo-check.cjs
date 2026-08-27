@@ -138,10 +138,10 @@ check('resolve 序号越界', resolveRuleCol(aoaHdr, 5, 2), -1);
 check('resolve 未命中', resolveRuleCol(aoaHdr, '不存在', 2), -1);
 check('resolve 空串', resolveRuleCol(aoaHdr, '', 2), -1);
 
-// 10. control 模式：控件值列 + 文本列；纯文本格整值留文本列
+// 10. control 模式：每控件一列 + 文本列；纯文本格整值留文本列
 const chControl = {
   aoa: [['售价', '备注'], ['2249 PHP', 'a'], ['100', 'b']],
-  ctrl: [[null, null], ['2249', null], [null, null]],
+  ctrl: [[null, null], [['2249'], null], [null, null]],
   text: [[null, null], ['PHP', null], ['100', null]],
   headerRows: 1
 };
@@ -150,6 +150,45 @@ check('control 拆分',
   [['售价', '售价_控件', '售价_文本', '备注'],
    ['2249 PHP', '2249', 'PHP', 'a'],
    ['100', '', '100', 'b']]);
+
+// 10b. control 多控件：同格多个控件各自成列（店小秘秒杀价格/库存双输入格场景），不再顿号合并
+const chMultiCtrl = {
+  aoa: [['秒杀价', '备注'], ['秒杀价 10.00 秒杀库存 5', 'a'], ['秒杀价 20.00 秒杀库存 8', 'b']],
+  ctrl: [[null, null], [['10.00', '5'], null], [['20.00', '8'], null]],
+  text: [[null, null], ['秒杀价 秒杀库存', null], ['秒杀价 秒杀库存', null]],
+  headerRows: 1
+};
+check('control 多控件各自成列',
+  applyColumnSplits(chMultiCtrl, [{ col: '秒杀价', mode: 'control' }]),
+  [['秒杀价', '秒杀价_控件1', '秒杀价_控件2', '秒杀价_文本', '备注'],
+   ['秒杀价 10.00 秒杀库存 5', '10.00', '5', '秒杀价 秒杀库存', 'a'],
+   ['秒杀价 20.00 秒杀库存 8', '20.00', '8', '秒杀价 秒杀库存', 'b']]);
+
+// 10c. control 控件数参差：按最大控件数对齐，短行补空
+check('control 控件数参差补齐',
+  applyColumnSplits(
+    {
+      aoa: [['x'], ['a'], ['b']],
+      ctrl: [[null], [['v1', 'v2']], [['w']]],
+      text: [[null], ['t1'], ['t2']],
+      headerRows: 1
+    },
+    [{ col: 0, mode: 'control' }]
+  ),
+  [['x', 'x_控件1', 'x_控件2', 'x_文本'], ['a', 'v1', 'v2', 't1'], ['b', 'w', '', 't2']]);
+
+// 10d. control 空控件值占位：不因空值前移串列（位置忠实）
+check('control 空值占位不串列',
+  applyColumnSplits(
+    {
+      aoa: [['x'], ['a']],
+      ctrl: [[null], [['', 'v2']]],
+      text: [[null], ['t']],
+      headerRows: 1
+    },
+    [{ col: 0, mode: 'control' }]
+  ),
+  [['x', 'x_控件1', 'x_控件2', 'x_文本'], ['a', '', 'v2', 't']]);
 
 // 11. delimiter 模式：最大段数对齐，短行补空
 const chDelim = {
@@ -202,7 +241,7 @@ check('规则解析不到原样返回',
 // 15. 控件值含空格的对照：control 是唯一正确解，delimiter 按空格会拆错
 const chSpace = {
   aoa: [['地址'], ['New York USA']],
-  ctrl: [[null], ['New York']],
+  ctrl: [[null], [['New York']]],
   text: [[null], ['USA']],
   headerRows: 1
 };
@@ -383,12 +422,21 @@ check('layout delimiter 段列映射',
 // 39. columnLayout：control 拆分列 = 原列 + 固定 2 段；序号 key 拼接为 "0#1"
 check('layout control 段列映射（序号 key）',
   columnLayout(
-    { aoa: [['x', '备注'], ['a', 'b']], ctrl: [[null, null], ['c1', null]], text: [[null, null], ['t1', null]], headerRows: 1 },
+    { aoa: [['x', '备注'], ['a', 'b']], ctrl: [[null, null], [['c1'], null]], text: [[null, null], ['t1', null]], headerRows: 1 },
     [{ col: 0, mode: 'control' }]
   ),
   [{ key: 'x', srcCol: 0, seg: null },
    { key: 'x#1', srcCol: 0, seg: 1 },
    { key: 'x#2', srcCol: 0, seg: 2 },
+   { key: '备注', srcCol: 1, seg: null }]);
+
+// 39b. columnLayout：control 多控件段数 = 最大控件数 + 1（与 applyColumnSplits 对齐）
+check('layout control 多控件段列映射',
+  columnLayout(chMultiCtrl, [{ col: '秒杀价', mode: 'control' }]),
+  [{ key: '秒杀价', srcCol: 0, seg: null },
+   { key: '秒杀价#1', srcCol: 0, seg: 1 },
+   { key: '秒杀价#2', srcCol: 0, seg: 2 },
+   { key: '秒杀价#3', srcCol: 0, seg: 3 },
    { key: '备注', srcCol: 1, seg: null }]);
 
 // 40. columnLayout 短路：含 merges / 规则解析不到 → 与 applyColumnSplits 同判，仅原列
@@ -464,7 +512,7 @@ check('端到端 拆分+列筛选',
 // 45. 端到端：control 拆分 + 筛选（排除原列与文本段，只留控件值列）
 const chCtl = {
   aoa: [['售价', '备注'], ['2249 PHP', 'a'], ['100', 'b']],
-  ctrl: [[null, null], ['2249', null], [null, null]],
+  ctrl: [[null, null], [['2249'], null], [null, null]],
   text: [[null, null], ['PHP', null], ['100', null]],
   headerRows: 1
 };
@@ -472,6 +520,13 @@ const rulesCtl = [{ col: '售价', mode: 'control' }];
 check('端到端 control+列筛选',
   filterColumns(applyColumnSplits(chCtl, rulesCtl), columnLayout(chCtl, rulesCtl), new Set(['售价', '售价#2'])),
   [['售价_控件', '备注'], ['2249', 'a'], ['', 'b']]);
+
+// 45b. 端到端：control 多控件 + 筛选（排除原列与两个文本/第二控件段，只留首个控件值列）
+const rulesMC = [{ col: '秒杀价', mode: 'control' }];
+check('端到端 control 多控件+列筛选',
+  filterColumns(applyColumnSplits(chMultiCtrl, rulesMC), columnLayout(chMultiCtrl, rulesMC),
+    new Set(['秒杀价', '秒杀价#2', '秒杀价#3'])),
+  [['秒杀价_控件1', '备注'], ['10.00', 'a'], ['20.00', 'b']]);
 
 // 46. 端到端：无规则 + 纯列筛选（不拆分也能筛）
 check('端到端 无规则纯筛选',

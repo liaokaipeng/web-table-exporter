@@ -11,7 +11,7 @@
   const ns = window.__h2x;
   const { escapeHtml } = ns.util;
   const { extractTable, makeSheetName } = ns.table;
-  const { splitSegments, splitColName, colKeys } = ns.split;
+  const { splitSegments, splitColName, colKeys, ctrlCountOf, ctrlColNames } = ns.split;
 
   let deps = null; // 主 UI 注入的依赖接口（init 后可用）
 
@@ -116,10 +116,14 @@
     return extractTable(table); // 普通表现跑 extractTable 取样
   }
 
-  /** 拆分新列数（与导出/预览逻辑一致：control 固定 2；其余取数据行最大段数）。
+  /** 拆分新列数（与导出/预览逻辑一致：control = 最大控件数 + 1 文本列，同格
+   *  多控件各成一列；其余取数据行最大段数）。
    *  entry：面板草稿条目 { sample, cols, ... }（多表草稿保存时逐表取基准） */
   function segCountOf(entry, c, d) {
-    if (d.mode === 'control') return 2;
+    if (d.mode === 'control') {
+      const sample = entry.sample;
+      return ctrlCountOf(sample.aoa || sample.rows, sample.ctrl || [], c, sample.headerRows || 0) + 1;
+    }
     const sample = entry.sample;
     const aoa = sample.aoa || sample.rows;
     const headerRows = sample.headerRows || 0;
@@ -137,7 +141,8 @@
     const raw = (entry.cols[c] && entry.cols[c].name) || '';
     if (d.mode === 'control') {
       const base = raw || ('列' + (c + 1));
-      return [base + '_控件', base + '_文本'];
+      return entry.sample.headerRows ? ctrlColNames(base, segCountOf(entry, c, d) - 1)
+        : Array.from({ length: segCountOf(entry, c, d) }, (_, k) => '段' + (k + 1));
     }
     const n = segCountOf(entry, c, d);
     return Array.from({ length: n }, (_, k) =>
@@ -480,10 +485,18 @@
         const dropSrc = d.export ? '' : ' drop';
         html += '<td class="old' + dropSrc + '">' + escapeHtml(before == null ? '' : String(before)) + '</td>';
         if (d.mode === 'control') {
+          // ctrl 通道为按位控件值数组：多控件各成一列（短行补空）+ 末尾文本列
+          const n = segCountOf(entry, c, d) - 1;
           const cv = ctrl[r] ? ctrl[r][c] : null;
+          const vals = Array.isArray(cv) ? cv.slice() : [];
+          while (vals.length < n) vals.push('');
+          for (let k = 0; k < n; k++) {
+            html += '<td' + (d.skipSegs.has(k + 1) ? ' class="drop"' : '') + '>' +
+              escapeHtml(vals[k] == null ? '' : String(vals[k])) + '</td>';
+          }
           const tv = text[r] ? text[r][c] : null;
-          html += '<td' + (d.skipSegs.has(1) ? ' class="drop"' : '') + '>' + escapeHtml(cv == null ? '' : cv) + '</td>' +
-            '<td' + (d.skipSegs.has(2) ? ' class="drop"' : '') + '>' + escapeHtml(tv == null ? '' : tv) + '</td>';
+          html += '<td' + (d.skipSegs.has(n + 1) ? ' class="drop"' : '') + '>' +
+            escapeHtml(tv == null ? '' : String(tv)) + '</td>';
         } else {
           const n = segCountOf(entry, c, d);
           const parts = partsOf(r, c, d);

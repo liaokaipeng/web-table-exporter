@@ -6,6 +6,8 @@
  * - text：移除命中控件后的页面文本（未命中候选的文本留在其中）
  * - blocks：视觉文本块数组（块级元素边界即换行处切分，控件已替换为实时值），
  *   如「标题/产品ID」列（两个 div 堆叠）→ [标题, 产品ID]；块内空格不拆
+ * 图片导出为链接（v1.6）：img 以其 src 绝对地址（srcset 场景取 currentSrc）作为
+ * 文本参与各通道；无链接图片、video/svg/iframe 导出为空
  * 依赖：controls（控件判定）、split（splitBlocks）
  */
 (() => {
@@ -21,12 +23,21 @@
    *  排除不可见文本） */
   function cellParts(cell) {
     const origs = cell.querySelectorAll(ns.controls.CONTROL_SEL);
-    if (!origs.length) {
+    if (!origs.length && !cell.querySelector('img')) {
       const text = normText(cell.innerText);
       return { merged: text, ctrl: null, text: text, blocks: ns.split.splitBlocks(cell.innerText) };
     }
     const clone = cell.cloneNode(true);
     const clones = clone.querySelectorAll(ns.controls.CONTROL_SEL);
+    // 图片链接先于控件替换：img 若嵌在命中控件内，控件整体替换后会随克隆消失，
+    // 先按原元素索引对齐替换可保证不串位（与控件同套路：值从原元素读）
+    const imgClones = clone.querySelectorAll('img');
+    cell.querySelectorAll('img').forEach((im, i) => {
+      // src 属性优先取解析后的绝对地址；无 src（srcset）时兜底 currentSrc；均无则导出为空
+      const url = (im.getAttribute('src') ? im.src : '') || im.currentSrc || '';
+      imgClones[i].replaceWith(url ? document.createTextNode(' ' + url + ' ') : document.createTextNode(''));
+    });
+    clone.querySelectorAll('video,svg,iframe').forEach(el => el.remove());
     // 命中控件：嵌套在已命中控件内的候选跳过（如 el-switch 内的 checkbox，避免重复计数）
     const hits = [];
     origs.forEach((orig, i) => {
@@ -42,7 +53,6 @@
       clones[h.i].replaceWith(node);
       marks.push(node);
     });
-    clone.querySelectorAll('img,video,svg,iframe').forEach(el => el.remove());
     const holder = document.createElement('div');
     holder.style.cssText = 'position:fixed;left:-99999px;top:0;';
     holder.appendChild(clone);

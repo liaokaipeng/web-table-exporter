@@ -166,9 +166,26 @@
 - 取消表格选中（再点一次）后重选：筛选与拆分配置一并清空，回到默认全选
 </p>
 
+<h2>8. 图片链接导出（v1.6：img 以链接文本参与导出）</h2>
+<table id="imgs">
+  <tr><th>场景</th><th>单元格内容</th><th>预期导出</th></tr>
+  <tr><td>纯图片</td><td><img src="https://cdn.example.com/p1.png" alt="商品主图"></td><td>https://cdn.example.com/p1.png</td></tr>
+  <tr><td>图片+文字</td><td><img src="https://cdn.example.com/p2.png"> 2249 PHP</td><td>https://cdn.example.com/p2.png 2249 PHP</td></tr>
+  <tr><td>无链接图片</td><td><img alt="占位图"></td><td>（空）</td></tr>
+  <tr><td>控件+图片</td><td><input class="js-img" type="text"><img src="https://cdn.example.com/p3.png"></td><td>99 https://cdn.example.com/p3.png</td></tr>
+  <tr><td>双行格含图</td><td><div><img src="https://cdn.example.com/p4.png"></div><div>标题A</div></td><td>按换行拆分：p4 链接 / 标题A 各成一列</td></tr>
+</table>
+<p class="note">
+预期（图片链接）：<br>
+- img 导出 src 解析后的绝对地址；与文字同格以空格连接（归一化）；无 src/srcset 的图片导出为空<br>
+- video/svg/iframe 仍不导出；控件实时值与图片链接同格共存（js-img 由 JS 设值 99）
+</p>
+
 <script>
   // 模拟框架（Vue 等）通过 JS 属性设值：验证导出从原元素读取实时值
   document.querySelector('#controls .js-set').value = 'JS设的值';
+  // 图片链接测试：控件格内的 input 同样走 JS 属性设值（导出应同时含实时值与图片链接）
+  document.querySelector('#imgs .js-img').value = '99';
   // 列拆分测试：一口价 input 同样走 JS 属性设值（拆分后控件值列应取到这些实时值）
   const promos = ['2249', '1639', '1899'];
   document.querySelectorAll('#split .js-promo').forEach((inp, i) => { inp.value = promos[i]; });

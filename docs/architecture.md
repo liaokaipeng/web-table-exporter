@@ -38,7 +38,7 @@
 | util.js | — | timestamp() / sanitizeFilename() / escapeHtml() |
 | controls.js | — | `controlValue()` 三层判定 + CONTROL_SEL（详见 docs/controls.md） |
 | split.js | — | 列拆分与列筛选纯函数 10 个；零依赖（algo-check.cjs 整文件加载回归，不得引用其他模块） |
-| cell.js | controls | `cellParts()` 四通道取值 + 归一化 |
+| cell.js | controls | `cellParts()` 四通道取值 + 归一化 + 图片链接替换 |
 | table.js | cell | `getRows()` / `extractTable()` / `makeSheetName()` / `splitGroupOf()` / `pairSplitGroup()`（分体识别 + 纯函数配对，模块级零 DOM 引用，algo-check.cjs 离线回归） |
 | virtual.js | table | `isVirtualTable()` / `collectVirtual()` / `overlapLen()` |
 | panel.js | util, table, split | 「列设置」面板（导出列筛选 + 拆分配置）；依赖经 `panel.init({ host, selected, snapshots, splitRules, colFilters, isBusy, isAlive, updateBar, setHint, resetHint })` 注入，UI 层内部契约显式化；面板样式自持，按钮样式共用主 UI 的 `<style>` |
@@ -68,13 +68,14 @@
 | genToken 代际令牌 | 异步采集中用户退出/重选时，令牌使旧任务回调失效 |
 | 列拆分用「四通道 + 纯函数」 | 采集时一次取齐，默认导出走 merged 通道与 v1.2 完全一致；blocks 保留块级元素边界使双行格能按行拆而块内空格不拆；applyColumnSplits 不碰 DOM 可离线回归；规则存内存 Map（权限最小化，不碰 chrome.storage） |
 | 列筛选用「排除集 + 输出列布局」 | 无记录 = 全列导出（零回归）；`columnLayout()` 与 `applyColumnSplits()` 共用短路条件与段数算法，过滤列号严格对齐；排除集与拆分规则同生命周期，随取消失效 |
+| 图片导出为链接（cell.js） | img 值从原元素读（`src` 解析后的绝对地址，srcset 场景兜底 `currentSrc`），按索引对齐替换进克隆——与控件同套路；替换先于控件值替换执行，防止嵌在命中控件内的 img 随控件整体替换丢失而串位；链接进入 merged/text/blocks 通道，导出、预览、列拆分全链路一致 |
 | 分体表格用「结构片段 + 视觉拼接」双重判定 | 只认片段 table（纯表头/纯数据），完整表格零回归；视觉拼接（间隙/对齐/宽度/列数）防止把同容器里两个独立表格误并；自最紧祖先向上首个命中即返回，无需维护组件库类名清单 |
 | 下载文件名 sanitize | 过滤 `\/:*?"<>|`、去首部点号（chrome.downloads 限制）、补 .xlsx 后缀 |
 
 ## 已知限制
 
 - 仅顶层文档表格，iframe 内表格不处理
-- 单元格导出纯文本，不保留颜色/字体样式；图片列导出为空
+- 单元格导出纯文本，不保留颜色/字体样式；图片导出为链接（src 绝对地址），video/svg/iframe 导出为空
 - 无设置持久化（每次进入选择模式重填默认文件名；列拆分规则与列筛选同为内存态，退出即清空）
 - 含合并单元格的表格不支持列筛选（!merges 列号基于原始网格，过滤会错位；面板已禁用）
 - 虚拟滚动 + 整行内容完全相同且相邻出现时，理论上可能少采（内容对齐的固有歧义；分散出现的重复行不受影响）

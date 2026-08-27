@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "HTML2XLSX 表格导出",
   "description": "悬浮选择页面表格，一键导出为 xlsx（支持合并单元格、多表格多 Sheet）",
-  "version": "1.5.1",
+  "version": "1.6",
   "action": {
     "default_title": "导出表格为 Excel"
   },

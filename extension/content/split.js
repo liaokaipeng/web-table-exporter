@@ -69,6 +69,84 @@
     return (idx >= 0 && idx < maxCols) ? idx : -1;
   }
 
+  /** 列标识（拆分规则与列筛选共用的列定位基准）：表头文本唯一且非空 → 文本；
+   *  否则列序号（无表头/重名兜底）。与 resolveRuleCol 的解析规则互逆 */
+  function colKeys(ch) {
+    const src = ch.aoa || ch.rows;
+    const header = (ch.headerRows || 0) > 0 ? (src[0] || []) : [];
+    let maxCols = 0;
+    for (const row of src) if (row) maxCols = Math.max(maxCols, row.length);
+    const keys = [];
+    for (let c = 0; c < maxCols; c++) {
+      const name = String(header[c] || '');
+      let key = c;
+      if (name) {
+        let dup = false;
+        for (let i = 0; i < maxCols; i++) {
+          if (i !== c && String(header[i] || '') === name) { dup = true; break; }
+        }
+        if (!dup) key = name;
+      }
+      keys.push(key);
+    }
+    return keys;
+  }
+
+  /** 输出列布局：applyColumnSplits 应用后每个输出列的标识映射（列筛选的基准）。
+   *  返回 [{ key, srcCol, seg }]，数组下标即拆分结果中的输出列号：
+   *  - 原列：key = colKeys 的列标识，seg = null
+   *  - 拆分新列：key = 列标识 + '#' + 段号（1 起），seg = 段号
+   *  与 applyColumnSplits 的短路条件（无规则 / 含 merges / 规则解析不到）及
+   *  段数计算（数据行最大段数；control 固定 2）保持一致，保证过滤列号不错位。
+   *  同列多条规则仅取首条（面板交互不会产生，手工构造的 rules 属未定义行为） */
+  function columnLayout(ch, rules) {
+    const src = ch.aoa || ch.rows;
+    const headerRows = ch.headerRows || 0;
+    const keys = colKeys(ch);
+    const maxCols = keys.length;
+    const blocksCh = ch.blocks || [];
+    const ruleMap = new Map(); // 列号 -> 规则
+    if (rules && rules.length && !(ch.merges && ch.merges.length)) {
+      for (const rule of rules) {
+        const idx = resolveRuleCol(src, rule.col, maxCols);
+        if (idx >= 0 && !ruleMap.has(idx)) ruleMap.set(idx, rule);
+      }
+    }
+    const layout = [];
+    for (let c = 0; c < maxCols; c++) {
+      layout.push({ key: keys[c], srcCol: c, seg: null });
+      const rule = ruleMap.get(c);
+      if (!rule) continue;
+      let segCount = 2;
+      if (rule.mode !== 'control') {
+        segCount = 1;
+        for (let r = headerRows; r < src.length; r++) {
+          const row = src[r] || [];
+          const n = splitSegments(rule.mode, row[c], (blocksCh[r] || [])[c], rule.pattern, rule.limit).length;
+          if (n > segCount) segCount = n;
+        }
+      }
+      for (let k = 1; k <= segCount; k++) {
+        layout.push({ key: keys[c] + '#' + k, srcCol: c, seg: k });
+      }
+    }
+    return layout;
+  }
+
+  /** 按排除集过滤输出列（导出列筛选）：excluded 为 Set<列标识>（原列 key 或 key#k）。
+   *  未排除任何实际存在的列时原样返回；全部被排除时也原样返回（防御，UI 已阻止全排除）。
+   *  返回新数组（不改入参行）；参差短行缺值补 '' */
+  function filterColumns(aoa, layout, excluded) {
+    if (!excluded || !excluded.size) return aoa;
+    const keep = [];
+    layout.forEach((col, i) => { if (!excluded.has(col.key)) keep.push(i); });
+    if (!keep.length || keep.length === layout.length) return aoa;
+    return aoa.map(row => {
+      const r = row || [];
+      return keep.map(i => (r[i] == null ? '' : r[i]));
+    });
+  }
+
   /** 列拆分主函数：把通道中命中的列拆为多列（原列保留，新列追加其后，错了可删）。
    *  ch：extractTable 结果 { aoa, merges, ctrl, text, blocks, headerRows }
    *      或虚拟快照 { rows, ctrl, text, blocks, headerRows }；rules：[{ col, mode, pattern, limit }]
@@ -160,6 +238,7 @@
   ns.split = {
     splitByDelimiter: splitByDelimiter, splitBlocks: splitBlocks, limitBlocks: limitBlocks,
     splitSegments: splitSegments, splitColName: splitColName,
-    resolveRuleCol: resolveRuleCol, applyColumnSplits: applyColumnSplits
+    resolveRuleCol: resolveRuleCol, colKeys: colKeys, columnLayout: columnLayout,
+    filterColumns: filterColumns, applyColumnSplits: applyColumnSplits
   };
 })();

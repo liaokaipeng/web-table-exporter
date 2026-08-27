@@ -12,7 +12,7 @@
   caption { font-weight: bold; padding: 6px; }
   h2 { border-left: 4px solid #2e7d32; padding-left: 10px; }
   .note { background: #f6f8f6; border-left: 3px solid #9dbb9f; padding: 8px 12px; font-size: 13px; line-height: 1.7; color: #444; }
-  #split td .sub { color: #999; font-size: 12px; }
+  #split td .sub, #colfilter td .sub { color: #999; font-size: 12px; }
   /* 复刻 Element Plus el-table：表头/表体分离渲染为两个 table（分体表格合并用例）。
      须覆盖页面级 table margin（否则表头/表体间隙过大，视觉拼接判定不成立）。
      容器 620px / 表宽 860px：复刻 scrollable-x 水平滚动裁剪（表头 overflow:hidden 由 JS 同步 scrollLeft） */
@@ -91,7 +91,7 @@
   <tr><td>一格多控件（range + color）</td><td><input type="range" value="70"><input type="color" value="#ff0000"></td><td>70 #ff0000</td></tr>
   <tr><td>类名含 switch 但非开关（兜底）</td><td><span class="switcher-large">排序切换器</span></td><td>排序切换器</td></tr>
 </table>
-<h2>5. 列拆分（v1.3：选中表格后点工具栏「拆分列」配置）</h2>
+<h2>5. 列拆分（v1.3：选中表格后点工具栏「列设置」配置）</h2>
 <table id="split">
   <tr><th>商品</th><th>标题/产品ID</th><th>一口价</th><th>发货仓</th><th>适用站点</th></tr>
   <tr><td>连衣裙 A 款</td><td><div>Dress Blue Style</div><div class="sub">1731340859035700001</div></td><td><input class="js-promo" type="text"> PHP</td><td><select><option value="">全部</option><option value="1" selected>华东仓</option></select></td><td>美国、英国</td></tr>
@@ -99,14 +99,14 @@
   <tr><td>短裤 C 款</td><td><div>Shorts Summer</div><div class="sub">1731340859035700003</div></td><td><input class="js-promo" type="text"> PHP</td><td><select><option value="">全部</option><option value="1" selected>华东仓</option></select></td><td>德国、法国</td></tr>
 </table>
 <p class="note">
-预期（拆分列面板勾选/参数）：<br>
+预期（列设置面板勾选/参数）：<br>
 - 标题/产品ID列（复刻店小秘双行格：标题一个 div、产品ID一个 div）：按换行拆分（默认勾选并带「多行」徽标）→ 新增「标题/产品ID1」= Dress Blue Style / T Shirt Cotton White / Shorts Summer（块内空格不拆），「标题/产品ID2」= 1731340859035700001/2/3，原列保留归一化合并文本<br>
 - 一口价列：控件值拆分 → 新增「一口价_控件」= 2249 / 1639 / 1899（input 由 JS 属性设值，见页底脚本），「一口价_文本」= PHP（各行相同），原列保留「2249 PHP」<br>
 - 发货仓列：控件值拆分 → 「发货仓_控件」= 华东仓(1) / 华南仓(2) / 华东仓(1)，「发货仓_文本」= (空)<br>
 - 适用站点列：分隔符拆分、分隔符「、」→ 新增「适用站点1」= 美国（各行），「适用站点2」= 英国 / 英国 / 法国，「适用站点3」= (空) / 德国 / (空)（段数不足补空）<br>
-- 面板打开时：智能预填只默认勾选标题/产品ID（多行）；一口价/发货仓（含控件徽标）预设「控件值拆分」但不勾选，适用站点列预填分隔符「、」但不勾选<br>
+- 面板打开时：智能预填只默认勾选拆分标题/产品ID（多行）；一口价/发货仓（含控件徽标）预设「控件值拆分」但不勾选，适用站点列预填分隔符「、」但不勾选<br>
 - 不配置任何规则直接导出：结果与 v1.2 完全一致（零回归）<br>
-- 另选第 2 节合并单元格表格打开面板：应显示「该表格含合并单元格，拆分不可用」，导出保持原样
+- 另选第 2 节合并单元格表格打开面板：应显示「该表格含合并单元格，拆分与列筛选不可用」，导出保持原样
 </p>
 
 <h2>6. 分体表格（表头/表体为两个 table，复刻 Element Plus el-table 结构）</h2>
@@ -146,6 +146,23 @@
 - 导出为单个 Sheet：第 1 行表头（商品/标题/产品ID/本地展示价/一口价/发货仓，滚动条占位的空 gutter 列不导出）+ 6 行数据；表体滚动不影响行数<br>
 - 「一口价」列导出「2249 / 1639 / 1899 / 2058 / 1558 / 1269 PHP」（input 由 JS 属性设值，见页底脚本）；「发货仓」列导出「华东仓(1)/华南仓(2)」<br>
 - 列拆分面板同普通表格可用：「标题/产品ID」列应带「多行」徽标并默认勾选按换行拆分（预览标题、产品ID 各成一列）
+</p>
+
+<h2>7. 列筛选（v1.5：工具栏「列设置」面板中取消不需导出的列，含拆分新列）</h2>
+<table id="colfilter">
+  <tr><th>订单号</th><th>标题/产品ID</th><th>金额</th><th>状态</th><th>操作日志</th></tr>
+  <tr><td>SO-1001</td><td><div>Dress Blue Style</div><div class="sub">1731340859035710001</div></td><td>4722</td><td>已发货</td><td>创建 08-20；修改 08-25；发货 08-26</td></tr>
+  <tr><td>SO-1002</td><td><div>T Shirt Cotton White</div><div class="sub">1731340859035710002</div></td><td>1899</td><td>待付款</td><td>创建 08-22</td></tr>
+  <tr><td>SO-1003</td><td><div>Shorts Summer</div><div class="sub">1731340859035710003</div></td><td>2199</td><td>已取消</td><td>创建 08-23；取消 08-24</td></tr>
+</table>
+<p class="note">
+预期（列筛选）：<br>
+- 面板打开：每列最前有「导出」勾选（默认全选），顶部工具条显示「导出列 7/7」（订单号/金额/状态/操作日志 4 个原列 + 标题/产品ID 原列及其默认勾选拆分产出的 2 个新列）并提供「全选 / 全不选」<br>
+- 不配置任何筛选直接导出：7 列全量（订单号、标题/产品ID、标题/产品ID1、标题/产品ID2、金额、状态、操作日志，零回归）<br>
+- 取消「操作日志」「状态」的导出勾选：该两行列名变灰，预览中对应列划线灰显，导出仅剩 订单号 / 标题/产品ID / 标题/产品ID1 / 标题/产品ID2 / 金额 共 5 列<br>
+- 拆分子列筛选：在「标题/产品ID」行下方子行中取消「标题/产品ID2」并取消原列「标题/产品ID」导出 → 导出仅剩 订单号 / 标题/产品ID1（标题）/ 金额 共 3 列<br>
+- 「全不选」后保存：报「至少保留一个导出列」；「全选」恢复 7/7<br>
+- 取消表格选中（再点一次）后重选：筛选与拆分配置一并清空，回到默认全选
 </p>
 
 <script>

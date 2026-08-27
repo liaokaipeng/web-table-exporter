@@ -10,7 +10,7 @@
   const { timestamp, sanitizeFilename } = ns.util;
   const { extractTable, makeSheetName, splitGroupOf } = ns.table;
   const { isVirtualTable, collectVirtual } = ns.virtual;
-  const { applyColumnSplits } = ns.split;
+  const { applyColumnSplits, columnLayout, filterColumns } = ns.split;
   const panel = ns.panel;
 
   let active = true;
@@ -24,6 +24,7 @@
   const selected = new Map();   // table -> 覆盖层元素（Map 保持选择顺序 = Sheet 顺序）
   const snapshots = new Map();   // table -> 虚拟滚动表格采集快照 { rows, ctrl, text, headerRows }
   const splitRules = new Map();  // table -> 列拆分规则 [{ col, mode, pattern, limit }]（内存态，不持久化）
+  const colFilters = new Map();  // table -> 导出列排除集 Set<colKey|colKey#k>（内存态，不持久化；无记录 = 全列导出）
 
   /* ---------------- UI 构建（Shadow DOM 隔离页面样式） ---------------- */
 
@@ -59,7 +60,7 @@
       '  <span class="h2x-hint">点击选择表格（可多选）</span>',
       '  <span class="h2x-count">已选 <b>0</b> 个</span>',
       '  <input class="h2x-name" type="text" spellcheck="false" />',
-      '  <button class="h2x-btn h2x-split" disabled>拆分列</button>',
+      '  <button class="h2x-btn h2x-split" disabled>列设置</button>',
       '  <button class="h2x-btn h2x-primary" disabled>导出 Excel</button>',
       '  <button class="h2x-btn h2x-ghost">取消 (Esc)</button>',
       '</div>'
@@ -192,6 +193,7 @@
     selected.delete(table);
     snapshots.delete(table); // 虚拟表快照随取消失效，重选时重新采集最新数据
     splitRules.delete(table); // 该表的拆分规则同步删除
+    colFilters.delete(table); // 该表的导出列筛选同步删除
     panel.onTableRemoved(table); // 面板草稿同步删除；面板正在编辑该表则直接关闭
     updateBar();
   }
@@ -282,6 +284,15 @@
     setTimeout(exit, 600);
   }
 
+  /** 导出 aoa 组装：先应用列拆分，再按排除集过滤列（列筛选）。
+   *  含合并单元格的表格跳过筛选（!merges 列号基于原始 aoa，过滤会错位；面板已禁用） */
+  function buildAoa(ch, table) {
+    const rules = splitRules.get(table);
+    const aoa = applyColumnSplits(ch, rules);
+    if (ch.merges && ch.merges.length) return aoa;
+    return filterColumns(aoa, columnLayout(ch, rules), colFilters.get(table));
+  }
+
   function doExport() {
     if (collecting || !selected.size) return;
     let buf, name;
@@ -293,11 +304,11 @@
       for (const table of selected.keys()) {
         let ws;
         if (snapshots.has(table)) {
-          // 虚拟滚动表格：使用采集到的全量快照（列拆分规则一并应用）
-          ws = XLSX.utils.aoa_to_sheet(applyColumnSplits(snapshots.get(table), splitRules.get(table)));
+          // 虚拟滚动表格：使用采集到的全量快照（列拆分与列筛选一并应用）
+          ws = XLSX.utils.aoa_to_sheet(buildAoa(snapshots.get(table), table));
         } else {
           const ex = extractTable(table);
-          ws = XLSX.utils.aoa_to_sheet(applyColumnSplits(ex, splitRules.get(table)));
+          ws = XLSX.utils.aoa_to_sheet(buildAoa(ex, table));
           if (ex.merges.length) ws['!merges'] = ex.merges;
         }
         XLSX.utils.book_append_sheet(wb, ws, makeSheetName(table, i++, used));
@@ -348,7 +359,8 @@
     if (host) host.remove();
     selected.clear();
     snapshots.clear();
-    splitRules.clear(); // 列拆分规则仅存内存（权限最小化，不碰 chrome.storage）
+    splitRules.clear(); // 列拆分规则与列筛选仅存内存（权限最小化，不碰 chrome.storage）
+    colFilters.clear();
     panel.reset();
     window.__html2xlsx = null;
   }
@@ -358,12 +370,13 @@
   /* ---------------- 启动 ---------------- */
 
   buildUI();
-  // 装配拆分面板依赖（host/Maps 为稳定引用；可变状态经 getter 读取）
+  // 装配列设置面板依赖（host/Maps 为稳定引用；可变状态经 getter 读取）
   panel.init({
     host: host,
     selected: selected,
     snapshots: snapshots,
     splitRules: splitRules,
+    colFilters: colFilters,
     isBusy: () => collecting,
     isAlive: () => active,
     updateBar: updateBar,

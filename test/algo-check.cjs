@@ -16,7 +16,7 @@ function loadModule(relPath, modName) {
 const { overlapLen } = loadModule('virtual.js', 'virtual');
 const {
   splitByDelimiter, splitBlocks, limitBlocks, splitSegments, splitColName,
-  resolveRuleCol, applyColumnSplits
+  resolveRuleCol, colKeys, columnLayout, filterColumns, applyColumnSplits
 } = loadModule('split.js', 'split');
 const { pairSplitGroup } = loadModule('table.js', 'table');
 
@@ -347,6 +347,136 @@ check('block 空单元格原值留首段',
     [{ col: 0, mode: 'block' }]
   ),
   [['x', 'x1', 'x2'], ['', '', ''], ['e f', 'e', 'f']]);
+
+/* ================= 列筛选（colKeys / columnLayout / filterColumns） ================= */
+
+// 36. colKeys：唯一非空表头 → 文本；重名/空表头 → 序号；无表头 → 全序号
+check('colKeys 唯一表头取文本',
+  colKeys({ aoa: [['售价', '标签'], ['a', 'b']], headerRows: 1 }), ['售价', '标签']);
+check('colKeys 重名回落序号',
+  colKeys({ aoa: [['A', 'A', 'B'], ['x', 'y', 'z']], headerRows: 1 }), [0, 1, 'B']);
+check('colKeys 空表头回落序号',
+  colKeys({ aoa: [['', '备注'], ['x', 'z']], headerRows: 1 }), [0, '备注']);
+check('colKeys 无表头全序号',
+  colKeys({ aoa: [['a', 'b'], ['c', 'd']], headerRows: 0 }), [0, 1]);
+
+// 37. columnLayout：无规则 = 每列一条原列条目（key/seg 对齐）
+check('layout 无规则原列映射',
+  columnLayout({ aoa: [['A', 'B'], ['1', '2']], headerRows: 1 }, []),
+  [{ key: 'A', srcCol: 0, seg: null }, { key: 'B', srcCol: 1, seg: null }]);
+
+// 38. columnLayout：delimiter 拆分列 = 原列 + 段列（段数取数据行最大值）
+const chLayout = {
+  aoa: [['标签', '备注'], ['电器、数码、母婴', 'a'], ['家居', 'b']],
+  ctrl: [[null, null], [null, null], [null, null]],
+  text: [[null, null], [null, null], [null, null]],
+  headerRows: 1
+};
+check('layout delimiter 段列映射',
+  columnLayout(chLayout, [{ col: '标签', mode: 'delimiter', pattern: '、' }]),
+  [{ key: '标签', srcCol: 0, seg: null },
+   { key: '标签#1', srcCol: 0, seg: 1 },
+   { key: '标签#2', srcCol: 0, seg: 2 },
+   { key: '标签#3', srcCol: 0, seg: 3 },
+   { key: '备注', srcCol: 1, seg: null }]);
+
+// 39. columnLayout：control 拆分列 = 原列 + 固定 2 段；序号 key 拼接为 "0#1"
+check('layout control 段列映射（序号 key）',
+  columnLayout(
+    { aoa: [['x', '备注'], ['a', 'b']], ctrl: [[null, null], ['c1', null]], text: [[null, null], ['t1', null]], headerRows: 1 },
+    [{ col: 0, mode: 'control' }]
+  ),
+  [{ key: 'x', srcCol: 0, seg: null },
+   { key: 'x#1', srcCol: 0, seg: 1 },
+   { key: 'x#2', srcCol: 0, seg: 2 },
+   { key: '备注', srcCol: 1, seg: null }]);
+
+// 40. columnLayout 短路：含 merges / 规则解析不到 → 与 applyColumnSplits 同判，仅原列
+check('layout 含 merges 禁用',
+  columnLayout({ aoa: [['A', 'B'], ['1', '2']], headerRows: 1, merges: [{ s: { r: 0, c: 0 }, e: { r: 0, c: 0 } }] },
+    [{ col: 'A', mode: 'delimiter', pattern: ' ' }]),
+  [{ key: 'A', srcCol: 0, seg: null }, { key: 'B', srcCol: 1, seg: null }]);
+check('layout 规则解析不到',
+  columnLayout({ aoa: [['A', 'B'], ['1', '2']], headerRows: 1 }, [{ col: '不存在', mode: 'delimiter', pattern: ' ' }]),
+  [{ key: 'A', srcCol: 0, seg: null }, { key: 'B', srcCol: 1, seg: null }]);
+
+// 41. columnLayout：block 模式段数按视觉块最大值（与 applyColumnSplits 一致）
+check('layout block 段列映射',
+  columnLayout(
+    {
+      aoa: [['标题/产品ID', '价'], ['t1 id1', '1'], ['t2\nid2', '2']],
+      ctrl: [[null, null], [null, null], [null, null]],
+      text: [[null, null], [null, null], [null, null]],
+      blocks: [[null, null], [['t1', 'id1'], null], [['t2', 'id2'], null]],
+      headerRows: 1
+    },
+    [{ col: '标题/产品ID', mode: 'block' }]
+  ),
+  [{ key: '标题/产品ID', srcCol: 0, seg: null },
+   { key: '标题/产品ID#1', srcCol: 0, seg: 1 },
+   { key: '标题/产品ID#2', srcCol: 0, seg: 2 },
+   { key: '价', srcCol: 1, seg: null }]);
+
+// 42. filterColumns：排除原列 / 排除段列 / 不存在的 key 原样返回
+const aoaF = [['A', 'A1', 'A2', 'B'], ['a', 'a1', 'a2', 'b']];
+const layoutF = [
+  { key: 'A', srcCol: 0, seg: null }, { key: 'A#1', srcCol: 0, seg: 1 },
+  { key: 'A#2', srcCol: 0, seg: 2 }, { key: 'B', srcCol: 1, seg: null }
+];
+check('filter 排除原列',
+  filterColumns(aoaF, layoutF, new Set(['A'])),
+  [['A1', 'A2', 'B'], ['a1', 'a2', 'b']]);
+check('filter 排除段列',
+  filterColumns(aoaF, layoutF, new Set(['A#2'])),
+  [['A', 'A1', 'B'], ['a', 'a1', 'b']]);
+check('filter 混合排除原列+段列',
+  filterColumns(aoaF, layoutF, new Set(['A', 'A#1'])),
+  [['A2', 'B'], ['a2', 'b']]);
+check('filter 不存在的 key 原样',
+  filterColumns(aoaF, layoutF, new Set(['不存在', 'A#9'])), aoaF);
+check('filter 空排除集原样',
+  filterColumns(aoaF, layoutF, new Set()), aoaF);
+check('filter null 排除集原样',
+  filterColumns(aoaF, layoutF, null), aoaF);
+check('filter 全排除防御原样',
+  filterColumns(aoaF, layoutF, new Set(['A', 'A#1', 'A#2', 'B'])), aoaF);
+
+// 43. filterColumns：参差短行缺值补 ''
+check('filter 短行补空',
+  filterColumns([['A', 'A1', 'A2', 'B'], ['x']], layoutF, new Set(['A#2'])),
+  [['A', 'A1', 'B'], ['x', '', '']]);
+
+// 44. 端到端：拆分 + 筛选组合（导出主链路）：拆分结果与 layout 列号严格对齐
+const chE2E = {
+  aoa: [['标题/产品ID', '本地展示价', '操作'], ['T1\nI1', '4722 PHP', '删'], ['T2\nI2', '1899 PHP', '删']],
+  ctrl: [[null, null, null], [null, null, null], [null, null, null]],
+  text: [[null, null, null], [null, null, null], [null, null, null]],
+  blocks: [[null, null, null], [['T1', 'I1'], null, null], [['T2', 'I2'], null, null]],
+  headerRows: 1
+};
+const rulesE2E = [{ col: '标题/产品ID', mode: 'block' }];
+// 排除：原列「标题/产品ID」+「操作」列 + 第 2 段（ID）→ 只导出 标题1 + 本地展示价
+const excludedE2E = new Set(['标题/产品ID', '标题/产品ID#2', '操作']);
+check('端到端 拆分+列筛选',
+  filterColumns(applyColumnSplits(chE2E, rulesE2E), columnLayout(chE2E, rulesE2E), excludedE2E),
+  [['标题/产品ID1', '本地展示价'], ['T1', '4722 PHP'], ['T2', '1899 PHP']]);
+
+// 45. 端到端：control 拆分 + 筛选（排除原列与文本段，只留控件值列）
+const chCtl = {
+  aoa: [['售价', '备注'], ['2249 PHP', 'a'], ['100', 'b']],
+  ctrl: [[null, null], ['2249', null], [null, null]],
+  text: [[null, null], ['PHP', null], ['100', null]],
+  headerRows: 1
+};
+const rulesCtl = [{ col: '售价', mode: 'control' }];
+check('端到端 control+列筛选',
+  filterColumns(applyColumnSplits(chCtl, rulesCtl), columnLayout(chCtl, rulesCtl), new Set(['售价', '售价#2'])),
+  [['售价_控件', '备注'], ['2249', 'a'], ['', 'b']]);
+
+// 46. 端到端：无规则 + 纯列筛选（不拆分也能筛）
+check('端到端 无规则纯筛选',
+  filterColumns(applyColumnSplits(chE2E, []), columnLayout(chE2E, []), new Set(['操作'])),
+  [['标题/产品ID', '本地展示价'], ['T1\nI1', '4722 PHP'], ['T2\nI2', '1899 PHP']]);
 
 /* ================= 分体表格配对（table.js pairSplitGroup 纯函数，文件头部已加载） ================= */
 

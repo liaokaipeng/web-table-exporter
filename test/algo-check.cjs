@@ -1,7 +1,9 @@
-// 算法回归测试：验证「相邻窗口重叠合并」采集算法与「列拆分」纯函数的各场景
+// 算法回归测试：验证「相邻窗口重叠合并」采集算法、「列拆分」与「分体表格配对」纯函数的各场景
 // - overlapLen 直接加载 extension/content/virtual.js 的实现（保证与实现同步）；
 //   takeWindow 逻辑在测试内模拟
 // - 列拆分函数直接加载 extension/content/split.js 整个模块（零依赖纯函数文件）
+// - 分体表格配对直接加载 extension/content/table.js 的 pairSplitGroup
+//   （模块级代码零 DOM 引用，可整文件加载；仅调用纯函数，DOM 侧取证走浏览器回归）
 const fs = require('fs');
 const path = require('path');
 
@@ -16,6 +18,7 @@ const {
   splitByDelimiter, splitBlocks, limitBlocks, splitSegments, splitColName,
   resolveRuleCol, applyColumnSplits
 } = loadModule('split.js', 'split');
+const { pairSplitGroup } = loadModule('table.js', 'table');
 
 // 模拟 takeWindow 完整逻辑（含 DOM 引用判定 + 重叠合并）
 // 窗口输入：{ rows: string[], refs: object[] }（refs 模拟 DOM 行元素引用）
@@ -344,6 +347,90 @@ check('block 空单元格原值留首段',
     [{ col: 0, mode: 'block' }]
   ),
   [['x', 'x1', 'x2'], ['', '', ''], ['e f', 'e', 'f']]);
+
+/* ================= 分体表格配对（table.js pairSplitGroup 纯函数，文件头部已加载） ================= */
+
+// 描述符工厂：结构（headerRows/bodyRows/cols）+ 视觉矩形（top/height/left/width），
+// 与 matchSplitGroup 从 DOM table 提取的描述符同构
+function tdesc(o) {
+  o = o || {};
+  const top = o.top || 0;
+  return {
+    headerRows: o.headerRows || 0,
+    bodyRows: o.bodyRows || 0,
+    cols: o.cols == null ? 5 : o.cols,
+    top: top,
+    bottom: top + (o.height || 40),
+    left: o.left || 0,
+    width: o.width == null ? 800 : o.width
+  };
+}
+
+// 26. 基础配对：纯表头表 + 纵向拼接的纯数据表（Element Plus el-table 结构）
+check('分体配对基础',
+  pairSplitGroup([tdesc({ headerRows: 1, top: 100 }), tdesc({ bodyRows: 10, top: 140 })]),
+  { h: 0, b: 1 });
+
+// 27. gutter 容忍：表头比数据表多 1 列滚动条占位（el-table 表头的 gutter th）
+check('gutter 占位列容忍（列数差 1）',
+  pairSplitGroup([tdesc({ headerRows: 1, cols: 6, top: 100 }), tdesc({ bodyRows: 10, cols: 5, top: 140 })]),
+  { h: 0, b: 1 });
+
+// 28. 列数差 >1：不是同一张表
+check('列数差 2 不配对',
+  pairSplitGroup([tdesc({ headerRows: 1, cols: 7, top: 100 }), tdesc({ bodyRows: 10, cols: 5, top: 140 })]),
+  null);
+
+// 29. 间隙超限：同容器里视觉上分离的两个独立表格（如说明表格 + 数据表格）
+check('间隙超限不配对',
+  pairSplitGroup([tdesc({ headerRows: 1, top: 100 }), tdesc({ bodyRows: 10, top: 180 })]),
+  null);
+
+// 30. 轻微重叠容忍：负 margin 修正等造成的 -5px 重叠仍视为拼接
+check('轻微重叠容忍（负间隙）',
+  pairSplitGroup([tdesc({ headerRows: 1, top: 100 }), tdesc({ bodyRows: 10, top: 135 })]),
+  { h: 0, b: 1 });
+
+// 31. 左右错位 / 宽度差异：不是同一张表
+check('左右错位不配对',
+  pairSplitGroup([tdesc({ headerRows: 1, left: 0, top: 100 }), tdesc({ bodyRows: 10, left: 60, top: 140 })]),
+  null);
+check('宽度差异超限不配对',
+  pairSplitGroup([tdesc({ headerRows: 1, width: 800, top: 100 }), tdesc({ bodyRows: 10, width: 720, top: 140 })]),
+  null);
+
+// 32. 完整表格不参与配对（普通页零回归：自带表头+数据的表格既不作表头侧也不作数据侧）
+check('完整表格不作表头侧',
+  pairSplitGroup([tdesc({ headerRows: 1, bodyRows: 5, top: 100 }), tdesc({ bodyRows: 10, top: 140 })]),
+  null);
+check('完整表格不作数据侧',
+  pairSplitGroup([tdesc({ headerRows: 1, top: 100 }), tdesc({ headerRows: 1, bodyRows: 10, top: 140 })]),
+  null);
+
+// 33. 颠倒：数据表在上、表头在下（如合计行表格贴在数据表格上方）不配对
+check('表头数据颠倒不配对',
+  pairSplitGroup([tdesc({ bodyRows: 10, top: 100 }), tdesc({ headerRows: 1, top: 140 })]),
+  null);
+
+// 34. 多候选：取首个满足纵向拼接的配对（表头侧/数据侧均按 DOM 顺序）
+check('多表头表取首个拼接',
+  pairSplitGroup([
+    tdesc({ headerRows: 1, top: 100 }), // 与数据表间隙过大
+    tdesc({ headerRows: 1, top: 500 }),
+    tdesc({ bodyRows: 10, top: 540 })
+  ]),
+  { h: 1, b: 2 });
+check('多数据表取首个拼接',
+  pairSplitGroup([
+    tdesc({ headerRows: 1, top: 100 }),
+    tdesc({ bodyRows: 10, top: 300 }), // 间隙过大
+    tdesc({ bodyRows: 5, top: 140 })
+  ]),
+  { h: 0, b: 2 });
+
+// 35. 无候选：单个表头表 / 空列表
+check('单个表头表无配对', pairSplitGroup([tdesc({ headerRows: 1, top: 100 })]), null);
+check('空列表返回 null', pairSplitGroup([]), null);
 
 console.log(fail === 0 ? '\n全部通过' : '\n' + fail + ' 个失败');
 process.exit(fail === 0 ? 0 : 1);

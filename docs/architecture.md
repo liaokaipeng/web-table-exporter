@@ -39,14 +39,15 @@
 | controls.js | — | `controlValue()` 三层判定 + CONTROL_SEL（详见 docs/controls.md） |
 | split.js | — | 列拆分纯函数 7 个；零依赖（algo-check.cjs 整文件加载回归，不得引用其他模块） |
 | cell.js | controls | `cellParts()` 四通道取值 + 归一化 |
-| table.js | cell | `getRows()` / `extractTable()` / `makeSheetName()` |
+| table.js | cell | `getRows()` / `extractTable()` / `makeSheetName()` / `splitGroupOf()` / `pairSplitGroup()`（分体识别 + 纯函数配对，模块级零 DOM 引用，algo-check.cjs 离线回归） |
 | virtual.js | table | `isVirtualTable()` / `collectVirtual()` / `overlapLen()` |
 | panel.js | util, table, split | 「拆分列」面板；依赖经 `panel.init({ host, selected, snapshots, splitRules, isBusy, isAlive, updateBar, setHint, resetHint })` 注入，UI 层内部契约显式化；面板样式自持，按钮样式共用主 UI 的 `<style>` |
 | main.js | 其余全部 | 主 UI / 事件 / 选中管理 / 导出 / 退出清理 / 启动装配 |
 
 关键机制：
 
-- **UI/事件**（main.js）：单个 Shadow DOM host（`all:initial` 隔离页面样式），含悬浮高亮层、已选覆盖层、底部工具栏。`mouseover` 委托找 table；`click` 捕获阶段拦截页面跳转（工具栏自身放行）；`keydown` Esc 退出 / Enter 导出（拆分面板打开时改为关面板 / 保存）；`scroll`/`resize` rAF 节流重定位
+- **UI/事件**（main.js）：单个 Shadow DOM host（`all:initial` 隔离页面样式），含悬浮高亮层、已选覆盖层、底部工具栏。`mouseover` 委托找 table，经 `hitRoot()` 解析为逻辑表格根（分体结构取包装容器）；`click` 捕获阶段拦截页面跳转（工具栏自身放行）；`keydown` Esc 退出 / Enter 导出（拆分面板打开时改为关面板 / 保存）；`scroll`/`resize` rAF 节流重定位
+- **分体表格合并**（table.js `splitGroupOf()`）：组件库（Element Plus el-table / vxe-table 等）把表头与表体渲染成两个独立 `<table>`。识别：成员 table 须为片段（纯表头 / 纯数据），自最紧祖先向上找容器（首个命中即返回、深度 ≤12、容器顶层 table ≤8，防误并远祖容器中的独立表格）；配对 = 纯表头表 + 纯数据表**视觉纵向拼接**（间隙 -10~10px、左对齐、宽度相近、列数差 ≤1 容忍滚动条 gutter 列）。视觉矩形（`visualRect`）：数据表被垂直滚动容器裁剪时 top 取容器顶边（滚动会移动 table 本身），left/width 仍取 table 本身——水平滚动（scrollable-x）时组件库同步平移表头/表体（天然对齐），而容器宽度被水平裁剪（表宽 > 容器宽），不能用于宽度比较。配对判定核心 `pairSplitGroup()` 为纯函数（描述符入参不碰 DOM，algo-check.cjs 离线回归）。悬浮/点选/导出统一以包装容器为键（`hitRoot()`），`getRows()` 合并两表行（表头行在前），表头空 `gutter` 列跳过；虚拟采集同理从数据表找滚动容器
 - **提取**（table.js `getRows()`）：兼容 thead 直接嵌 th（无 tr）；过滤 virtual-spacer 占位行、`display:none` 隐藏行
 - **单元格四通道**（cell.js `cellParts()`）：merged（控件替换为实时值后的完整文本，默认导出，v1.2 行为不变）/ ctrl（控件实时值，多控件格过滤空值顿号连接）/ text（移除命中控件后的页面文本）/ blocks（按换行切分的视觉文本块，如「标题/产品ID」双行格 → [标题, 产品ID]）。归一化：视觉上分离的文本块（换行/连续空格/nbsp）压缩为单个空格，本来相连的文本保持相连。控件值经 `controlValue()` 三层判定后**从原元素读取实时值**（cloneNode 丢属性设值）替换克隆中的控件再离屏渲染取文本；未命中候选保留原样由 innerText 兜底；离屏容器**不能加 `visibility:hidden`**（innerText 排除不可见文本）
 - **合并单元格**（table.js `extractTable()`）：rowspan/colspan 展开成网格（每格一次存四通道结果）+ 生成 SheetJS `!merges`，结尾按通道转置产出同形状的 aoa/ctrl/text/blocks
@@ -65,6 +66,7 @@
 | 虚拟采集用「DOM 引用判定 + 相邻窗口重叠合并」 | DOM 引用相同 = 窗口没变（非虚拟误报 / 渲染未完成）直接跳过；后缀/前缀匹配消除窗口重叠区重复，同时保留数据中合法的重复行（全局内容去重做不到） |
 | genToken 代际令牌 | 异步采集中用户退出/重选时，令牌使旧任务回调失效 |
 | 列拆分用「四通道 + 纯函数」 | 采集时一次取齐，默认导出走 merged 通道与 v1.2 完全一致；blocks 保留块级元素边界使双行格能按行拆而块内空格不拆；applyColumnSplits 不碰 DOM 可离线回归；规则存内存 Map（权限最小化，不碰 chrome.storage） |
+| 分体表格用「结构片段 + 视觉拼接」双重判定 | 只认片段 table（纯表头/纯数据），完整表格零回归；视觉拼接（间隙/对齐/宽度/列数）防止把同容器里两个独立表格误并；自最紧祖先向上首个命中即返回，无需维护组件库类名清单 |
 | 下载文件名 sanitize | 过滤 `\/:*?"<>|`、去首部点号（chrome.downloads 限制）、补 .xlsx 后缀 |
 
 ## 已知限制
@@ -73,4 +75,4 @@
 - 单元格导出纯文本，不保留颜色/字体样式；图片列导出为空
 - 无设置持久化（每次进入选择模式重填默认文件名；列拆分规则同为内存态，退出即清空）
 - 虚拟滚动 + 整行内容完全相同且相邻出现时，理论上可能少采（内容对齐的固有歧义；分散出现的重复行不受影响）
-- 组件库把一个表格拆成多个 `<table>`（固定表头/固定列布局）时不自动合并，需分别选择
+- 分体表格合并依赖「纯表头表 + 纯数据表视觉纵向拼接」判定：同容器中两个视觉上无缝拼接、列数一致的独立表格（如空表头表格紧贴数据表格）会被视为一个表格；组件库的汇总行表（如 el-table show-summary 的 footer 表）不参与合并

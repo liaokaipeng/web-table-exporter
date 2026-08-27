@@ -8,7 +8,7 @@
   const ns = window.__h2x;
   if (!ns || ns.aborted) return; // 守卫已退出（再次点击图标 = 退出选择模式），不初始化
   const { timestamp, sanitizeFilename } = ns.util;
-  const { extractTable, makeSheetName } = ns.table;
+  const { extractTable, makeSheetName, splitGroupOf } = ns.table;
   const { isVirtualTable, collectVirtual } = ns.virtual;
   const { applyColumnSplits } = ns.split;
   const panel = ns.panel;
@@ -91,9 +91,19 @@
 
   /* ---------------- 事件处理 ---------------- */
 
+  /** 命中解析：目标最近的 table → 逻辑表格根。组件库分体结构（表头/表体两个
+   *  table，如 Element Plus el-table）返回其包装容器，使悬浮高亮、点选、导出
+   *  三者始终识别为同一个表格 */
+  function hitRoot(target) {
+    const t = target.closest('table');
+    if (!t) return null;
+    const g = splitGroupOf(t);
+    return g ? g.root : t;
+  }
+
   function onMouseOver(e) {
     if (!active || collecting || !(e.target instanceof Element)) return;
-    const table = e.target.closest('table');
+    const table = hitRoot(e.target);
     if (table) { hoverTable = table; positionBox(hoverBox, table); }
     else { hoverTable = null; hoverBox.hidden = true; }
   }
@@ -106,7 +116,7 @@
     e.stopPropagation();
     if (collecting) return; // 采集滚动中不响应表格点击
     if (e.target instanceof Element) {
-      const table = e.target.closest('table');
+      const table = hitRoot(e.target);
       if (table) toggleSelect(table);
     }
   }

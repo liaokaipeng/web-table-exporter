@@ -13,6 +13,17 @@
   h2 { border-left: 4px solid #2e7d32; padding-left: 10px; }
   .note { background: #f6f8f6; border-left: 3px solid #9dbb9f; padding: 8px 12px; font-size: 13px; line-height: 1.7; color: #444; }
   #split td .sub { color: #999; font-size: 12px; }
+  /* 复刻 Element Plus el-table：表头/表体分离渲染为两个 table（分体表格合并用例）。
+     须覆盖页面级 table margin（否则表头/表体间隙过大，视觉拼接判定不成立）。
+     容器 620px / 表宽 860px：复刻 scrollable-x 水平滚动裁剪（表头 overflow:hidden 由 JS 同步 scrollLeft） */
+  .el-table { border: 1px solid #dcdfe6; margin: 16px 0 40px; width: 620px; }
+  .el-table table { margin: 0; width: 860px; table-layout: fixed; }
+  .el-table__header-wrapper { overflow: hidden; }
+  .el-table th, .el-table td { border: 0; border-bottom: 1px solid #ebeef5; padding: 10px 12px; font-size: 13px; text-align: left; }
+  .el-table th { background: #f5f7fa; }
+  .el-table th.gutter { width: 12px; padding: 0; }
+  .el-table__body-wrapper { height: 168px; overflow: auto; }
+  .el-table td .sub { color: #999; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -98,12 +109,58 @@
 - 另选第 2 节合并单元格表格打开面板：应显示「该表格含合并单元格，拆分不可用」，导出保持原样
 </p>
 
+<h2>6. 分体表格（表头/表体为两个 table，复刻 Element Plus el-table 结构）</h2>
+<div class="el-table" id="eltable">
+  <div class="el-table__inner-wrapper">
+    <div class="el-table__header-wrapper">
+      <table class="el-table__header">
+        <colgroup><col style="width:110px"><col><col style="width:100px"><col style="width:120px"><col style="width:90px"><col></colgroup>
+        <thead>
+          <tr>
+            <th>商品</th><th>标题/产品ID</th><th>本地展示价</th><th>一口价</th><th>发货仓</th><th class="gutter"></th>
+          </tr>
+        </thead>
+      </table>
+    </div>
+    <div class="el-table__body-wrapper">
+      <div class="el-scrollbar__view">
+        <table class="el-table__body">
+          <colgroup><col style="width:110px"><col><col style="width:100px"><col style="width:120px"><col style="width:90px"></colgroup>
+        <tbody>
+          <tr><td>连衣裙 A 款</td><td><div>Dress Blue Style</div><div class="sub">1731340859035700021</div></td><td>4722 PHP</td><td><input class="js-promo-el" type="text"> PHP</td><td><select><option value="">全部</option><option value="1" selected>华东仓</option></select></td></tr>
+          <tr><td>T恤 B 款</td><td><div>T Shirt Cotton White</div><div class="sub">1731340859035700022</div></td><td>1899 PHP</td><td><input class="js-promo-el" type="text"> PHP</td><td><select><option value="">全部</option><option value="2" selected>华南仓</option></select></td></tr>
+          <tr><td>短裤 C 款</td><td><div>Shorts Summer</div><div class="sub">1731340859035700023</div></td><td>2199 PHP</td><td><input class="js-promo-el" type="text"> PHP</td><td><select><option value="">全部</option><option value="1" selected>华东仓</option></select></td></tr>
+          <tr><td>卫衣 D 款</td><td><div>Hoodie Gray</div><div class="sub">1731340859035700024</div></td><td>2599 PHP</td><td><input class="js-promo-el" type="text"> PHP</td><td><select><option value="">全部</option><option value="2" selected>华南仓</option></select></td></tr>
+          <tr><td>半裙 E 款</td><td><div>Skirt Pleated</div><div class="sub">1731340859035700025</div></td><td>1699 PHP</td><td><input class="js-promo-el" type="text"> PHP</td><td><select><option value="">全部</option><option value="1" selected>华东仓</option></select></td></tr>
+          <tr><td>马甲 F 款</td><td><div>Vest Slim</div><div class="sub">1731340859035700026</div></td><td>1399 PHP</td><td><input class="js-promo-el" type="text"> PHP</td><td><select><option value="">全部</option><option value="2" selected>华南仓</option></select></td></tr>
+        </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="note">
+预期（分体表格合并）：<br>
+- 悬浮表头或表体（含垂直/水平滚动后）：高亮框应覆盖整个 el-table（表头+表体一个整体），点击一次即选中，不会出现「表头一个表格、数据行一个表格」<br>
+- 表宽 860 > 容器 620（水平滚动裁剪，复刻 scrollable-x）：滚动表体后悬浮表体仍须与表头配成同一张表（表头经 scrollLeft 同步平移）<br>
+- 导出为单个 Sheet：第 1 行表头（商品/标题/产品ID/本地展示价/一口价/发货仓，滚动条占位的空 gutter 列不导出）+ 6 行数据；表体滚动不影响行数<br>
+- 「一口价」列导出「2249 / 1639 / 1899 / 2058 / 1558 / 1269 PHP」（input 由 JS 属性设值，见页底脚本）；「发货仓」列导出「华东仓(1)/华南仓(2)」<br>
+- 列拆分面板同普通表格可用：「标题/产品ID」列应带「多行」徽标并默认勾选按换行拆分（预览标题、产品ID 各成一列）
+</p>
+
 <script>
   // 模拟框架（Vue 等）通过 JS 属性设值：验证导出从原元素读取实时值
   document.querySelector('#controls .js-set').value = 'JS设的值';
   // 列拆分测试：一口价 input 同样走 JS 属性设值（拆分后控件值列应取到这些实时值）
   const promos = ['2249', '1639', '1899'];
   document.querySelectorAll('#split .js-promo').forEach((inp, i) => { inp.value = promos[i]; });
+  // 分体表格（第 6 节）：同样走 JS 属性设值
+  const promosEl = ['2249', '1639', '1899', '2058', '1558', '1269'];
+  document.querySelectorAll('#eltable .js-promo-el').forEach((inp, i) => { inp.value = promosEl[i]; });
+  // 分体表格（第 6 节）：表头/表体水平滚动同步（复刻 el-table 对 overflow:hidden 表头设 scrollLeft）
+  const elHw = document.querySelector('#eltable .el-table__header-wrapper');
+  const elBw = document.querySelector('#eltable .el-table__body-wrapper');
+  elBw.addEventListener('scroll', () => { elHw.scrollLeft = elBw.scrollLeft; });
 </script>
 </body>
 </html>

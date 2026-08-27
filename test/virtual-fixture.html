@@ -19,6 +19,10 @@
   .el-switch.is-checked::after { left: 20px; }
   .virtual-spacer { height: 0; }
   .gray { color: #999; font-size: 12px; }
+  /* 复刻 vxe-table / el-table 分体结构：表头/表体两个 table，滚动容器在数据表上层 */
+  .split-table { border: 1px solid #ddd; margin: 16px 0 40px; }
+  .split-table__header-wrapper { background: #f0f4f8; }
+  .split-table__body-wrapper { max-height: 225px; overflow-y: auto; }
 </style>
 </head>
 <body>
@@ -55,6 +59,36 @@ DOM 中任意时刻只渲染约 12 行。其中序号 1、26、41 三行内容�
       <tr class="virtual-spacer virtual-spacer-bottom" style="height:0"></tr>
     </tbody>
   </table>
+</div>
+
+<h2>分体表格 + 虚拟滚动（表头/表体两个 table，复刻 vxe-table 结构）</h2>
+<p>下方复刻组件库「表头/表体分离渲染 + 数据表滚动容器」的结构：表头一个 table、表体一个 table，
+共 <b>40</b> 行数据，DOM 中任意时刻只渲染约 6 行。<br>
+预期：悬浮表头或表体（含滚动后）均应整体高亮为一张表，点击一次即选中；
+点击后自动滚动采集，完成后共 <b>41</b> 行（含表头，表头行来自上方表头表）；
+「一口价」列导出 500/507/514/…/773 PHP（input 由 JS 属性设值，须取实时值）。</p>
+<div class="split-table" id="sgwrap">
+  <div class="split-table__header-wrapper">
+    <table id="sgheader">
+      <thead>
+        <tr>
+          <th width="40">序号</th>
+          <th style="min-width:220px">商品</th>
+          <th style="min-width:110px">本地展示价</th>
+          <th style="min-width:120px">一口价</th>
+        </tr>
+      </thead>
+    </table>
+  </div>
+  <div class="split-table__body-wrapper" id="sgbody">
+    <table id="sgtable">
+      <tbody id="sgtbody">
+        <tr class="virtual-spacer sg-spacer-top" style="height:0"></tr>
+        <!-- 数据行由 JS 渲染 -->
+        <tr class="virtual-spacer sg-spacer-bottom" style="height:0"></tr>
+      </tbody>
+    </table>
+  </div>
 </div>
 
 <h2>普通表格（回归验证）</h2>
@@ -116,6 +150,40 @@ DOM 中任意时刻只渲染约 12 行。其中序号 1、26、41 三行内容�
   }
   container.addEventListener('scroll', render);
   render();
+
+  // 分体表格 + 虚拟滚动：表头/表体两个 table（复刻 vxe-table），滚动容器在数据表上层。
+  // 验证分体识别（splitGroupOf）与虚拟采集（collectVirtual 从数据表找滚动容器）的组合
+  const S_TOTAL = 40, S_ROW_H = 45, S_BUFFER = 3;
+  const S_DATA = Array.from({ length: S_TOTAL }, (_, i) => ({
+    name: 'SP-' + (i + 101) + '_Virtual Split',
+    price: 800 + i * 13,
+    promo: 500 + i * 7
+  }));
+  const sBody = document.getElementById('sgbody');
+  const sTbody = document.getElementById('sgtbody');
+  const sTop = sTbody.querySelector('.sg-spacer-top');
+  const sBottom = sTbody.querySelector('.sg-spacer-bottom');
+  function renderSplit() {
+    const first = Math.max(0, Math.floor(sBody.scrollTop / S_ROW_H) - 1);
+    const last = Math.min(S_TOTAL, first + Math.ceil(sBody.clientHeight / S_ROW_H) + S_BUFFER);
+    sTop.style.height = first * S_ROW_H + 'px';
+    sBottom.style.height = (S_TOTAL - last) * S_ROW_H + 'px';
+    [...sTbody.querySelectorAll('tr:not(.virtual-spacer)')].forEach(tr => tr.remove());
+    for (let i = first; i < last; i++) {
+      const d = S_DATA[i];
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + (i + 1) + '</td>' +
+        '<td>' + d.name + '</td>' +
+        '<td>' + d.price + ' PHP</td>' +
+        '<td><input type="text"> PHP</td>';
+      // 模拟 Vue：值只走 JS 属性（无 value 特性），导出须读实时值
+      tr.querySelector('input').value = String(d.promo);
+      sTbody.insertBefore(tr, sBottom);
+    }
+  }
+  sBody.addEventListener('scroll', renderSplit);
+  renderSplit();
 </script>
 </body>
 </html>

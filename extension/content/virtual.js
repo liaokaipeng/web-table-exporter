@@ -7,12 +7,17 @@
   const ns = window.__h2x;
 
   /** 虚拟表格识别：类名含 virtual 的占位元素 / 带高度的无单元格占位 tr。
+   *  参数可为普通 table 或分体包装容器（表头/表体两个 table 合并后的键）。
    *  宁可误报——误报时采集流程无损（每窗口都返回全量行，重叠合并后不变） */
-  function isVirtualTable(table) {
-    if (table.querySelector('[class*="virtual"]')) return true;
-    for (const tb of table.tBodies) {
-      for (const tr of tb.rows) {
-        if (!tr.cells.length && tr.getBoundingClientRect().height > 0) return true;
+  function isVirtualTable(el) {
+    if (el.querySelector('[class*="virtual"]')) return true;
+    const group = ns.table.splitGroupOf(el);
+    const tables = group ? [group.headerTable, group.bodyTable] : (el.tBodies ? [el] : []);
+    for (const t of tables) {
+      for (const tb of t.tBodies) {
+        for (const tr of tb.rows) {
+          if (!tr.cells.length && tr.getBoundingClientRect().height > 0) return true;
+        }
       }
     }
     return false;
@@ -49,10 +54,13 @@
    * 自动滚动采集虚拟表格全部行：回顶 → 按视口 80% 步长逐步下滚 → 逐窗口提取。
    * 表头行剥离只保留一份；数据行用「相邻窗口重叠合并」（后缀/前缀匹配）衔接，
    * 既消除窗口重叠区的重复，也保留数据中合法的重复行。
+   * 参数可为普通 table 或分体包装容器（滚动容器挂在数据表上层，表头行经 getRows 合并取）。
    * 返回与 extractTable 同构的四通道快照 { rows, ctrl, text, blocks, headerRows }。
    */
-  async function collectVirtual(table, onProgress, isCancelled) {
-    const container = findScrollContainer(table);
+  async function collectVirtual(root, onProgress, isCancelled) {
+    const group = ns.table.splitGroupOf(root);
+    const scrollTable = group ? group.bodyTable : root; // 分体结构：从数据表向上找滚动容器
+    const container = findScrollContainer(scrollTable);
     const headers = []; // 表头行对象 { merged, ctrl, text, blocks }，首窗口确定，支持多行表头
     const data = [];    // 数据行对象（与 headers 同构，重叠合并同步维护）
     // 行签名（merged 通道拼接，缓存于行对象），供重叠匹配
@@ -64,7 +72,7 @@
       const firstWin = prevRefs === null; // 首窗口收集全部表头行，后续窗口跳过
       const win = [];      // 当前窗口数据行对象
       const winRefs = [];
-      for (const { cells, el, isHeader } of ns.table.getRows(table)) {
+      for (const { cells, el, isHeader } of ns.table.getRows(root)) {
         const row = { merged: [], ctrl: [], text: [], blocks: [] };
         for (const cell of cells) {
           const parts = ns.cell.cellParts(cell);

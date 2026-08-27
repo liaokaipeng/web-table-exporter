@@ -12,6 +12,7 @@
   const { isVirtualTable, collectVirtual } = ns.virtual;
   const { applyColumnSplits, columnLayout, filterColumns } = ns.split;
   const panel = ns.panel;
+  const persist = ns.persist;
 
   let active = true;
   let host = null;
@@ -23,8 +24,8 @@
 
   const selected = new Map();   // table -> 覆盖层元素（Map 保持选择顺序 = Sheet 顺序）
   const snapshots = new Map();   // table -> 虚拟滚动表格采集快照 { rows, ctrl, text, headerRows }
-  const splitRules = new Map();  // table -> 列拆分规则 [{ col, mode, pattern, limit }]（内存态，不持久化）
-  const colFilters = new Map();  // table -> 导出列排除集 Set<colKey|colKey#k>（内存态，不持久化；无记录 = 全列导出）
+  const splitRules = new Map();  // table -> 列拆分规则（会话内存：面板保存时经 persist 落盘，选中时按表指纹恢复）
+  const colFilters = new Map();  // table -> 导出列排除集 Set<colKey|colKey#k>（会话内存，持久化同上；无记录 = 全列导出）
 
   /* ---------------- UI 构建（Shadow DOM 隔离页面样式） ---------------- */
 
@@ -75,7 +76,7 @@
     splitBtn = root.querySelector('.h2x-split');
     exportBtn.addEventListener('click', doExport);
     cancelBtn.addEventListener('click', exit);
-    splitBtn.addEventListener('click', panel.open);
+    splitBtn.addEventListener('click', openPanel);
 
     nameInput.value = sanitizeFilename(document.title) + '_' + timestamp();
   }
@@ -184,7 +185,30 @@
     host.shadowRoot.appendChild(box);
     selected.set(table, box);
     positionBox(box, table);
+    restoreFromPersist(table); // 持久化恢复：按表指纹回填该表的拆分规则/列筛选
     updateBar();
+  }
+
+  /** 持久化恢复：把已保存的拆分规则/列筛选回填内存 Map（幂等：已有会话配置不
+   *  覆盖，面板保存后重选也拿到最新值——removeSelected 只清内存不清存储）。
+   *  选中表格时调用；导出/面板入口再兜底一次注入初期的存储加载竞态 */
+  function restoreFromPersist(table) {
+    if (splitRules.has(table) || colFilters.has(table)) return;
+    const saved = persist.getSaved(table);
+    if (!saved || (!saved.rules.length && !saved.excluded.size)) return;
+    if (saved.rules.length) splitRules.set(table, saved.rules);
+    if (saved.excluded.size) colFilters.set(table, saved.excluded);
+    setHint('已恢复上次的列设置', '#2e7d32');
+    setTimeout(() => {
+      if (active && !collecting && !panel.isOpen()) resetHint();
+    }, 2500);
+  }
+
+  /** 打开列设置面板：先兜底持久化加载与恢复（面板读取 splitRules 显示已保存状态） */
+  async function openPanel() {
+    await persist.ready();
+    for (const table of selected.keys()) restoreFromPersist(table);
+    panel.open(); // 自身守卫（面板已开/采集中/未选中）
   }
 
   function removeSelected(table) {
@@ -192,8 +216,8 @@
     if (box) box.remove();
     selected.delete(table);
     snapshots.delete(table); // 虚拟表快照随取消失效，重选时重新采集最新数据
-    splitRules.delete(table); // 该表的拆分规则同步删除
-    colFilters.delete(table); // 该表的导出列筛选同步删除
+    splitRules.delete(table); // 会话内配置随取消失效（持久化记录保留，重选时自动恢复）
+    colFilters.delete(table);
     panel.onTableRemoved(table); // 面板草稿同步删除；面板正在编辑该表则直接关闭
     updateBar();
   }
@@ -293,8 +317,11 @@
     return filterColumns(aoa, columnLayout(ch, rules), colFilters.get(table));
   }
 
-  function doExport() {
+  async function doExport() {
     if (collecting || !selected.size) return;
+    await persist.ready(); // 兜底注入初期的存储加载竞态（正常情况早已就绪）
+    if (collecting || !selected.size) return; // await 期间状态可能变化
+    for (const table of selected.keys()) restoreFromPersist(table);
     let buf, name;
     try {
       if (typeof XLSX === 'undefined') throw new Error('XLSX 库未加载');
@@ -359,7 +386,7 @@
     if (host) host.remove();
     selected.clear();
     snapshots.clear();
-    splitRules.clear(); // 列拆分规则与列筛选仅存内存（权限最小化，不碰 chrome.storage）
+    splitRules.clear(); // 只清会话内存（持久化记录在 chrome.storage，重进选择模式自动恢复）
     colFilters.clear();
     panel.reset();
     window.__html2xlsx = null;

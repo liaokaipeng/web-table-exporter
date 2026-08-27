@@ -1,7 +1,7 @@
 /**
  * 点击扩展图标 → 按需注入内容脚本（避免在所有页面常驻加载 SheetJS）
  * 注入顺序即依赖顺序：xlsx.full.min.js（全局 XLSX）→ entry（守卫+命名空间）
- * → util → controls → split → cell → table → virtual → panel → main（主 UI）
+ * → util → controls → split → cell → table → virtual → persist → panel → main（主 UI）
  */
 chrome.action.onClicked.addListener(async (tab) => {
   try {
@@ -16,6 +16,7 @@ chrome.action.onClicked.addListener(async (tab) => {
         'content/cell.js',
         'content/table.js',
         'content/virtual.js',
+        'content/persist.js',
         'content/panel.js',
         'content/main.js'
       ]

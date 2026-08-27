@@ -1,10 +1,10 @@
 /**
  * 列设置面板（Shadow DOM 内）：导出列筛选（含拆分新列）+ 三种拆分模式
  * （control/block/delimiter）、智能预填、前 3 行实时预览、硬校验；
- * 草稿与规则均存内存（不碰 chrome.storage）
+ * 保存时草稿回写主 UI 内存 Map，并经 persist 模块落盘（跨会话恢复）
  * 依赖：主 UI 经 init() 注入 { host, selected, snapshots, splitRules,
  *   colFilters, isBusy, isAlive, updateBar, setHint, resetHint }（main.js 最后装配）；
- *   算法层经 __h2x 命名空间（util/table/split）
+ *   算法层经 __h2x 命名空间（util/table/split/persist）
  */
 (() => {
   'use strict';
@@ -564,9 +564,10 @@
       else deps.splitRules.delete(table);
       if (excluded.size) deps.colFilters.set(table, excluded);
       else deps.colFilters.delete(table);
+      ns.persist.save(table, rules, excluded); // 持久化：均空时删除记录（即重置路径）
     }
     closeSplitPanel();
-    deps.setHint('列设置已保存，导出时生效', '#2e7d32');
+    deps.setHint('列设置已保存并记住，导出时生效', '#2e7d32');
     setTimeout(() => { if (deps.isAlive() && !panelOpen) deps.resetHint(); }, 2500);
   }
 

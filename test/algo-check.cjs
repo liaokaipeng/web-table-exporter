@@ -4,6 +4,8 @@
 // - 列拆分函数直接加载 extension/content/split.js 整个模块（零依赖纯函数文件）
 // - 分体表格配对直接加载 extension/content/table.js 的 pairSplitGroup
 //   （模块级代码零 DOM 引用，可整文件加载；仅调用纯函数，DOM 侧取证走浏览器回归）
+// - 持久化纯函数直接加载 extension/content/persist.js（chrome/location 引用有守卫，
+//   Node 下自动降级；tableKeyOf 以对象桩模拟 DOM）
 const fs = require('fs');
 const path = require('path');
 
@@ -19,6 +21,7 @@ const {
   resolveRuleCol, colKeys, columnLayout, filterColumns, applyColumnSplits
 } = loadModule('split.js', 'split');
 const { pairSplitGroup } = loadModule('table.js', 'table');
+const { pageKeyOf, tableKeyOf, sanitizeRecord, evictKeys } = loadModule('persist.js', 'persist');
 
 // 模拟 takeWindow 完整逻辑（含 DOM 引用判定 + 重叠合并）
 // 窗口输入：{ rows: string[], refs: object[] }（refs 模拟 DOM 行元素引用）
@@ -616,6 +619,88 @@ check('多数据表取首个拼接',
 // 35. 无候选：单个表头表 / 空列表
 check('单个表头表无配对', pairSplitGroup([tdesc({ headerRows: 1, top: 100 })]), null);
 check('空列表返回 null', pairSplitGroup([]), null);
+
+/* ================= 持久化（persist.js 模块纯函数） ================= */
+
+// 36. pageKeyOf：origin+pathname，忽略 query/hash（分页/筛选参数不拆散同一份配置）
+check('pageKeyOf 忽略 query/hash',
+  [pageKeyOf('https://a.com/list?page=2#top'), pageKeyOf('https://a.com/list')],
+  ['https://a.com/list', 'https://a.com/list']);
+check('pageKeyOf 非法 URL 返回 null', pageKeyOf('not-a-url'), null);
+
+// 37. tableKeyOf：表头单元格文本归一化后以 \u0001 拼接（保存/恢复同源；指纹绝不取数据行）
+check('tableKeyOf 容器取首个 table 表头归一化拼接',
+  tableKeyOf({
+    tagName: 'DIV',
+    querySelector: () => ({ rows: [{ cells: [{ textContent: ' 标题 ' }, { textContent: '产品\nID' }] }] })
+  }),
+  '标题\u0001产品 ID');
+check('tableKeyOf 直接传 table',
+  tableKeyOf({ tagName: 'TABLE', rows: [{ cells: [{ textContent: 'A' }, { textContent: '\u00a0' }] }] }),
+  'A\u0001');
+check('tableKeyOf 无 table / 无行 / 无单元格返回 null',
+  [
+    tableKeyOf({ tagName: 'DIV', querySelector: () => null }),
+    tableKeyOf({ tagName: 'TABLE', rows: [] }),
+    tableKeyOf({ tagName: 'TABLE', rows: [{ cells: [] }] })
+  ],
+  [null, null, null]);
+
+// 37b. thead 直接嵌 th 无 tr（vxe-table 等组件库）：取 thead 子元素而非 tbody
+// 首条数据行（数据行在虚拟滚动下动态渲染，指纹必须稳定在表头上）
+check('tableKeyOf thead 无 tr 取 th 子元素（不落数据行）',
+  tableKeyOf({
+    tagName: 'TABLE',
+    tHead: { querySelectorAll: () => [], children: [{ tagName: 'TH', textContent: '标题' }, { tagName: 'TD', textContent: 'ID' }] },
+    rows: [{ cells: [{ textContent: '数据行1' }] }]
+  }),
+  '标题\u0001ID');
+check('tableKeyOf thead 有 tr 跳过空占位行取首个非空行',
+  tableKeyOf({
+    tagName: 'TABLE',
+    tHead: { querySelectorAll: () => [{ cells: [] }, { cells: [{ textContent: 'A' }] }], children: [] },
+    rows: [{ cells: [{ textContent: '数据' }] }]
+  }),
+  'A');
+check('tableKeyOf 无 thead 时 rows 首个非空行兜底（跳过占位空行）',
+  tableKeyOf({
+    tagName: 'TABLE',
+    tHead: null,
+    rows: [{ cells: [] }, { cells: [{ textContent: 'X' }, { textContent: 'Y' }] }]
+  }),
+  'X\u0001Y');
+check('tableKeyOf thead 全空且 rows 全空返回 null',
+  tableKeyOf({ tagName: 'TABLE', tHead: { querySelectorAll: () => [{ cells: [] }], children: [] }, rows: [] }),
+  null);
+
+// 38. sanitizeRecord：损坏字段剔除、类型归位（数字列键=列序号兜底）
+check('sanitizeRecord 合法规整原样通过',
+  sanitizeRecord({ rules: [{ col: '标题', mode: 'block', pattern: 'x', limit: 3 }], excluded: ['标题#1'], updatedAt: 123 }),
+  { rules: [{ col: '标题', mode: 'block', pattern: 'x', limit: 3 }], excluded: ['标题#1'], updatedAt: 123 });
+check('sanitizeRecord 剔除非法 mode、pattern/limit 类型归位',
+  sanitizeRecord({ rules: [{ col: 'A', mode: 'wrong' }, { col: 0, mode: 'delimiter', pattern: 5, limit: '3' }], excluded: ['B', 2, null, ''], updatedAt: 'x' }),
+  { rules: [{ col: 0, mode: 'delimiter', pattern: '5', limit: null }], excluded: ['B', 2], updatedAt: 0 });
+check('sanitizeRecord 规则字段补全',
+  sanitizeRecord({ rules: [{ col: 'A', mode: 'control' }], excluded: [] }),
+  { rules: [{ col: 'A', mode: 'control', pattern: '', limit: null }], excluded: [], updatedAt: 0 });
+check('sanitizeRecord 全空 / 非对象返回 null',
+  [sanitizeRecord({ rules: [], excluded: [] }), sanitizeRecord(null), sanitizeRecord('x')],
+  [null, null, null]);
+
+// 39. evictKeys：LRU 淘汰（页最新 = 各表记录 updatedAt 最大值；当前页豁免；非本扩展键忽略）
+const evictAll = {
+  'h2x.v1:p:https://a/1': { t1: { updatedAt: 100 } },
+  'h2x.v1:p:https://a/2': { t1: { updatedAt: 300 }, t2: { updatedAt: 500 } }, // 页最新取最大值 500
+  'h2x.v1:p:https://a/3': { t1: { updatedAt: 200 } },
+  'other-key': { x: 1 } // 非本扩展键不参与
+};
+check('evictKeys 未超限不淘汰', evictKeys(evictAll, 'h2x.v1:p:https://a/2', 10), []);
+check('evictKeys 超限淘汰最旧（当前页豁免）',
+  evictKeys(evictAll, 'h2x.v1:p:https://a/2', 2),
+  ['h2x.v1:p:https://a/1']);
+check('evictKeys 损坏页视为最旧优先淘汰',
+  evictKeys({ 'h2x.v1:p:bad': 'corrupt', 'h2x.v1:p:a': { t: { updatedAt: 1 } } }, 'h2x.v1:p:cur', 2),
+  ['h2x.v1:p:bad']);
 
 console.log(fail === 0 ? '\n全部通过' : '\n' + fail + ' 个失败');
 process.exit(fail === 0 ? 0 : 1);

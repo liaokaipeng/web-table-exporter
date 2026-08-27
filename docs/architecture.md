@@ -7,7 +7,7 @@
 │ 扩展图标     │ ─────────→ │ service-worker.js │ ─────────→ │ 页面 isolated    │
 │ (action)    │            │ (background)      │            │ world           │
 └─────────────┘            └────────┬─────────┘            │ ├ xlsx.full.min  │
-                                    │ sendMessage          │ └ content/ 9 文件 │
+                                    │ sendMessage          │ └ content/ 10 文件│
                                     ↓ (base64)             └────────┬────────┘
                            ┌──────────────────┐                     │
                            │ chrome.downloads │ ←───────────────────┘
@@ -18,17 +18,17 @@
 
 ### extension/manifest.json
 
-- MV3，权限最小化：`activeTab` + `scripting`（点击时注入）+ `downloads`（绕过页面 CSP）
+- MV3，权限最小化：`activeTab` + `scripting`（点击时注入）+ `downloads`（绕过页面 CSP）+ `storage`（v1.7 拆分规则与列筛选持久化；无安装警告的本地存储）
 - 无 `host_permissions`、无静态 `content_scripts`——SheetJS 约 950KB，不常驻所有页面
 - `extension/` 为插件本体目录（chrome://extensions 加载）；`test/`、`docs/` 为开发材料，不随插件分发
 
 ### extension/background/service-worker.js
 
-- `chrome.action.onClicked`：向当前 tab 注入 `lib/xlsx.full.min.js` 与 `content/` 下 9 个文件（同一 isolated world，main.js 直接用全局 `XLSX`；路径相对 extension/ 根）
+- `chrome.action.onClicked`：向当前 tab 注入 `lib/xlsx.full.min.js` 与 `content/` 下 10 个文件（同一 isolated world，main.js 直接用全局 `XLSX`；路径相对 extension/ 根）
 - `chrome.runtime.onMessage`（`type: 'html2xlsx-download'`）：base64 数据经 `chrome.downloads.download` 落盘并回传结果
 - 受限页面（chrome:// 等）注入失败静默处理
 
-### extension/content/（9 文件按依赖拓扑序注入，每文件一个 IIFE 挂载到 window.__h2x）
+### extension/content/（10 文件按依赖拓扑序注入，每文件一个 IIFE 挂载到 window.__h2x）
 
 注入守卫（entry.js）：`window.__html2xlsx` 已存在 → 标记 `__h2x.aborted` 并调上轮 `toggle()` 退出（再次点击图标 = 退出选择模式，本轮后续文件放弃初始化）；否则创建命名空间。零构建无 import/export，**注入顺序即依赖顺序**：
 
@@ -41,7 +41,8 @@
 | cell.js | controls | `cellParts()` 四通道取值 + 归一化 + 图片链接替换 |
 | table.js | cell | `getRows()` / `extractTable()` / `makeSheetName()` / `splitGroupOf()` / `pairSplitGroup()`（分体识别 + 纯函数配对，模块级零 DOM 引用，algo-check.cjs 离线回归） |
 | virtual.js | table | `isVirtualTable()` / `collectVirtual()` / `overlapLen()` |
-| panel.js | util, table, split | 「列设置」面板（导出列筛选 + 拆分配置）；依赖经 `panel.init({ host, selected, snapshots, splitRules, colFilters, isBusy, isAlive, updateBar, setHint, resetHint })` 注入，UI 层内部契约显式化；面板样式自持，按钮样式共用主 UI 的 `<style>` |
+| persist.js | entry | 拆分规则与列筛选持久化：`tableKeyOf()` 表指纹 + `getSaved()`/`save()` 恢复与落盘 + `ready()` 就绪兜底；页面键 = origin+pathname，存 `chrome.storage.local`（单页一条，LRU 上限 50 页）；纯函数可离线回归（详见 docs/persist-plan.md） |
+| panel.js | util, table, split, persist | 「列设置」面板（导出列筛选 + 拆分配置）；依赖经 `panel.init({ host, selected, snapshots, splitRules, colFilters, isBusy, isAlive, updateBar, setHint, resetHint })` 注入，UI 层内部契约显式化；面板样式自持，按钮样式共用主 UI 的 `<style>`；保存时经 `ns.persist.save()` 落盘 |
 | main.js | 其余全部 | 主 UI / 事件 / 选中管理 / 导出 / 退出清理 / 启动装配 |
 
 关键机制：
@@ -52,7 +53,8 @@
 - **单元格四通道**（cell.js `cellParts()`）：merged（控件替换为实时值后的完整文本，默认导出，v1.2 行为不变）/ ctrl（控件实时值**数组**，按 DOM 顺序逐个保留、空值占位不串位，供 control 拆分每控件一列）/ text（移除命中控件后的页面文本）/ blocks（按换行切分的视觉文本块，如「标题/产品ID」双行格 → [标题, 产品ID]）。归一化：视觉上分离的文本块（换行/连续空格/nbsp）压缩为单个空格，本来相连的文本保持相连。控件值经 `controlValue()` 三层判定后**从原元素读取实时值**（cloneNode 丢属性设值）替换克隆中的控件再离屏渲染取文本；未命中候选保留原样由 innerText 兜底；离屏容器**不能加 `visibility:hidden`**（innerText 排除不可见文本）
 - **合并单元格**（table.js `extractTable()`）：rowspan/colspan 展开成网格（每格一次存四通道结果）+ 生成 SheetJS `!merges`，结尾按通道转置产出同形状的 aoa/ctrl/text/blocks
 - **列拆分**（split.js `applyColumnSplits()` 纯函数 + panel.js 面板）：control 模式**每个控件各成一列**（`ctrlCountOf()` 取数据行最大控件数，列名 `ctrlColNames()` 为「原名_控件」单控件 / 「原名_控件1..N」多控件，末尾追加「原名_文本」；控件数不足的行补空，同格多控件不再顿号合并）+ block 模式按 blocks 通道拆（行内空格不拆）+ delimiter 模式按分隔符拆段（段数上限并入末段）。block/delimiter 共用「最大段数对齐 + 原名+序号命名」骨架，段值与列名经 `splitSegments()`/`splitColName()` 统一供导出与预览（预览即所得）；多规则按目标列**从右到左**应用；原列保留、新列追加其后；含 merges 或规则解析不到时原样返回（零回归 + 二次防御）。面板：智能预填、前 3 行实时预览、硬校验（分隔符非空、上限 ≥2 或不限）；普通表现跑 extractTable 取样，虚拟表须采集完成后用快照取样
-- **导出列筛选**（split.js `colKeys()`/`columnLayout()`/`filterColumns()` + panel.js 面板）：列标识 `colKeys()` 与拆分规则的 `resolveRuleCol()` 互逆（唯一非空表头文本 → 文本，否则列序号），拆分新列标识为 `key#段号`。`columnLayout()` 模拟 `applyColumnSplits()` 的短路条件与段数计算，产出「输出列号 → 标识」映射；`filterColumns()` 按排除集过滤列。导出链路：`applyColumnSplits → columnLayout → filterColumns`，三者列号严格对齐（algo-check.cjs 端到端回归）。排除集存内存 Map（`colFilters`，与 splitRules 同生命周期：取消选中/退出即清，无记录 = 全列导出零回归）。含 merges 的表跳过筛选（`!merges` 列号基于原始 aoa，过滤会错位；面板侧同步禁用）。面板：每列「导出」勾选（默认全选）+ 拆分列子行的逐新列勾选 + 全选/全不选快捷按钮 + 「至少保留一列」硬校验；预览对不导出列划线灰显
+- **导出列筛选**（split.js `colKeys()`/`columnLayout()`/`filterColumns()` + panel.js 面板）：列标识 `colKeys()` 与拆分规则的 `resolveRuleCol()` 互逆（唯一非空表头文本 → 文本，否则列序号），拆分新列标识为 `key#段号`。`columnLayout()` 模拟 `applyColumnSplits()` 的短路条件与段数计算，产出「输出列号 → 标识」映射；`filterColumns()` 按排除集过滤列。导出链路：`applyColumnSplits → columnLayout → filterColumns`，三者列号严格对齐（algo-check.cjs 端到端回归）。排除集与规则同存会话内存 Map（无记录 = 全列导出零回归），持久化生命周期见下条。含 merges 的表跳过筛选（`!merges` 列号基于原始 aoa，过滤会错位；面板侧同步禁用）。面板：每列「导出」勾选（默认全选）+ 拆分列子行的逐新列勾选 + 全选/全不选快捷按钮 + 「至少保留一列」硬校验；预览对不导出列划线灰显
+- **持久化**（persist.js）：拆分规则与列筛选经 `chrome.storage.local` 跨会话保留，定位键 = 页面键（origin+pathname，忽略 query/hash）+ 表指纹（`tableKeyOf()` 取逻辑根内首个 table **表头**单元格文本归一化拼接，兼容 thead 直接嵌 th 无 tr 的 vxe-table 写法——`table.rows` 不含这类 th，取 tbody 首行会在虚拟滚动下不稳定，指纹绝不落数据行；分体结构取表头表）。数据流：会话内存 Map 是唯一会话真相，`addSelected()` 时按指纹恢复（`getSaved()`），面板保存时回写 Map 并 `save()` 异步落盘（fire-and-forget，失败降级当次会话有效）；`doExport()`/面板入口 `await ready()` 兜底注入初期的加载竞态。取消选中/退出只清内存不清存储（重选自动恢复）；保存空配置 = 删除记录（重置路径）。表头变更 → 指纹不匹配 → 不恢复（列定位另有 `resolveRuleCol` 静默跳过防御）。单页条目上限 50，超出按页面最新 `updatedAt` LRU 淘汰；损坏记录经 `sanitizeRecord()` 剔除自愈；扩展上下文失效（重载扩展）读写失败自动降级
 - **虚拟滚动**（virtual.js）：识别（类名含 virtual 的占位元素 / 带高度空 tr，宁可误报——误报时采集流程无损）→ `collectVirtual()`：回顶 → 按视口 80% 步长下滚 → 每窗口先比对**行 DOM 引用**（同批节点 = 无新行，补等 250ms 重试），再用后缀/前缀重叠合并衔接数据行（表头剥离只留一份，行以 { merged, ctrl, text, blocks } 对象累积）。采集期间锁交互，`genToken` 代际令牌防退出后回调写入。快照 `{ rows, ctrl, text, blocks, headerRows }` 与 extractTable 结果同构（列拆分数据流统一）
 - **导出**（main.js）：多表 → 多 Sheet（caption/aria-label/id 命名，31 字符截断去重）→ `XLSX.write` ArrayBuffer → base64 → 优先 `chrome.runtime.sendMessage` 走后台下载；失败回退页面内 `blob:` 链接
 
@@ -66,8 +68,9 @@
 | UI 全部 Shadow DOM + 内联样式 | 不注入 CSS 文件，`all:initial` 阻断页面样式污染 |
 | 虚拟采集用「DOM 引用判定 + 相邻窗口重叠合并」 | DOM 引用相同 = 窗口没变（非虚拟误报 / 渲染未完成）直接跳过；后缀/前缀匹配消除窗口重叠区重复，同时保留数据中合法的重复行（全局内容去重做不到） |
 | genToken 代际令牌 | 异步采集中用户退出/重选时，令牌使旧任务回调失效 |
-| 列拆分用「四通道 + 纯函数」 | 采集时一次取齐，默认导出走 merged 通道与 v1.2 完全一致；blocks 保留块级元素边界使双行格能按行拆而块内空格不拆；applyColumnSplits 不碰 DOM 可离线回归；规则存内存 Map（权限最小化，不碰 chrome.storage） |
-| 列筛选用「排除集 + 输出列布局」 | 无记录 = 全列导出（零回归）；`columnLayout()` 与 `applyColumnSplits()` 共用短路条件与段数算法，过滤列号严格对齐；排除集与拆分规则同生命周期，随取消失效 |
+| 列拆分用「四通道 + 纯函数」 | 采集时一次取齐，默认导出走 merged 通道与 v1.2 完全一致；blocks 保留块级元素边界使双行格能按行拆而块内空格不拆；applyColumnSplits 不碰 DOM 可离线回归 |
+| 列筛选用「排除集 + 输出列布局」 | 无记录 = 全列导出（零回归）；`columnLayout()` 与 `applyColumnSplits()` 共用短路条件与段数算法，过滤列号严格对齐 |
+| 持久化用「页面键 + 表指纹」而非 DOM 引用 | DOM 元素无法序列化；表头文本与 colKeys 列标识同一哲学，表头变 → 指纹不匹配 → 安全降级默认配置（旧规则不误用）；会话内存 Map 仍为唯一真相，面板/导出链路零改动即可读到恢复值；chrome.storage.local 仅本地不上传，读写失败自动降级当次会话有效（详见 docs/persist-plan.md） |
 | 图片导出为链接（cell.js） | img 值从原元素读（`src` 解析后的绝对地址，srcset 场景兜底 `currentSrc`），按索引对齐替换进克隆——与控件同套路；替换先于控件值替换执行，防止嵌在命中控件内的 img 随控件整体替换丢失而串位；链接进入 merged/text/blocks 通道，导出、预览、列拆分全链路一致 |
 | 分体表格用「结构片段 + 视觉拼接」双重判定 | 只认片段 table（纯表头/纯数据），完整表格零回归；视觉拼接（间隙/对齐/宽度/列数）防止把同容器里两个独立表格误并；自最紧祖先向上首个命中即返回，无需维护组件库类名清单 |
 | 下载文件名 sanitize | 过滤 `\/:*?"<>|`、去首部点号（chrome.downloads 限制）、补 .xlsx 后缀 |
@@ -76,7 +79,8 @@
 
 - 仅顶层文档表格，iframe 内表格不处理
 - 单元格导出纯文本，不保留颜色/字体样式；图片导出为链接（src 绝对地址），video/svg/iframe 导出为空
-- 无设置持久化（每次进入选择模式重填默认文件名；列拆分规则与列筛选同为内存态，退出即清空）
+- 文件名输入框默认值每次进入选择模式重填（仅拆分规则与列筛选持久化，见 persist.js）
+- 持久化按表指纹定位：表头变更后不恢复（回落默认）；同页两个表头完全一致的表格共享一份配置；同页多 tab 并发保存 last-write-wins（低频低危）
 - 含合并单元格的表格不支持列筛选（!merges 列号基于原始网格，过滤会错位；面板已禁用）
 - 虚拟滚动 + 整行内容完全相同且相邻出现时，理论上可能少采（内容对齐的固有歧义；分散出现的重复行不受影响）
 - 分体表格合并依赖「纯表头表 + 纯数据表视觉纵向拼接」判定：同容器中两个视觉上无缝拼接、列数一致的独立表格（如空表头表格紧贴数据表格）会被视为一个表格；组件库的汇总行表（如 el-table show-summary 的 footer 表）不参与合并

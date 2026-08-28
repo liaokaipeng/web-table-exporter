@@ -6,13 +6,16 @@
 //   （模块级代码零 DOM 引用，可整文件加载；仅调用纯函数，DOM 侧取证走浏览器回归）
 // - 持久化纯函数直接加载 extension/content/persist.js（chrome/location 引用有守卫，
 //   Node 下自动降级；tableKeyOf 以对象桩模拟 DOM）
+// - 导出格式序列化直接加载 extension/content/format.js（依赖 util.escapeHtml，
+//   加载时预注入 util 命名空间）
 const fs = require('fs');
 const path = require('path');
 
 // 以伪 window 加载内容脚本模块（模块均为 IIFE，挂载到 window.__h2x.*）
-function loadModule(relPath, modName) {
+// preNs：预置命名空间成员（供有命名空间内依赖的模块使用，如 format 依赖 util）
+function loadModule(relPath, modName, preNs) {
   const src = fs.readFileSync(path.join(__dirname, '..', 'extension', 'content', relPath), 'utf8');
-  return new Function('window', src + '\n;return window.__h2x.' + modName + ';')({ __h2x: {} });
+  return new Function('window', src + '\n;return window.__h2x.' + modName + ';')({ __h2x: preNs || {} });
 }
 
 const { overlapLen } = loadModule('virtual.js', 'virtual');
@@ -23,6 +26,9 @@ const {
 } = loadModule('split.js', 'split');
 const { pairSplitGroup } = loadModule('table.js', 'table');
 const { pageKeyOf, tableKeyOf, sanitizeRecord, evictKeys } = loadModule('persist.js', 'persist');
+const util = loadModule('util.js', 'util');
+const { csvCell, toCsv, headerKeys, rowObjects, toJson, mdCell, toMarkdown, toHtmlDocument } =
+  loadModule('format.js', 'format', { util });
 
 // 模拟 takeWindow 完整逻辑（含 DOM 引用判定 + 重叠合并）
 // 窗口输入：{ rows: string[], refs: object[] }（refs 模拟 DOM 行元素引用）
@@ -797,6 +803,69 @@ check('evictKeys 超限淘汰最旧（当前页豁免）',
 check('evictKeys 损坏页视为最旧优先淘汰',
   evictKeys({ 'h2x.v1:p:bad': 'corrupt', 'h2x.v1:p:a': { t: { updatedAt: 1 } } }, 'h2x.v1:p:cur', 2),
   ['h2x.v1:p:bad']);
+
+// 40. 导出格式序列化（format.js：csv/json/md/html 纯函数）
+check('csvCell 普通值直出（null 归空串、数值字符串化）',
+  [csvCell('abc'), csvCell(123), csvCell(null)],
+  ['abc', '123', '']);
+check('csvCell RFC4180 转义（逗号/引号/换行双引号包裹、内部引号翻倍）',
+  [csvCell('a,b'), csvCell('a"b'), csvCell('a\nb'), csvCell('a\r\nb')],
+  ['"a,b"', '"a""b"', '"a\nb"', '"a\r\nb"']);
+check('toCsv 带 BOM 与 CRLF 行尾（转义单元格生效）',
+  toCsv([['h1', 'h2'], ['a,b', 'c']]),
+  '\ufeffh1,h2\r\n"a,b",c\r\n');
+check('toCsv 空表输出仅 BOM',
+  toCsv([]),
+  '\ufeff');
+
+check('headerKeys 末行表头 / 重名加序号 / 空名补列N / 无表头',
+  [headerKeys([['x', 'y'], ['a', 'b']], 2), headerKeys([['a', 'a']], 1),
+   headerKeys([['a', null], [1, 2]], 1), headerKeys([[1, 2]], 0)],
+  [['a', 'b'], ['a', 'a(2)'], ['a', '列2'], ['列1', '列2']]);
+check('rowObjects 表头行不入数据 / 值原样（数值保持数值、缺失归空串）',
+  rowObjects([['a', 'b'], ['1', 2], [null, 'x']], 1),
+  [{ a: '1', b: 2 }, { a: '', b: 'x' }]);
+check('toJson 单表 = 行对象数组',
+  JSON.parse(toJson([{ name: 't', aoa: [['a', 'b'], ['1', '2']], headerRows: 1 }])),
+  [{ a: '1', b: '2' }]);
+check('toJson 多表 = 表名键嵌套',
+  JSON.parse(toJson([
+    { name: 'S1', aoa: [['a'], ['1']], headerRows: 1 },
+    { name: 'S2', aoa: [['b'], ['2']], headerRows: 1 }
+  ])),
+  { S1: [{ a: '1' }], S2: [{ b: '2' }] });
+
+check('mdCell 竖线转义 / 换行转 <br> / 回车删除 / null 归空串',
+  [mdCell('a|b'), mdCell('a\nb'), mdCell('a\r\nb'), mdCell(null)],
+  ['a\\|b', 'a<br>b', 'a<br>b', '']);
+check('toMarkdown 结构（标题/表头/分隔行/数据行/多表空行分隔）',
+  toMarkdown([
+    { name: 'T1', aoa: [['a', 'b'], ['1', '2']], headerRows: 1 },
+    { name: 'T2', aoa: [['x'], ['y']], headerRows: 1 }
+  ]),
+  '## T1\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n## T2\n\n| x |\n| --- |\n| y |\n');
+check('toMarkdown 无表头生成列N表头（GFM 表格必须有表头）',
+  toMarkdown([{ name: 'T', aoa: [['1', '2']], headerRows: 0 }]),
+  '## T\n\n| 列1 | 列2 |\n| --- | --- |\n| 1 | 2 |\n');
+
+const htmlOut = toHtmlDocument([{ name: 'T<i>', aoa: [['a&b', 'c'], ['1', '2']], headerRows: 1 }], 'P&1');
+check('toHtmlDocument 结构与转义（文档骨架/标题/th/td）',
+  [htmlOut.indexOf('<!DOCTYPE html>') === 0,
+   htmlOut.includes('<meta charset="utf-8">'),
+   htmlOut.includes('<title>P&amp;1</title>'),
+   htmlOut.includes('<h2>T&lt;i&gt;</h2>'),
+   htmlOut.includes('<thead>\n<tr><th>a&amp;b</th><th>c</th></tr>\n</thead>'),
+   htmlOut.includes('<tbody>\n<tr><td>1</td><td>2</td></tr>\n</tbody>')],
+  [true, true, true, true, true, true]);
+const htmlOut2 = toHtmlDocument([
+  { name: 'A', aoa: [['1']], headerRows: 0 },
+  { name: 'B', aoa: [['x']], headerRows: 1 }
+], '');
+check('toHtmlDocument 多表串接 / 无表头全 td / 默认标题',
+  [htmlOut2.includes('<h2>A</h2>\n<table>\n<tbody>\n<tr><td>1</td></tr>'),
+   htmlOut2.includes('<h2>B</h2>\n<table>\n<thead>\n<tr><th>x</th></tr>\n</thead>'),
+   htmlOut2.includes('<title>导出表格</title>')],
+  [true, true, true]);
 
 console.log(fail === 0 ? '\n全部通过' : '\n' + fail + ' 个失败');
 process.exit(fail === 0 ? 0 : 1);

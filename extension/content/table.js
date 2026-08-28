@@ -125,7 +125,9 @@
     return g ? { root: el, headerTable: g.headerTable, bodyTable: g.bodyTable } : null;
   }
 
-  /** 单个物理 table 的行收集：常规 thead>tr>th；部分组件库 thead 直接嵌 th（无 tr 包裹） */
+  /** 单个物理 table 的行收集：常规 thead>tr>th；部分组件库 thead 直接嵌 th（无 tr 包裹）；
+   *  无 thead 的手写表格（内网页/生成报表常见 <tr><th>… 写法）tbody 行全 th 也计为
+   *  表头行——中间出现的全 th 行无害（extractTable 只数前导连续段作 headerRows） */
   function rowsOfTable(table) {
     const rows = [];
     const push = (cells, el, isHeader) => {
@@ -140,7 +142,8 @@
         push([...table.tHead.children].filter(el => el.tagName === 'TH' || el.tagName === 'TD'), table.tHead, true);
       }
     }
-    for (const tb of table.tBodies) for (const tr of tb.rows) push(tr.cells, tr);
+    const allTh = (tr) => tr.cells.length > 0 && Array.from(tr.cells).every(c => c.tagName === 'TH');
+    for (const tb of table.tBodies) for (const tr of tb.rows) push(tr.cells, tr, allTh(tr));
     if (table.tFoot) for (const tr of table.tFoot.querySelectorAll('tr')) push(tr.cells, tr, true);
     return rows;
   }

@@ -1,8 +1,8 @@
 # HTML2XLSX 表格导出
 
-Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页表格，一键导出为 xlsx。
+Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页表格，一键导出为 xlsx / csv / json / md / html。
 
-支持：合并单元格（rowspan/colspan）、多表格多 Sheet、自定义文件名、虚拟滚动表格全量采集、表单控件值（input/select）导出、单元格多段文本以空格连接、导出前列拆分（控件值/换行/分隔符三种模式）、导出列筛选（含拆分新列逐列勾选）、列格式（文本/数字，数字列可求和）、拆分规则与列筛选与列格式按页面记忆（重进自动恢复）。
+支持：合并单元格（rowspan/colspan）、多表格多 Sheet、自定义文件名、虚拟滚动表格全量采集、表单控件值（input/select）导出、单元格多段文本以空格连接、导出前列拆分（控件值/换行/分隔符三种模式）、导出列筛选（含拆分新列逐列勾选）、列格式（文本/数字，数字列可求和）、拆分规则与列筛选与列格式按页面记忆（重进自动恢复）、CSV（RFC4180 + BOM）、JSON（行对象）、Markdown（GFM 表格）、HTML（完整文档）。
 
 ## 安装
 
@@ -15,8 +15,8 @@ Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页
 1. 打开含表格的页面，点击扩展图标进入选择模式（再次点击图标或按 `Esc` 退出）
 2. 鼠标悬浮表格出现蓝色高亮；点击选中/取消（可多选，绿色覆盖层 + 序号徽标）
 3. （可选）点「列设置」配置：**列筛选**（逐列勾选是否导出，拆分出的各新列同样可单独筛掉，默认全选）+ **列拆分**：控件值拆分（如「一口价」input 值与 PHP 文本分列）/ 按换行拆分（如「标题/产品ID」双行格 → 标题列 + ID 列）/ 分隔符拆分；智能预填 + 前 3 行实时预览（划线列为不导出），原列保留。保存后按页面记住（本地存储），下次再进同页面选同表自动恢复；表头变更则回落默认
-4. 工具栏中修改文件名（预填为 页面标题_时间戳）
-5. 点击「导出 Excel」或按 `Enter`
+4. 工具栏中修改文件名（预填为 页面标题_时间戳），选择导出格式（xlsx / csv / json / md / html，默认 xlsx）
+5. 点击「导出」或按 `Enter`（多表格时 CSV 拆多个文件，其余格式汇总单文件）
 
 虚拟滚动表格（如 ERP 列表）点击后会自动滚动采集全部行，工具栏实时显示进度，采完后还原滚动位置。
 
@@ -35,6 +35,7 @@ Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页
 │   │   ├── table.js            #   行获取 / 合并单元格展开 / Sheet 命名
 │   │   ├── virtual.js          #   虚拟滚动表格采集
 │   │   ├── persist.js          #   拆分规则/列筛选/列格式持久化（chrome.storage）
+│   │   ├── format.js           #   csv/json/md/html 导出格式序列化纯函数
 │   │   ├── panel.js            #   列设置面板（列筛选 + 拆分配置 + 列格式）
 │   │   └── main.js             #   主 UI / 事件 / 导出
 │   ├── lib/xlsx.full.min.js    # SheetJS 0.20.3（Apache-2.0）
@@ -49,11 +50,11 @@ Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页
 ## 开发与测试
 
 ```powershell
-# 语法检查（内容脚本 10 文件 + 后台脚本）
+# 语法检查（内容脚本 11 文件 + 后台脚本）
 Get-ChildItem extension/content/*.js | ForEach-Object { node --check $_.FullName }
 node --check extension/background/service-worker.js
 
-# 回归测试（采集算法 + 列拆分/列筛选 + 持久化纯函数）
+# 回归测试（采集算法 + 列拆分/列筛选 + 持久化 + 导出格式序列化纯函数）
 node test/algo-check.cjs
 
 # 启动本地静态服务后访问 http://localhost:3000/test/virtual-fixture.html

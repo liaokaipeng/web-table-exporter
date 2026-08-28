@@ -1,7 +1,9 @@
 /**
- * HTML2XLSX 主 UI：选择模式工具栏、悬浮高亮、多选管理、xlsx 导出（须最后注入）
- * 依赖 window.__h2x 命名空间（entry/util/controls/split/cell/table/virtual/panel
- * 先行注入）；UI 层与算法层只经命名空间单向调用，面板经 panel.init() 注入依赖
+ * HTML2XLSX 主 UI：选择模式工具栏、悬浮高亮、多选管理、多格式导出
+ * （xlsx / csv / json / md / html，须最后注入）
+ * 依赖 window.__h2x 命名空间（entry/util/controls/split/cell/table/virtual/
+ * format/persist 先行注入）；UI 层与算法层只经命名空间单向调用，面板经
+ * panel.init() 注入依赖
  */
 (() => {
   'use strict';
@@ -11,16 +13,26 @@
   const { extractTable, makeSheetName, splitGroupOf } = ns.table;
   const { isVirtualTable, collectVirtual } = ns.virtual;
   const { applyColumnSplits, columnLayout, filterColumns, colKeys, formatColumns, applyColFormats, autoColWidths } = ns.split;
+  const { toCsv, toJson, toMarkdown, toHtmlDocument } = ns.format;
   const panel = ns.panel;
   const persist = ns.persist;
 
+  // 导出格式注册表：label 为按钮文案、ext 为文件扩展名、mime 为下载 MIME
+  const FORMATS = {
+    xlsx: { label: 'Excel', ext: 'xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+    csv: { label: 'CSV', ext: 'csv', mime: 'text/csv' },
+    json: { label: 'JSON', ext: 'json', mime: 'application/json' },
+    md: { label: 'Markdown', ext: 'md', mime: 'text/markdown' },
+    html: { label: 'HTML', ext: 'html', mime: 'text/html' }
+  };
+
   let active = true;
   let host = null;
-  let hoverBox = null, countEl = null, nameInput = null, exportBtn = null, cancelBtn = null, hintEl = null, splitBtn = null;
+  let hoverBox = null, countEl = null, nameInput = null, exportBtn = null, cancelBtn = null, hintEl = null, splitBtn = null, fmtSel = null;
   let hoverTable = null;
   let rafId = 0;
   let collecting = false; // 虚拟表格滚动采集中
-  let exporting = false;  // xlsx 生成/编码进行中（await 让出主线程期间的重入保护）
+  let exporting = false;  // 导出文件生成/编码进行中（await 让出主线程期间的重入保护）
   let genToken = 0;       // 代际令牌：退出/重新采集时使旧采集任务失效
 
   const selected = new Map();   // table -> 覆盖层元素（Map 保持选择顺序 = Sheet 顺序）
@@ -50,6 +62,8 @@
       '  .h2x-count b{color:#2e7d32;}',
       '  .h2x-name{width:240px;max-width:40vw;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font:13px/1.2 -apple-system,"Segoe UI",sans-serif;color:#333;outline:none;}',
       '  .h2x-name:focus{border-color:#2e7d32;}',
+      '  .h2x-ext{padding:6px 8px;border:1px solid #ccc;border-radius:6px;font:13px/1.2 -apple-system,"Segoe UI",sans-serif;color:#333;background:#fff;outline:none;cursor:pointer;}',
+      '  .h2x-ext:focus{border-color:#2e7d32;}',
       '  .h2x-btn{padding:6px 16px;border:none;border-radius:6px;cursor:pointer;font:13px/1.2 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}',
       '  .h2x-primary{background:#2e7d32;color:#fff;}',
       '  .h2x-primary:disabled{background:#b0bec5;cursor:not-allowed;}',
@@ -62,7 +76,10 @@
       '<div class="h2x-bar">',
       '  <span class="h2x-hint">点击选择表格（可多选）</span>',
       '  <span class="h2x-count">已选 <b>0</b> 个</span>',
-      '  <input class="h2x-name" type="text" spellcheck="false" />',
+      '<input class="h2x-name" type="text" spellcheck="false" />',
+      '<select class="h2x-ext" title="导出格式">' +
+      Object.keys(FORMATS).map(k => '<option value="' + k + '">' + FORMATS[k].ext + '</option>').join('') +
+      '</select>',
       '  <button class="h2x-btn h2x-split" disabled>列设置</button>',
       '  <button class="h2x-btn h2x-primary" disabled>导出 Excel</button>',
       '  <button class="h2x-btn h2x-ghost">取消 (Esc)</button>',
@@ -72,6 +89,7 @@
     hoverBox = root.querySelector('.h2x-hover');
     countEl = root.querySelector('.h2x-count b');
     nameInput = root.querySelector('.h2x-name');
+    fmtSel = root.querySelector('.h2x-ext');
     exportBtn = root.querySelector('.h2x-primary');
     cancelBtn = root.querySelector('.h2x-ghost');
     hintEl = root.querySelector('.h2x-hint');
@@ -79,6 +97,10 @@
     exportBtn.addEventListener('click', doExport);
     cancelBtn.addEventListener('click', exit);
     splitBtn.addEventListener('click', openPanel);
+    // 格式切换：导出按钮文案同步（文件名扩展名在导出时按格式追加）
+    fmtSel.addEventListener('change', () => {
+      exportBtn.textContent = '导出 ' + (FORMATS[fmtSel.value] || FORMATS.xlsx).label;
+    });
 
     nameInput.value = sanitizeFilename(document.title) + '_' + timestamp();
   }
@@ -301,10 +323,8 @@
     ch.port2.postMessage(0);
   });
 
-  function downloadViaBlob(buf, name) {
-    const blob = new Blob([buf], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    });
+  function downloadViaBlob(buf, name, mime) {
+    const blob = new Blob([buf], { type: mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -343,6 +363,74 @@
     return aoa;
   }
 
+  /** 导出文件名：base + 可选表名后缀 + 按格式补扩展名（chrome.downloads 不允许以点开头） */
+  function fileNamed(base, fmt, suffix) {
+    let name = suffix ? base + '_' + sanitizeFilename(suffix) : base;
+    if (!new RegExp('\\.' + fmt.ext + '$', 'i').test(name)) name += '.' + fmt.ext;
+    return name.replace(/^\.+/, '');
+  }
+
+  /** 表单元 → xlsx 单文件（merges 与列宽随原逻辑） */
+  function buildXlsxFile(tables, base) {
+    if (typeof XLSX === 'undefined') throw new Error('XLSX 库未加载');
+    const fmt = FORMATS.xlsx;
+    const wb = XLSX.utils.book_new();
+    for (const t of tables) {
+      const ws = XLSX.utils.aoa_to_sheet(t.aoa);
+      if (t.merges) ws['!merges'] = t.merges;
+      ws['!cols'] = autoColWidths(t.aoa); // 列宽随内容自适应（上下限钳制，见 split.js）
+      XLSX.utils.book_append_sheet(wb, ws, t.name);
+    }
+    return {
+      name: fileNamed(base, fmt, ''),
+      mime: fmt.mime,
+      buf: XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+    };
+  }
+
+  /** 表单元 → 文本格式文件列表：CSV 多表拆多文件（单文件无法承载多表）；
+   *  json/md/html 汇总为单文件（多表经表名分区/嵌套） */
+  function buildTextFiles(fmtKey, base, tables) {
+    const fmt = FORMATS[fmtKey];
+    const enc = new TextEncoder();
+    if (fmtKey === 'csv') {
+      return tables.map(t => ({
+        name: fileNamed(base, fmt, tables.length > 1 ? t.name : ''),
+        mime: fmt.mime,
+        buf: enc.encode(toCsv(t.aoa))
+      }));
+    }
+    let text;
+    if (fmtKey === 'json') text = toJson(tables);
+    else if (fmtKey === 'md') text = toMarkdown(tables);
+    else text = toHtmlDocument(tables, base);
+    return [{ name: fileNamed(base, fmt, ''), mime: fmt.mime, buf: enc.encode(text) }];
+  }
+
+  /** 单文件下载：base64 经后台 chrome.downloads（不受页面 CSP 限制），失败回退 blob */
+  function downloadFile(b64, file) {
+    return new Promise((resolve) => {
+      const fallback = (e) => {
+        console.error('[HTML2XLSX] 后台下载失败，回退 blob 下载：', e);
+        downloadViaBlob(file.buf, file.name, file.mime);
+        resolve();
+      };
+      try {
+        chrome.runtime.sendMessage(
+          { type: 'html2xlsx-download', data: b64, filename: file.name, mime: file.mime },
+          (resp) => {
+            const err = chrome.runtime.lastError;
+            if (!err && resp && resp.ok) { resolve(); return; }
+            fallback(err || resp);
+          }
+        );
+      } catch (err) {
+        // 扩展上下文失效（如开发中重新加载了扩展）时 sendMessage 会同步抛错
+        fallback(err);
+      }
+    });
+  }
+
   async function doExport() {
     if (exporting || collecting || !selected.size) return;
     exporting = true; // await 让出主线程期间按钮未禁用，防重入（原同步链路天然互斥）
@@ -350,61 +438,48 @@
       await persist.ready(); // 兜底注入初期的存储加载竞态（正常情况早已就绪）
       if (collecting || !selected.size) return; // await 期间状态可能变化
       for (const table of selected.keys()) restoreFromPersist(table);
-      let buf, name, b64;
-      try {
-        if (typeof XLSX === 'undefined') throw new Error('XLSX 库未加载');
-        const used = new Set();
-        const wb = XLSX.utils.book_new();
-        let i = 0;
-        for (const table of selected.keys()) {
-          if (!active) return; // yield 间隙用户可能已退出，放弃导出
-          let aoa;
-          let merges = null;
-          if (snapshots.has(table)) {
-            // 虚拟滚动表格：使用采集到的全量快照（列拆分与列筛选一并应用）
-            aoa = buildAoa(snapshots.get(table), table);
-          } else {
-            const ex = extractTable(table);
-            aoa = buildAoa(ex, table);
-            if (ex.merges.length) merges = ex.merges;
-          }
-          const ws = XLSX.utils.aoa_to_sheet(aoa);
-          if (merges) ws['!merges'] = merges;
-          ws['!cols'] = autoColWidths(aoa); // 列宽随内容自适应（上下限钳制，见 split.js）
-          XLSX.utils.book_append_sheet(wb, ws, makeSheetName(table, i++, used));
-          await yieldToMain(); // 每表之间让出主线程：多表/大表导出期间页面不冻结
-        }
-        buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
 
-        name = sanitizeFilename(nameInput.value) || ('export_' + timestamp());
-        if (!/\.xlsx$/i.test(name)) name += '.xlsx';
-        name = name.replace(/^\.+/, ''); // chrome.downloads 不允许以点开头
-        b64 = await arrayBufferToBase64(buf);
+      // 1. 逐表取数（列拆分/列筛选/列格式已在 buildAoa 应用），组装与 Sheet 名同源的表单元
+      const tables = [];
+      const used = new Set();
+      let i = 0;
+      for (const table of selected.keys()) {
+        if (!active) return; // yield 间隙用户可能已退出，放弃导出
+        let aoa, headerRows, merges = null;
+        if (snapshots.has(table)) {
+          // 虚拟滚动表格：使用采集到的全量快照
+          const snap = snapshots.get(table);
+          aoa = buildAoa(snap, table);
+          headerRows = snap.headerRows || 0;
+        } else {
+          const ex = extractTable(table);
+          aoa = buildAoa(ex, table);
+          headerRows = ex.headerRows || 0;
+          if (ex.merges.length) merges = ex.merges; // 仅 xlsx 使用（文本格式为平面数据）
+        }
+        tables.push({ name: makeSheetName(table, i++, used), aoa: aoa, headerRows: headerRows, merges: merges });
+        await yieldToMain(); // 每表之间让出主线程：多表/大表导出期间页面不冻结
+      }
+
+      // 2. 按所选格式生成下载文件列表（CSV 多表为多文件，其余单文件）
+      const fmtKey = FORMATS[fmtSel.value] ? fmtSel.value : 'xlsx';
+      const base = sanitizeFilename(nameInput.value) || ('export_' + timestamp());
+      let files;
+      try {
+        files = fmtKey === 'xlsx' ? [buildXlsxFile(tables, base)] : buildTextFiles(fmtKey, base, tables);
       } catch (err) {
-        console.error('[HTML2XLSX] 生成 xlsx 失败：', err);
+        console.error('[HTML2XLSX] 生成导出文件失败：', err);
         showError('导出失败：' + (err && err.message ? err.message : err));
         return;
       }
-      if (!active) return; // 编码间隙用户已退出，放弃下载
 
-      // 首选经后台 chrome.downloads 下载（不受页面 CSP 限制）；失败回退页面内 blob 下载
-      try {
-        chrome.runtime.sendMessage(
-          { type: 'html2xlsx-download', data: b64, filename: name },
-          (resp) => {
-            const err = chrome.runtime.lastError;
-            if (!err && resp && resp.ok) { finish(); return; }
-            console.error('[HTML2XLSX] 后台下载失败，回退 blob 下载：', err, resp);
-            downloadViaBlob(buf, name);
-            finish();
-          }
-        );
-      } catch (err) {
-        // 扩展上下文失效（如开发中重新加载了扩展）时 sendMessage 会同步抛错
-        console.error('[HTML2XLSX] sendMessage 失败，回退 blob 下载：', err);
-        downloadViaBlob(buf, name);
-        finish();
+      // 3. 逐文件编码下载（后台 downloads 优先，失败回退 blob）
+      for (const file of files) {
+        if (!active) return; // 编码间隙用户已退出，放弃下载
+        await downloadFile(await arrayBufferToBase64(file.buf), file);
+        await yieldToMain();
       }
+      finish();
     } finally {
       exporting = false;
     }

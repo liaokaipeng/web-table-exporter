@@ -2,8 +2,9 @@
 // - overlapLen 直接加载 extension/content/virtual.js 的实现（保证与实现同步）；
 //   takeWindow 逻辑在测试内模拟
 // - 列拆分函数直接加载 extension/content/split.js 整个模块（零依赖纯函数文件）
-// - 分体表格配对直接加载 extension/content/table.js 的 pairSplitGroup
-//   （模块级代码零 DOM 引用，可整文件加载；仅调用纯函数，DOM 侧取证走浏览器回归）
+// - 分体表格配对直接加载 extension/content/table.js 的 pairSplitGroup / makeSheetName
+//   （模块级代码零 DOM 引用，可整文件加载；仅调用纯函数，表名生成以对象桩模拟 DOM，
+//   其余 DOM 侧取证走浏览器回归）
 // - 持久化纯函数直接加载 extension/content/persist.js（chrome/location 引用有守卫，
 //   Node 下自动降级；tableKeyOf 以对象桩模拟 DOM）
 // - 导出格式序列化直接加载 extension/content/format.js（依赖 util.escapeHtml，
@@ -24,7 +25,7 @@ const {
   resolveRuleCol, colKeys, columnLayout, filterColumns, applyColumnSplits,
   toNumValue, formatColumns, applyColFormats, cellWidth, autoColWidths
 } = loadModule('split.js', 'split');
-const { pairSplitGroup } = loadModule('table.js', 'table');
+const { pairSplitGroup, makeSheetName } = loadModule('table.js', 'table');
 const { pageKeyOf, tableKeyOf, sanitizeRecord, evictKeys } = loadModule('persist.js', 'persist');
 const util = loadModule('util.js', 'util');
 const { csvCell, toCsv, headerKeys, rowObjects, toJson, mdCell, toMarkdown, toHtmlDocument } =
@@ -866,6 +867,45 @@ check('toHtmlDocument 多表串接 / 无表头全 td / 默认标题',
    htmlOut2.includes('<h2>B</h2>\n<table>\n<thead>\n<tr><th>x</th></tr>\n</thead>'),
    htmlOut2.includes('<title>导出表格</title>')],
   [true, true, true]);
+
+// 41. 通用工具（util.js）
+check('sanitizeFilename Windows 非法字符替换 / 去首尾空白 / 空值兜底',
+  [util.sanitizeFilename('a\\b/c:d*e?f"g<h>i|j'), util.sanitizeFilename('  订单  '),
+   util.sanitizeFilename(null), util.sanitizeFilename('')],
+  ['a_b_c_d_e_f_g_h_i_j', '订单', '', '']);
+check('escapeHtml 五字符转义 / 普通文本原样',
+  [util.escapeHtml('&<>"\''), util.escapeHtml('<script>alert("x")</script>'),
+   util.escapeHtml('普通文本 123')],
+  ['&amp;&lt;&gt;&quot;&#39;', '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;', '普通文本 123']);
+
+// 42. 工作表名生成（table.js makeSheetName；table 参数以对象桩模拟 caption/aria-label/id）
+const stubTable = (captionText, ariaLabel, id) => ({
+  querySelector: (sel) => (sel === 'caption' && captionText != null ? { innerText: captionText } : null),
+  getAttribute: (name) => (name === 'aria-label' && ariaLabel != null ? ariaLabel : null),
+  id: id || ''
+});
+check('makeSheetName caption 优先 / aria-label / id / 序号兜底',
+  [makeSheetName(stubTable('销售明细'), 0, new Set()),
+   makeSheetName(stubTable(null, '支付宝订单'), 1, new Set()),
+   makeSheetName(stubTable(null, null, 'tbl1'), 2, new Set()),
+   makeSheetName(stubTable(null), 3, new Set())],
+  ['销售明细', '支付宝订单', 'tbl1', '表格4']);
+check('makeSheetName 非法字符转空格 + 连续空白折叠 + 首尾去空',
+  makeSheetName(stubTable('  a:b\\c/d?e*f[g]h  '), 0, new Set()),
+  'a b c d e f g h');
+check('makeSheetName 超 31 字符截断 / 恰好 31 不动',
+  [makeSheetName(stubTable('x'.repeat(40)), 0, new Set()).length,
+   makeSheetName(stubTable('y'.repeat(31)), 0, new Set()).length],
+  [31, 31]);
+check('makeSheetName 重名加 (n) 后缀 / 长名截断留后缀空间',
+  [makeSheetName(stubTable('订单'), 0, new Set(['订单'])),
+   makeSheetName(stubTable('订单'), 0, new Set(['订单', '订单(2)'])),
+   makeSheetName(stubTable('z'.repeat(40)), 0, new Set(['z'.repeat(31)]))],
+  ['订单(2)', '订单(3)', 'z'.repeat(28) + '(2)']);
+check('makeSheetName 空 caption 文本回落 aria-label / 纯空白回落序号兜底',
+  [makeSheetName(stubTable('', '支付宝订单'), 0, new Set()),
+   makeSheetName(stubTable('   '), 0, new Set())],
+  ['支付宝订单', '表格1']);
 
 console.log(fail === 0 ? '\n全部通过' : '\n' + fail + ' 个失败');
 process.exit(fail === 0 ? 0 : 1);

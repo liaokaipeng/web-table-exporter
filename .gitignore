@@ -4,6 +4,9 @@
 # 含真实业务数据的分析文件（勿提交）
 test/dianxiaomi-table.html
 
+# 构建产物（扩展目录直接加载，无需提交打包文件）
+extension.zip
+
 # 系统文件
 Thumbs.db
 .DS_Store

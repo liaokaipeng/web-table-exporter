@@ -20,6 +20,7 @@
   let hoverTable = null;
   let rafId = 0;
   let collecting = false; // 虚拟表格滚动采集中
+  let exporting = false;  // xlsx 生成/编码进行中（await 让出主线程期间的重入保护）
   let genToken = 0;       // 代际令牌：退出/重新采集时使旧采集任务失效
 
   const selected = new Map();   // table -> 覆盖层元素（Map 保持选择顺序 = Sheet 顺序）
@@ -275,15 +276,27 @@
 
   /* ---------------- 导出 ---------------- */
 
+  /** ArrayBuffer → base64：FileReader 原生编码（data URL 截到首个逗号），
+   *  大文件显著快于分块 String.fromCharCode 拼接 */
   function arrayBufferToBase64(buf) {
-    const bytes = new Uint8Array(buf);
-    let binary = '';
-    const CHUNK = 0x8000; // 分块避免 String.fromCharCode.apply 栈溢出
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-    }
-    return btoa(binary);
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => {
+        const s = String(fr.result);
+        resolve(s.slice(s.indexOf(',') + 1));
+      };
+      fr.onerror = () => reject(fr.error || new Error('base64 编码失败'));
+      fr.readAsDataURL(new Blob([buf]));
+    });
   }
+
+  /** 让出主线程一拍：多表导出的逐表间隙调用，生成期间页面可交互不冻结。
+   *  MessageChannel 而非 setTimeout：后台标签页的定时器被节流（1s+）会拖慢导出 */
+  const yieldToMain = () => new Promise((resolve) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => resolve();
+    ch.port2.postMessage(0);
+  });
 
   function downloadViaBlob(buf, name) {
     const blob = new Blob([buf], {
@@ -318,56 +331,65 @@
   }
 
   async function doExport() {
-    if (collecting || !selected.size) return;
-    await persist.ready(); // 兜底注入初期的存储加载竞态（正常情况早已就绪）
-    if (collecting || !selected.size) return; // await 期间状态可能变化
-    for (const table of selected.keys()) restoreFromPersist(table);
-    let buf, name;
+    if (exporting || collecting || !selected.size) return;
+    exporting = true; // await 让出主线程期间按钮未禁用，防重入（原同步链路天然互斥）
     try {
-      if (typeof XLSX === 'undefined') throw new Error('XLSX 库未加载');
-      const used = new Set();
-      const wb = XLSX.utils.book_new();
-      let i = 0;
-      for (const table of selected.keys()) {
-        let ws;
-        if (snapshots.has(table)) {
-          // 虚拟滚动表格：使用采集到的全量快照（列拆分与列筛选一并应用）
-          ws = XLSX.utils.aoa_to_sheet(buildAoa(snapshots.get(table), table));
-        } else {
-          const ex = extractTable(table);
-          ws = XLSX.utils.aoa_to_sheet(buildAoa(ex, table));
-          if (ex.merges.length) ws['!merges'] = ex.merges;
+      await persist.ready(); // 兜底注入初期的存储加载竞态（正常情况早已就绪）
+      if (collecting || !selected.size) return; // await 期间状态可能变化
+      for (const table of selected.keys()) restoreFromPersist(table);
+      let buf, name, b64;
+      try {
+        if (typeof XLSX === 'undefined') throw new Error('XLSX 库未加载');
+        const used = new Set();
+        const wb = XLSX.utils.book_new();
+        let i = 0;
+        for (const table of selected.keys()) {
+          if (!active) return; // yield 间隙用户可能已退出，放弃导出
+          let ws;
+          if (snapshots.has(table)) {
+            // 虚拟滚动表格：使用采集到的全量快照（列拆分与列筛选一并应用）
+            ws = XLSX.utils.aoa_to_sheet(buildAoa(snapshots.get(table), table));
+          } else {
+            const ex = extractTable(table);
+            ws = XLSX.utils.aoa_to_sheet(buildAoa(ex, table));
+            if (ex.merges.length) ws['!merges'] = ex.merges;
+          }
+          XLSX.utils.book_append_sheet(wb, ws, makeSheetName(table, i++, used));
+          await yieldToMain(); // 每表之间让出主线程：多表/大表导出期间页面不冻结
         }
-        XLSX.utils.book_append_sheet(wb, ws, makeSheetName(table, i++, used));
+        buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+
+        name = sanitizeFilename(nameInput.value) || ('export_' + timestamp());
+        if (!/\.xlsx$/i.test(name)) name += '.xlsx';
+        name = name.replace(/^\.+/, ''); // chrome.downloads 不允许以点开头
+        b64 = await arrayBufferToBase64(buf);
+      } catch (err) {
+        console.error('[HTML2XLSX] 生成 xlsx 失败：', err);
+        showError('导出失败：' + (err && err.message ? err.message : err));
+        return;
       }
-      buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      if (!active) return; // 编码间隙用户已退出，放弃下载
 
-      name = sanitizeFilename(nameInput.value) || ('export_' + timestamp());
-      if (!/\.xlsx$/i.test(name)) name += '.xlsx';
-      name = name.replace(/^\.+/, ''); // chrome.downloads 不允许以点开头
-    } catch (err) {
-      console.error('[HTML2XLSX] 生成 xlsx 失败：', err);
-      showError('导出失败：' + (err && err.message ? err.message : err));
-      return;
-    }
-
-    // 首选经后台 chrome.downloads 下载（不受页面 CSP 限制）；失败回退页面内 blob 下载
-    try {
-      chrome.runtime.sendMessage(
-        { type: 'html2xlsx-download', data: arrayBufferToBase64(buf), filename: name },
-        (resp) => {
-          const err = chrome.runtime.lastError;
-          if (!err && resp && resp.ok) { finish(); return; }
-          console.error('[HTML2XLSX] 后台下载失败，回退 blob 下载：', err, resp);
-          downloadViaBlob(buf, name);
-          finish();
-        }
-      );
-    } catch (err) {
-      // 扩展上下文失效（如开发中重新加载了扩展）时 sendMessage 会同步抛错
-      console.error('[HTML2XLSX] sendMessage 失败，回退 blob 下载：', err);
-      downloadViaBlob(buf, name);
-      finish();
+      // 首选经后台 chrome.downloads 下载（不受页面 CSP 限制）；失败回退页面内 blob 下载
+      try {
+        chrome.runtime.sendMessage(
+          { type: 'html2xlsx-download', data: b64, filename: name },
+          (resp) => {
+            const err = chrome.runtime.lastError;
+            if (!err && resp && resp.ok) { finish(); return; }
+            console.error('[HTML2XLSX] 后台下载失败，回退 blob 下载：', err, resp);
+            downloadViaBlob(buf, name);
+            finish();
+          }
+        );
+      } catch (err) {
+        // 扩展上下文失效（如开发中重新加载了扩展）时 sendMessage 会同步抛错
+        console.error('[HTML2XLSX] sendMessage 失败，回退 blob 下载：', err);
+        downloadViaBlob(buf, name);
+        finish();
+      }
+    } finally {
+      exporting = false;
     }
   }
 

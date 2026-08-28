@@ -118,33 +118,42 @@
 
   /** 拆分新列数（与导出/预览逻辑一致：control = 最大控件数 + 1 文本列，同格
    *  多控件各成一列；其余取数据行最大段数）。
-   *  entry：面板草稿条目 { sample, cols, ... }（多表草稿保存时逐表取基准） */
+   *  entry：面板草稿条目 { sample, cols, ... }（多表草稿保存时逐表取基准）。
+   *  结果按 (列, 模式, 分隔符, 上限) 记忆化于 entry.segCache：面板每次勾选/
+   *  键入都触发全列全行重扫，万行虚拟快照下交互会明显卡顿；sample 在面板
+   *  生命周期内不变，缓存键即全部输入，无需失效 */
   function segCountOf(entry, c, d) {
-    if (d.mode === 'control') {
-      const sample = entry.sample;
-      return ctrlCountOf(sample.aoa || sample.rows, sample.ctrl || [], c, sample.headerRows || 0) + 1;
-    }
+    const lim = parseLimit(d.limit);
+    const key = c + '\x01' + d.mode + '\x01' + d.pattern + '\x01' + (lim == null ? '' : lim);
+    const cache = entry.segCache || (entry.segCache = new Map());
+    if (cache.has(key)) return cache.get(key);
     const sample = entry.sample;
     const aoa = sample.aoa || sample.rows;
-    const headerRows = sample.headerRows || 0;
-    const blocksCh = sample.blocks || [];
-    let n = 1;
-    for (let r = headerRows; r < aoa.length; r++) {
-      const parts = splitSegments(d.mode, (aoa[r] || [])[c], (blocksCh[r] || [])[c], d.pattern, parseLimit(d.limit));
-      if (parts.length > n) n = parts.length;
+    let n;
+    if (d.mode === 'control') {
+      n = ctrlCountOf(aoa, sample.ctrl || [], c, sample.headerRows || 0) + 1;
+    } else {
+      const headerRows = sample.headerRows || 0;
+      const blocksCh = sample.blocks || [];
+      n = 1;
+      for (let r = headerRows; r < aoa.length; r++) {
+        const parts = splitSegments(d.mode, (aoa[r] || [])[c], (blocksCh[r] || [])[c], d.pattern, lim);
+        if (parts.length > n) n = parts.length;
+      }
     }
+    cache.set(key, n);
     return n;
   }
 
   /** 拆分新列显示名（与导出列名规则一致；无表头时导出不写列名，此处用「段k」作 UI 标签） */
   function segNames(entry, c, d) {
     const raw = (entry.cols[c] && entry.cols[c].name) || '';
+    const n = segCountOf(entry, c, d);
     if (d.mode === 'control') {
       const base = raw || ('列' + (c + 1));
-      return entry.sample.headerRows ? ctrlColNames(base, segCountOf(entry, c, d) - 1)
-        : Array.from({ length: segCountOf(entry, c, d) }, (_, k) => '段' + (k + 1));
+      return entry.sample.headerRows ? ctrlColNames(base, n - 1)
+        : Array.from({ length: n }, (_, k) => '段' + (k + 1));
     }
-    const n = segCountOf(entry, c, d);
     return Array.from({ length: n }, (_, k) =>
       (entry.sample.headerRows ? splitColName(raw, k) : '段' + (k + 1)));
   }
@@ -157,15 +166,6 @@
   // 参数可用性：control 无分隔符/上限；block 无分隔符（上限可用）；delimiter 全可用
   const lockPattern = (d) => panelHasMerges() || d.mode !== 'delimiter';
   const lockLimit = (d) => panelHasMerges() || d.mode === 'control';
-
-  // 从列行事件解析草稿项：{ row, d } 或 null（面板未开 / 目标不在列行上）
-  function draftAt(e) {
-    if (!panelOpen) return null;
-    const row = e.target.closest('.h2x-col');
-    if (!row) return null;
-    const c = parseInt(row.dataset.c, 10);
-    return { row: row, d: panelDrafts.get(panelTable).draft[c] };
-  }
 
   function openSplitPanel() {
     if (panelOpen || deps.isBusy() || !deps.selected.size) return;

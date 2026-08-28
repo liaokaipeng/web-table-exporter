@@ -115,6 +115,17 @@ const bigResult = run([
 console.log('性能: 5000 行×3窗口 耗时 ' + (Date.now() - t0) + 'ms, 结果 ' + bigResult.length + ' 行');
 if (bigResult.length !== 5000) { fail++; console.log('FAIL 大表行数'); }
 
+// 7b. 超 200 行窗口（回归）：重叠数超过旧实现 200 硬上限时仍须正确匹配。
+// 旧上限会截断 k 的搜索域导致匹配失败 → 整窗追加产生重复行
+const bigWin1 = Array.from({length: 250}, (_, i) => 'r' + i);
+const bigWin2 = Array.from({length: 250}, (_, i) => 'r' + (i + 20)); // 与上窗重叠 230 行
+check('超 200 行窗口重叠合并（回归）',
+  run([
+    { rows: bigWin1, refs: Array.from({length: 250}, () => ({})) },
+    { rows: bigWin2, refs: Array.from({length: 250}, () => ({})) },
+  ]),
+  Array.from({length: 270}, (_, i) => 'r' + i));
+
 // 已知限制（不在断言内，记录用）：数据全同 + 虚拟滚动 + 整窗重建时，
 // 内容匹配无法区分重叠与新行，理论上会少采。普通场景（行内容各异或部分重复）均正确。
 

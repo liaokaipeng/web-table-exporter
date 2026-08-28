@@ -130,6 +130,7 @@
   const records = new Map(); // 表指纹 -> { rules, excluded: [], updatedAt }
   let readyPromise = null;   // 预载 Promise（无存储/无页面键时为 null，ready() 直接通过）
   let writeChain = Promise.resolve(); // 落盘串行链（后写覆盖前写，避免乱序回退）
+  let writePending = false;  // 待写标志：突发连写（如多表保存）合并为一次落盘
 
   const storageKey = () => KEY_PREFIX + pageKey;
 
@@ -189,9 +190,16 @@
     scheduleWrite();
   }
 
+  /** 排队落盘（突发合并）：已有待写任务时跳过——writePage 执行时才序列化最新
+   *  内存，一次写入即覆盖此前全部变更；执行期间到来的新变更会另排新任务 */
   function scheduleWrite() {
     if (!hasStorage() || !pageKey) return;
-    writeChain = writeChain.then(() => writePage());
+    if (writePending) return;
+    writePending = true;
+    writeChain = writeChain.then(() => {
+      writePending = false; // 先清标志：writePage 异步执行期间的新变更可再排队
+      return writePage();
+    });
   }
 
   /** 落盘当前页记录 + LRU 淘汰超限旧页（执行时序列化最新内存，天然合并连写） */

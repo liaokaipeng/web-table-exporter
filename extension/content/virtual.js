@@ -1,6 +1,6 @@
 /**
  * 虚拟滚动表格支持：识别与自动滚动采集
- * 依赖：table（getRows）、cell（cellParts）——均在函数调用时解引用
+ * 依赖：table（getRows）、cell（openBatch 批量取值）——均在函数调用时解引用
  */
 (() => {
   'use strict';
@@ -37,9 +37,10 @@
   const settle = (ms) => new Promise(res => { requestAnimationFrame(() => setTimeout(res, ms)); });
 
   /** 已累积行（签名数组）的后缀与当前窗口前缀的最长公共长度，即两窗口的重叠行数。
-   *  k 上限 cap 到一个视口的行数：滑动窗口的重叠不可能超过一屏，同时避免大表格 O(n²) 比较 */
+   *  k 上限为两数组长度较小值（重叠数不可能超过窗口行数）；失配通常在首字符
+   *  即断，无需额外 cap（5000 行 ×3 窗口回归耗时 1ms） */
   function overlapLen(acc, win) {
-    const max = Math.min(acc.length, win.length, 200);
+    const max = Math.min(acc.length, win.length);
     for (let k = max; k >= 1; k--) {
       let ok = true;
       for (let i = 0; i < k; i++) {
@@ -58,11 +59,12 @@
    * 返回与 extractTable 同构的四通道快照 { rows, ctrl, text, blocks, headerRows }。
    */
   async function collectVirtual(root, onProgress, isCancelled) {
-    const group = ns.table.splitGroupOf(root);
+    let group = ns.table.splitGroupOf(root); // 分体组解析一次逐窗复用（失效时重解析）
     const scrollTable = group ? group.bodyTable : root; // 分体结构：从数据表向上找滚动容器
     const container = findScrollContainer(scrollTable);
     const headers = []; // 表头行对象 { merged, ctrl, text, blocks }，首窗口确定，支持多行表头
     const data = [];    // 数据行对象（与 headers 同构，重叠合并同步维护）
+    const dataSigs = []; // 数据行签名（与 data 同步增长，免每窗全量重算）
     // 行签名（merged 通道拼接，缓存于行对象），供重叠匹配
     const sigOf = (row) => row.sig || (row.sig = row.merged.join('\x01'));
 
@@ -70,16 +72,25 @@
     let prevRefs = null; // 上一窗口数据行的 DOM 元素引用（判定窗口是否真的变化）
     const takeWindow = () => {
       const firstWin = prevRefs === null; // 首窗口收集全部表头行，后续窗口跳过
+      // 分体组失效（组件重建了表格结构）时重新解析；正常滚动仅替换行节点
+      if (group && (!group.headerTable.isConnected || !group.bodyTable.isConnected)) {
+        group = ns.table.splitGroupOf(root);
+      }
+      const rowsNow = ns.table.getRows(root, group); // 传入已解析组，免逐窗重复配对
+      // 窗内批量两阶段取值（cell.js openBatch）：预备全部单元格再一次集中读取
+      const batch = ns.cell.openBatch();
+      const preparedRows = rowsNow.map(({ cells }) => Array.from(cells, (cell) => batch.prepare(cell)));
+      batch.resolve();
       const win = [];      // 当前窗口数据行对象
       const winRefs = [];
-      for (const { cells, el, isHeader } of ns.table.getRows(root)) {
+      for (let r = 0; r < rowsNow.length; r++) {
+        const { el, isHeader } = rowsNow[r];
         const row = { merged: [], ctrl: [], text: [], blocks: [] };
-        for (const cell of cells) {
-          const parts = ns.cell.cellParts(cell);
-          row.merged.push(parts.merged);
-          row.ctrl.push(parts.ctrl);
-          row.text.push(parts.text);
-          row.blocks.push(parts.blocks);
+        for (const p of preparedRows[r]) {
+          row.merged.push(p.merged);
+          row.ctrl.push(p.ctrl);
+          row.text.push(p.text);
+          row.blocks.push(p.blocks);
         }
         if (isHeader) {
           if (firstWin) headers.push(row);
@@ -95,8 +106,11 @@
         return 0;
       }
       prevRefs = winRefs;
-      const k = overlapLen(data.map(sigOf), win.map(sigOf));
-      for (let i = k; i < win.length; i++) data.push(win[i]);
+      const k = overlapLen(dataSigs, win.map(sigOf));
+      for (let i = k; i < win.length; i++) {
+        data.push(win[i]);
+        dataSigs.push(win[i].sig); // sig 已由 win.map 计算，直接取缓存
+      }
       return win.length - k; // 新增行数
     };
 

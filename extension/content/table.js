@@ -1,6 +1,6 @@
 /**
  * 表格提取：行获取（表头兜底 + 占位/隐藏行过滤 + 分体表格合并）、合并单元格展开、Sheet 命名
- * 依赖：cell（cellParts 四通道取值）
+ * 依赖：cell（openBatch 批量四通道取值）
  */
 (() => {
   'use strict';
@@ -145,21 +145,23 @@
     return rows;
   }
 
-  /** 行获取：参数可为普通 table 或分体包装容器（表头表行在前、数据表行在后合并取行）；
-   *  过滤虚拟滚动占位空行与隐藏行。返回 [{ cells, el, isHeader }] */
-  function getRows(el) {
-    let rows;
-    const group = splitGroupOf(el);
-    if (group) {
-      // 分体合并取行；表头的滚动条占位 gutter 列（如 Element Plus 的空 th）跳过不导出
-      rows = rowsOfTable(group.headerTable).map(r => ({
+  /** 分体组行合并：表头表行在前（滚动条 gutter 占位列剔除）、数据表行在后 */
+  function rowsOfGroup(group) {
+    return rowsOfTable(group.headerTable)
+      .map(r => ({
         cells: [...r.cells].filter(c => !c.classList.contains('gutter')),
         el: r.el,
         isHeader: r.isHeader
-      })).concat(rowsOfTable(group.bodyTable));
-    } else {
-      rows = rowsOfTable(el);
-    }
+      }))
+      .concat(rowsOfTable(group.bodyTable));
+  }
+
+  /** 行获取：参数可为普通 table 或分体包装容器（表头表行在前、数据表行在后合并取行）；
+   *  过滤虚拟滚动占位空行与隐藏行。group 传入调用方已解析的分体组（虚拟采集逐窗
+   *  复用，免重复配对计算），undefined 时自行解析。返回 [{ cells, el, isHeader }] */
+  function getRows(el, group) {
+    const g = group !== undefined ? group : splitGroupOf(el);
+    const rows = g ? rowsOfGroup(g) : rowsOfTable(el);
     return rows.filter(({ cells, el }) => {
       if (!cells.length) return false; // 虚拟滚动占位空行（无内容）
       if (el.className && /virtual/.test(el.className)) return false; // 各类虚拟滚动占位行
@@ -170,22 +172,28 @@
 
   /** 表格 → 四通道网格：rowspan/colspan 展开成网格 + 生成 SheetJS !merges。
    *  参数可为普通 table 或分体包装容器（经 getRows 合并取行）。
-   *  每格一次取齐 cellParts() 四通道结果（合并延续格为 null），结尾按通道转置产出 */
+   *  取值走 cell.js 批量两阶段：先预备全部单元格（纯 DOM 写），再一次集中读取
+   *  （合并延续格为 null），结尾按通道转置产出 */
   function extractTable(table) {
     const cellGrid = [];
     const merges = [];
     const rows = getRows(table);
     let headerRows = 0; // 前导表头行数（thead），列拆分用于表头命名与列名匹配
     while (headerRows < rows.length && rows[headerRows].isHeader) headerRows++;
+    // 两阶段批量取值：整表克隆统一挂载、集中两轮读取，回流次数 O(格数) → 常数
+    const batch = ns.cell.openBatch();
+    const preparedRows = rows.map(({ cells }) => Array.from(cells, (cell) => batch.prepare(cell)));
+    batch.resolve();
     const ensureRow = (r) => { if (!cellGrid[r]) cellGrid[r] = []; };
     rows.forEach(({ cells }, r) => {
       ensureRow(r);
       let c = 0;
-      for (const cell of cells) {
+      const prepared = preparedRows[r];
+      for (let i = 0; i < cells.length; i++) {
         while (cellGrid[r][c] !== undefined) c++; // 跳过已被合并占据的槽位
-        const rs = cell.rowSpan || 1;
-        const cs = cell.colSpan || 1;
-        cellGrid[r][c] = ns.cell.cellParts(cell);
+        const rs = cells[i].rowSpan || 1;
+        const cs = cells[i].colSpan || 1;
+        cellGrid[r][c] = prepared[i];
         if (rs > 1 || cs > 1) {
           merges.push({ s: { r: r, c: c }, e: { r: r + rs - 1, c: c + cs - 1 } });
         }

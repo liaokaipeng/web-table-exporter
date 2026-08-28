@@ -30,12 +30,14 @@
   "标题\u0001产品ID\u0001..." : {
     "rules":   [{ "col": "标题/产品ID", "mode": "block", "pattern": "", "limit": null }],
     "excluded": ["标题/产品ID#2"],
+    "formats": [["本地展示价", "number"]],
     "updatedAt": 1693110000000
   }
 }
 ```
 
-- 单页一条顶层键，值为 { 表指纹 → 记录 }；纯 JSON，与 `applyColumnSplits` / `filterColumns` 入参形状一致，恢复零转换（`excluded` 数组恢复时转 `Set`）
+- 单页一条顶层键，值为 { 表指纹 → 记录 }；纯 JSON，与 `applyColumnSplits` / `filterColumns` 入参形状一致，恢复零转换（`excluded` 数组恢复时转 `Set`，`formats` 键值对数组转 `Map`）
+- `formats` 为 [列键, 格式] 键值对数组而非对象：对象键只能是字符串，数字列键（无表头/重名兜底的列序号）会被串化成 `'0'` 而与 `colKeys` 的数字键错位；文本为默认行为不落盘，只存 `number`（v1.9 增列格式，随 v1.7 记录结构追加字段，旧记录缺省 `[]` 兼容）
 - 容量控制：上限 50 个页面条目，超出按 `updatedAt` LRU 淘汰（每条几百字节，实际难触顶）
 
 ## 读写时序
@@ -43,9 +45,9 @@
 | 时机 | 动作 |
 |---|---|
 | persist.js 注入时 | 预载当前 pageKey 记录进模块内存，暴露 `ready()` Promise |
-| `addSelected` / 虚拟采集完成 | 按指纹查内存记录 → 命中则写入 `splitRules` / `colFilters` Map |
+| `addSelected` / 虚拟采集完成 | 按指纹查内存记录 → 命中则写入 `splitRules` / `colFilters` / `colFormats` Map |
 | `saveSplitPanel` 保存 | 更新 Map 后异步落盘（fire-and-forget，失败仅 console.warn，降级为当次有效） |
-| 保存时规则+排除全为空 | 删除该表记录 |
+| 保存时规则+排除+格式全为空 | 删除该表记录 |
 | `removeSelected` / `exit` | 只清内存 Map，不动存储 |
 | `doExport` / `panel.open` 入口 | `await persist.ready()` 兜底注入初期毫秒级竞态 |
 

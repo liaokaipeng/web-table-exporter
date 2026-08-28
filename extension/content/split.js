@@ -1,5 +1,5 @@
 /**
- * 列拆分纯函数（零依赖，不碰 DOM）
+ * 列拆分/列筛选/列格式纯函数（零依赖，不碰 DOM）
  * test/algo-check.cjs 整文件加载本模块回归（new Function 注入伪 window），
  * 故本文件不得引用其他模块——splitBlocks 内联与 normText 同规则的归一化正则
  */
@@ -172,6 +172,61 @@
     });
   }
 
+  /** 数值化：剥离千分位逗号与空白后按 Number 解析（'1,234' → 1234）；
+   *  空值/解析失败/非有限数返回原值（保持文本，Excel 里不丢内容） */
+  function toNumValue(v) {
+    if (typeof v === 'number') return v;
+    if (v == null) return v;
+    const s = String(v).replace(/[,\s]/g, '');
+    if (!s) return v;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : v;
+  }
+
+  /** 输出列格式计划：把列格式（Map<colKey, fmt>）映射为最终输出列的设置
+   *  [{ col: 输出列号, fmt }]。格式以原列（colKey）为基准：该列及其拆分新列
+   *  （同源值）一并生效；列筛选（excluded）的保留判定与 filterColumns 一致，
+   *  保证输出列号不错位。文本为默认行为（aoa_to_sheet 对字符串一律写文本），
+   *  仅 'number' 需要记录 */
+  function formatColumns(layout, keys, excluded, formats) {
+    if (!formats || !formats.size) return [];
+    let keep = null;
+    if (excluded && excluded.size) {
+      const k = [];
+      layout.forEach((col, i) => { if (!excluded.has(col.key)) k.push(i); });
+      if (k.length && k.length < layout.length) keep = k;
+    }
+    const idxs = keep || layout.map((_, i) => i);
+    const plan = [];
+    idxs.forEach((li, out) => {
+      const fmt = formats.get(keys[layout[li].srcCol]);
+      if (fmt === 'number') plan.push({ col: out, fmt: fmt });
+    });
+    return plan;
+  }
+
+  /** 列格式应用（导出 aoa 数据行数值化）：plan 为 formatColumns 的输出。
+   *  表头行（r < headerRows）不动；无可转换值时返回原数组（不改引用） */
+  function applyColFormats(aoa, plan, headerRows) {
+    const cols = [];
+    for (const f of (plan || [])) {
+      if (f && f.fmt === 'number' && f.col >= 0) cols.push(f.col);
+    }
+    if (!cols.length) return aoa;
+    const hr = headerRows || 0;
+    return aoa.map((row, r) => {
+      if (r < hr || !row) return row;
+      let changed = false;
+      const out = row.slice();
+      for (const c of cols) {
+        if (c >= out.length) continue;
+        const nv = toNumValue(out[c]);
+        if (nv !== out[c]) { out[c] = nv; changed = true; }
+      }
+      return changed ? out : row;
+    });
+  }
+
   /** 列拆分主函数：把通道中命中的列拆为多列（原列保留，新列追加其后，错了可删）。
    *  ch：extractTable 结果 { aoa, merges, ctrl, text, blocks, headerRows }
    *      或虚拟快照 { rows, ctrl, text, blocks, headerRows }；rules：[{ col, mode, pattern, limit }]
@@ -271,6 +326,8 @@
     splitSegments: splitSegments, splitColName: splitColName,
     ctrlCountOf: ctrlCountOf, ctrlColNames: ctrlColNames,
     resolveRuleCol: resolveRuleCol, colKeys: colKeys, columnLayout: columnLayout,
-    filterColumns: filterColumns, applyColumnSplits: applyColumnSplits
+    filterColumns: filterColumns, toNumValue: toNumValue,
+    formatColumns: formatColumns, applyColFormats: applyColFormats,
+    applyColumnSplits: applyColumnSplits
   };
 })();

@@ -1,9 +1,10 @@
 /**
  * 列设置面板（Shadow DOM 内）：导出列筛选（含拆分新列）+ 三种拆分模式
- * （control/block/delimiter）、智能预填、前 3 行实时预览、硬校验；
+ * （control/block/delimiter）+ 列格式（文本/数字，作用于该列及其拆分新列）、
+ * 智能预填、前 3 行实时预览、硬校验；
  * 保存时草稿回写主 UI 内存 Map，并经 persist 模块落盘（跨会话恢复）
  * 依赖：主 UI 经 init() 注入 { host, selected, snapshots, splitRules,
- *   colFilters, isBusy, isAlive, updateBar, setHint, resetHint }（main.js 最后装配）；
+ *   colFilters, colFormats, isBusy, isAlive, updateBar, setHint, resetHint }（main.js 最后装配）；
  *   算法层经 __h2x 命名空间（util/table/split/persist）
  */
 (() => {
@@ -11,7 +12,7 @@
   const ns = window.__h2x;
   const { escapeHtml } = ns.util;
   const { extractTable, makeSheetName } = ns.table;
-  const { splitSegments, splitColName, colKeys, ctrlCountOf, ctrlColNames } = ns.split;
+  const { splitSegments, splitColName, colKeys, ctrlCountOf, ctrlColNames, toNumValue } = ns.split;
 
   let deps = null; // 主 UI 注入的依赖接口（init 后可用）
 
@@ -70,10 +71,10 @@
 
   /** 智能预填：多块文本列默认勾选拆分并预设 block（按换行拆）；含控件列预设
    *  control 但不勾选（由用户确认）；其余纯文本列探测分隔符预填（默认不勾选）。
-   *  导出勾选默认全选（export: true），子列排除集默认为空 */
+   *  导出勾选默认全选（export: true），子列排除集默认为空，列格式默认文本 */
   function prefillDrafts(cols) {
     return cols.map(col => {
-      const base = { export: true, skipSegs: new Set() };
+      const base = { export: true, skipSegs: new Set(), fmt: 'text' };
       if (col.multiBlock) return Object.assign(base, { checked: true, mode: 'block', pattern: '', limit: '' });
       if (col.hasCtrl) return Object.assign(base, { checked: false, mode: 'control', pattern: col.delim, limit: '' });
       return Object.assign(base, { checked: false, mode: 'delimiter', pattern: col.delim, limit: '' });
@@ -81,8 +82,9 @@
   }
 
   /** 已保存规则与列筛选 → 面板草稿（未配置的列回落到智能预填）
-   *  keys：colKeys(sample) 的列标识数组；excluded：已保存的导出排除集 */
-  function draftFromSaved(saved, cols, keys, excluded) {
+   *  keys：colKeys(sample) 的列标识数组；excluded：已保存的导出排除集；
+   *  fmts：已保存的列格式 Map<colKey, 'number'>（文本为默认，无需保存） */
+  function draftFromSaved(saved, cols, keys, excluded, fmts) {
     const draft = prefillDrafts(cols);
     if (excluded) {
       draft.forEach((d, c) => {
@@ -96,6 +98,7 @@
         }
       });
     }
+    if (fmts) draft.forEach((d, c) => { if (fmts.get(keys[c]) === 'number') d.fmt = 'number'; });
     if (!saved) return draft;
     for (const rule of saved) {
       let c = -1;
@@ -199,17 +202,19 @@
       '  .h2x-col.off .h2x-mode,.h2x-col.off .h2x-pattern,.h2x-col.off .h2x-limit{opacity:.45;pointer-events:none;}',
       '  .h2x-col.noexp .h2x-cname{color:#bbb;}',
       '  .h2x-h1{width:34px;flex:none;text-align:center;}',
-      '  .h2x-h2{flex:2;min-width:0;}',
+      '  .h2x-h2{flex:1.8;min-width:0;}',
       '  .h2x-h3{width:34px;flex:none;text-align:center;}',
-      '  .h2x-h4{flex:1.4;min-width:0;}',
-      '  .h2x-h5{flex:1.6;min-width:0;}',
-      '  .h2x-h6{flex:0.9;min-width:0;}',
+      '  .h2x-h4{flex:1.2;min-width:0;}',
+      '  .h2x-h5{flex:1.35;min-width:0;}',
+      '  .h2x-h6{flex:0.85;min-width:0;}',
+      '  .h2x-h7{flex:0.8;min-width:0;}',
       '  .h2x-ckw{width:34px;flex:none;display:flex;justify-content:center;}',
-      '  .h2x-cname{flex:2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}',
+      '  .h2x-cname{flex:1.8;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}',
       '  .h2x-tag{display:inline-block;background:#e3f2fd;color:#1565c0;border-radius:8px;padding:0 6px;font-size:11px;font-weight:400;font-style:normal;margin-left:4px;}',
-      '  .h2x-mode{flex:1.4;min-width:0;}',
-      '  .h2x-pattern{flex:1.6;min-width:0;}',
-      '  .h2x-limit{flex:0.9;min-width:0;}',
+      '  .h2x-mode{flex:1.2;min-width:0;}',
+      '  .h2x-pattern{flex:1.35;min-width:0;}',
+      '  .h2x-limit{flex:0.85;min-width:0;}',
+      '  .h2x-fmt{flex:0.8;min-width:0;}',
       '  .h2x-sub{display:flex;flex-wrap:wrap;gap:4px 14px;padding:6px 10px 6px 44px;background:#f8fbf8;border-bottom:1px solid #f0f0f0;font-size:12px;color:#555;}',
       '  .h2x-sub .h2x-sub-label{color:#999;}',
       '  .h2x-sub label{display:flex;align-items:center;gap:4px;cursor:pointer;}',
@@ -265,7 +270,7 @@
       panelCols = buildPanelCols(panelSample);
       const keys = colKeys(panelSample); // 列标识（拆分规则与列筛选共用的定位基准）
       entry = {
-        draft: draftFromSaved(deps.splitRules.get(table), panelCols, keys, deps.colFilters.get(table)),
+        draft: draftFromSaved(deps.splitRules.get(table), panelCols, keys, deps.colFilters.get(table), deps.colFormats.get(table)),
         cols: panelCols, keys: keys, sample: panelSample
       };
       panelDrafts.set(table, entry);
@@ -287,7 +292,7 @@
     const hasMerges = panelHasMerges();
     const note = panelMask.querySelector('.h2x-note');
     note.hidden = !hasMerges;
-    if (hasMerges) note.textContent = '该表格含合并单元格，拆分与列筛选不可用（导出保持原样）';
+    if (hasMerges) note.textContent = '该表格含合并单元格，拆分与列筛选不可用（列格式仍可设置）';
     renderColList();
     renderPreview();
   }
@@ -339,7 +344,7 @@
       '<button type="button" class="h2x-mini h2x-all"' + (hasMerges ? ' disabled' : '') + '>全选</button>' +
       '<button type="button" class="h2x-mini h2x-none"' + (hasMerges ? ' disabled' : '') + '>全不选</button></div>';
     html += '<div class="h2x-col-head"><span class="h2x-h1">导出</span><span class="h2x-h2">列</span>' +
-      '<span class="h2x-h3">拆分</span><span class="h2x-h4">模式</span><span class="h2x-h5">分隔符</span><span class="h2x-h6">段数上限</span></div>';
+      '<span class="h2x-h3">拆分</span><span class="h2x-h4">模式</span><span class="h2x-h5">分隔符</span><span class="h2x-h6">段数上限</span><span class="h2x-h7">格式</span></div>';
     panelCols.forEach((col, c) => {
       const d = draft[c];
       const name = col.name || ('列' + (c + 1));
@@ -356,6 +361,10 @@
         escapeHtml(d.pattern === ' ' ? SPACE_MARK : d.pattern) + '"' + (lockPattern(d) ? ' disabled' : '') + '>' +
         '<input type="text" class="h2x-limit" placeholder="不限" inputmode="numeric" value="' +
         escapeHtml(d.limit) + '"' + (lockLimit(d) ? ' disabled' : '') + '>' +
+        '<select class="h2x-fmt" title="数字格式：数值化后写入 Excel（含千分位逗号会先剥离，无法解析保持原文本）；作用于该列及其拆分新列">' +
+        '<option value="text"' + (d.fmt !== 'number' ? ' selected' : '') + '>文本</option>' +
+        '<option value="number"' + (d.fmt === 'number' ? ' selected' : '') + '>数字</option>' +
+        '</select>' +
         '</div>';
       if (d.checked && !hasMerges) html += subHtmlOf(entry, c, d);
     });
@@ -399,6 +408,8 @@
     } else if (e.target.classList.contains('h2x-mode')) {
       d.mode = e.target.value;
       syncSubRow(panelDrafts.get(panelTable), c, d, row); // 段名/段数随模式变化
+    } else if (e.target.classList.contains('h2x-fmt')) {
+      d.fmt = e.target.value === 'number' ? 'number' : 'text'; // 子行不变（拆分新列继承列格式）
     }
     row.querySelector('.h2x-pattern').disabled = lockPattern(d);
     row.querySelector('.h2x-limit').disabled = lockLimit(d);
@@ -483,7 +494,9 @@
       actives.forEach(({ c, d }) => {
         const before = (aoa[r] || [])[c];
         const dropSrc = d.export ? '' : ' drop';
-        html += '<td class="old' + dropSrc + '">' + escapeHtml(before == null ? '' : String(before)) + '</td>';
+        // 数字格式预览即所得：数据值经 toNumValue 展示（导出同规则数值化）
+        const num = (v) => (d.fmt === 'number' && v != null && v !== '' ? toNumValue(v) : v);
+        html += '<td class="old' + dropSrc + '">' + escapeHtml(before == null ? '' : String(num(before))) + '</td>';
         if (d.mode === 'control') {
           // ctrl 通道为按位控件值数组：多控件各成一列（短行补空）+ 末尾文本列
           const n = segCountOf(entry, c, d) - 1;
@@ -492,17 +505,17 @@
           while (vals.length < n) vals.push('');
           for (let k = 0; k < n; k++) {
             html += '<td' + (d.skipSegs.has(k + 1) ? ' class="drop"' : '') + '>' +
-              escapeHtml(vals[k] == null ? '' : String(vals[k])) + '</td>';
+              escapeHtml(vals[k] == null ? '' : String(num(vals[k]))) + '</td>';
           }
           const tv = text[r] ? text[r][c] : null;
           html += '<td' + (d.skipSegs.has(n + 1) ? ' class="drop"' : '') + '>' +
-            escapeHtml(tv == null ? '' : String(tv)) + '</td>';
+            escapeHtml(tv == null ? '' : String(num(tv))) + '</td>';
         } else {
           const n = segCountOf(entry, c, d);
           const parts = partsOf(r, c, d);
           while (parts.length < n) parts.push('');
           for (let k = 0; k < n; k++) {
-            html += '<td' + (d.skipSegs.has(k + 1) ? ' class="drop"' : '') + '>' + escapeHtml(parts[k]) + '</td>';
+            html += '<td' + (d.skipSegs.has(k + 1) ? ' class="drop"' : '') + '>' + escapeHtml(String(num(parts[k]))) + '</td>';
           }
         }
       });
@@ -549,12 +562,14 @@
       const { draft, keys } = entry;
       const rules = [];
       const excluded = new Set(); // 导出列排除集（原列 key / 拆分新列 key#k）
+      const formats = new Map();  // 列格式（文本为默认不记录，仅存数字列）
       draft.forEach((d, c) => {
         if (!d) return;
         if (d.checked) {
           rules.push({ col: keys[c], mode: d.mode, pattern: d.pattern || '', limit: parseLimit(d.limit) });
         }
         if (!d.export) excluded.add(keys[c]);
+        if (d.fmt === 'number') formats.set(keys[c], 'number');
         const n = d.checked ? segCountOf(entry, c, d) : 0;
         for (let k = 1; k <= n; k++) {
           if (d.skipSegs.has(k)) excluded.add(keys[c] + '#' + k);
@@ -564,7 +579,9 @@
       else deps.splitRules.delete(table);
       if (excluded.size) deps.colFilters.set(table, excluded);
       else deps.colFilters.delete(table);
-      ns.persist.save(table, rules, excluded); // 持久化：均空时删除记录（即重置路径）
+      if (formats.size) deps.colFormats.set(table, formats);
+      else deps.colFormats.delete(table);
+      ns.persist.save(table, rules, excluded, formats); // 持久化：均空时删除记录（即重置路径）
     }
     closeSplitPanel();
     deps.setHint('列设置已保存并记住，导出时生效', '#2e7d32');

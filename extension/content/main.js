@@ -10,7 +10,7 @@
   const { timestamp, sanitizeFilename } = ns.util;
   const { extractTable, makeSheetName, splitGroupOf } = ns.table;
   const { isVirtualTable, collectVirtual } = ns.virtual;
-  const { applyColumnSplits, columnLayout, filterColumns } = ns.split;
+  const { applyColumnSplits, columnLayout, filterColumns, colKeys, formatColumns, applyColFormats } = ns.split;
   const panel = ns.panel;
   const persist = ns.persist;
 
@@ -27,6 +27,7 @@
   const snapshots = new Map();   // table -> 虚拟滚动表格采集快照 { rows, ctrl, text, headerRows }
   const splitRules = new Map();  // table -> 列拆分规则（会话内存：面板保存时经 persist 落盘，选中时按表指纹恢复）
   const colFilters = new Map();  // table -> 导出列排除集 Set<colKey|colKey#k>（会话内存，持久化同上；无记录 = 全列导出）
+  const colFormats = new Map();  // table -> 列格式 Map<colKey,'number'>（会话内存，持久化同上；文本为默认不记录）
 
   /* ---------------- UI 构建（Shadow DOM 隔离页面样式） ---------------- */
 
@@ -190,15 +191,16 @@
     updateBar();
   }
 
-  /** 持久化恢复：把已保存的拆分规则/列筛选回填内存 Map（幂等：已有会话配置不
-   *  覆盖，面板保存后重选也拿到最新值——removeSelected 只清内存不清存储）。
+  /** 持久化恢复：把已保存的拆分规则/列筛选/列格式回填内存 Map（幂等：已有会话
+   *  配置不覆盖，面板保存后重选也拿到最新值——removeSelected 只清内存不清存储）。
    *  选中表格时调用；导出/面板入口再兜底一次注入初期的存储加载竞态 */
   function restoreFromPersist(table) {
-    if (splitRules.has(table) || colFilters.has(table)) return;
+    if (splitRules.has(table) || colFilters.has(table) || colFormats.has(table)) return;
     const saved = persist.getSaved(table);
-    if (!saved || (!saved.rules.length && !saved.excluded.size)) return;
+    if (!saved || (!saved.rules.length && !saved.excluded.size && !saved.formats.size)) return;
     if (saved.rules.length) splitRules.set(table, saved.rules);
     if (saved.excluded.size) colFilters.set(table, saved.excluded);
+    if (saved.formats.size) colFormats.set(table, saved.formats);
     setHint('已恢复上次的列设置', '#2e7d32');
     setTimeout(() => {
       if (active && !collecting && !panel.isOpen()) resetHint();
@@ -219,6 +221,7 @@
     snapshots.delete(table); // 虚拟表快照随取消失效，重选时重新采集最新数据
     splitRules.delete(table); // 会话内配置随取消失效（持久化记录保留，重选时自动恢复）
     colFilters.delete(table);
+    colFormats.delete(table);
     panel.onTableRemoved(table); // 面板草稿同步删除；面板正在编辑该表则直接关闭
     updateBar();
   }
@@ -321,13 +324,23 @@
     setTimeout(exit, 600);
   }
 
-  /** 导出 aoa 组装：先应用列拆分，再按排除集过滤列（列筛选）。
-   *  含合并单元格的表格跳过筛选（!merges 列号基于原始 aoa，过滤会错位；面板已禁用） */
+  /** 导出 aoa 组装：先应用列拆分，再按排除集过滤列（列筛选），最后按列格式数值化
+   *  （数字列数据行转数值；文本为默认行为不处理）。含合并单元格的表格跳过筛选
+   *  （!merges 列号基于原始 aoa，过滤会错位；面板已禁用），列格式仍生效（不涉
+   *  及列重排，layout 对 merges 表同样给出原列映射） */
   function buildAoa(ch, table) {
     const rules = splitRules.get(table);
-    const aoa = applyColumnSplits(ch, rules);
-    if (ch.merges && ch.merges.length) return aoa;
-    return filterColumns(aoa, columnLayout(ch, rules), colFilters.get(table));
+    const layout = columnLayout(ch, rules);
+    const excluded = colFilters.get(table);
+    let aoa = applyColumnSplits(ch, rules);
+    if (!(ch.merges && ch.merges.length)) {
+      aoa = filterColumns(aoa, layout, excluded);
+    }
+    const formats = colFormats.get(table);
+    if (formats && formats.size) {
+      aoa = applyColFormats(aoa, formatColumns(layout, colKeys(ch), excluded, formats), ch.headerRows || 0);
+    }
+    return aoa;
   }
 
   async function doExport() {
@@ -410,6 +423,7 @@
     snapshots.clear();
     splitRules.clear(); // 只清会话内存（持久化记录在 chrome.storage，重进选择模式自动恢复）
     colFilters.clear();
+    colFormats.clear();
     panel.reset();
     window.__html2xlsx = null;
   }
@@ -426,6 +440,7 @@
     snapshots: snapshots,
     splitRules: splitRules,
     colFilters: colFilters,
+    colFormats: colFormats,
     isBusy: () => collecting,
     isAlive: () => active,
     updateBar: updateBar,

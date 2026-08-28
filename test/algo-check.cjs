@@ -18,7 +18,8 @@ function loadModule(relPath, modName) {
 const { overlapLen } = loadModule('virtual.js', 'virtual');
 const {
   splitByDelimiter, splitBlocks, limitBlocks, splitSegments, splitColName,
-  resolveRuleCol, colKeys, columnLayout, filterColumns, applyColumnSplits
+  resolveRuleCol, colKeys, columnLayout, filterColumns, applyColumnSplits,
+  toNumValue, formatColumns, applyColFormats
 } = loadModule('split.js', 'split');
 const { pairSplitGroup } = loadModule('table.js', 'table');
 const { pageKeyOf, tableKeyOf, sanitizeRecord, evictKeys } = loadModule('persist.js', 'persist');
@@ -547,6 +548,57 @@ check('端到端 无规则纯筛选',
   filterColumns(applyColumnSplits(chE2E, []), columnLayout(chE2E, []), new Set(['操作'])),
   [['标题/产品ID', '本地展示价'], ['T1\nI1', '4722 PHP'], ['T2\nI2', '1899 PHP']]);
 
+/* ================= 列格式（toNumValue / formatColumns / applyColFormats） ================= */
+
+// 47. toNumValue：千分位/空白剥离数值化；空值与解析失败保持原值
+check('toNumValue 基本数值化',
+  [toNumValue('123'), toNumValue('12.5'), toNumValue('-5'), toNumValue('007'), toNumValue(42)],
+  [123, 12.5, -5, 7, 42]);
+check('toNumValue 千分位与空白剥离',
+  [toNumValue('1,234'), toNumValue(' 1 234 '), toNumValue('1,234.56')],
+  [1234, 1234, 1234.56]);
+check('toNumValue 解析失败/空值/非有限数保持原值',
+  [toNumValue('abc'), toNumValue('12a'), toNumValue(''), toNumValue(null), toNumValue('1e3'), toNumValue('Infinity')],
+  ['abc', '12a', '', null, 1000, 'Infinity']);
+
+// 48. formatColumns：列格式 → 输出列号计划（keys 按源列；拆分新列继承原列格式）
+check('formatColumns 无格式返回空',
+  formatColumns(layoutF, ['A', 'B'], null, new Map()), []);
+check('formatColumns 原列格式映射输出列号',
+  formatColumns(layoutF, ['A', 'B'], null, new Map([['B', 'number']])),
+  [{ col: 3, fmt: 'number' }]);
+check('formatColumns 拆分新列继承原列格式',
+  formatColumns(layoutF, ['A', 'B'], null, new Map([['A', 'number']])),
+  [{ col: 0, fmt: 'number' }, { col: 1, fmt: 'number' }, { col: 2, fmt: 'number' }]);
+check('formatColumns 列筛选后输出列号对齐',
+  formatColumns(layoutF, ['A', 'B'], new Set(['A', 'A#2']), new Map([['A', 'number'], ['B', 'number']])),
+  [{ col: 0, fmt: 'number' }, { col: 1, fmt: 'number' }]);
+check('formatColumns 数字序号列键生效（无表头/重名兜底）',
+  formatColumns([{ key: 0, srcCol: 0, seg: null }, { key: 'B', srcCol: 1, seg: null }], [0, 'B'], null, new Map([[0, 'number']])),
+  [{ col: 0, fmt: 'number' }]);
+
+// 49. applyColFormats：数字列数据行数值化；表头行不动；解析失败保持原文本
+const aoaFmt = [['数量', '编号'], ['1,234', '007'], ['abc', ''], ['56', 'x']];
+check('applyColFormats 数字列数值化（表头不动）',
+  applyColFormats(aoaFmt, [{ col: 0, fmt: 'number' }], 1),
+  [['数量', '编号'], [1234, '007'], ['abc', ''], [56, 'x']]);
+check('applyColFormats 多列与解析失败保持原文本',
+  applyColFormats(aoaFmt, [{ col: 0, fmt: 'number' }, { col: 1, fmt: 'number' }], 1),
+  [['数量', '编号'], [1234, 7], ['abc', ''], [56, 'x']]);
+check('applyColFormats 无数字列原样返回（同引用）',
+  applyColFormats(aoaFmt, [], 1) === aoaFmt, true);
+check('applyColFormats 短行越界列忽略',
+  applyColFormats([['H'], ['1'], []], [{ col: 1, fmt: 'number' }], 1),
+  [['H'], ['1'], []]);
+
+// 50. 端到端：control 拆分 + 筛选 + 数字格式（拆分新列继承原列格式数值化）
+check('端到端 control拆分+筛选+数字格式',
+  applyColFormats(
+    filterColumns(applyColumnSplits(chCtl, rulesCtl), columnLayout(chCtl, rulesCtl), new Set(['售价', '售价#2'])),
+    formatColumns(columnLayout(chCtl, rulesCtl), colKeys(chCtl), new Set(['售价', '售价#2']), new Map([['售价', 'number']])),
+    1),
+  [['售价_控件', '备注'], [2249, 'a'], ['', 'b']]);
+
 /* ================= 分体表格配对（table.js pairSplitGroup 纯函数，文件头部已加载） ================= */
 
 // 描述符工厂：结构（headerRows/bodyRows/cols）+ 视觉矩形（top/height/left/width），
@@ -686,14 +738,20 @@ check('tableKeyOf thead 全空且 rows 全空返回 null',
 
 // 38. sanitizeRecord：损坏字段剔除、类型归位（数字列键=列序号兜底）
 check('sanitizeRecord 合法规整原样通过',
-  sanitizeRecord({ rules: [{ col: '标题', mode: 'block', pattern: 'x', limit: 3 }], excluded: ['标题#1'], updatedAt: 123 }),
-  { rules: [{ col: '标题', mode: 'block', pattern: 'x', limit: 3 }], excluded: ['标题#1'], updatedAt: 123 });
+  sanitizeRecord({ rules: [{ col: '标题', mode: 'block', pattern: 'x', limit: 3 }], excluded: ['标题#1'], formats: [['标题', 'number']], updatedAt: 123 }),
+  { rules: [{ col: '标题', mode: 'block', pattern: 'x', limit: 3 }], excluded: ['标题#1'], formats: [['标题', 'number']], updatedAt: 123 });
 check('sanitizeRecord 剔除非法 mode、pattern/limit 类型归位',
   sanitizeRecord({ rules: [{ col: 'A', mode: 'wrong' }, { col: 0, mode: 'delimiter', pattern: 5, limit: '3' }], excluded: ['B', 2, null, ''], updatedAt: 'x' }),
-  { rules: [{ col: 0, mode: 'delimiter', pattern: '5', limit: null }], excluded: ['B', 2], updatedAt: 0 });
+  { rules: [{ col: 0, mode: 'delimiter', pattern: '5', limit: null }], excluded: ['B', 2], formats: [], updatedAt: 0 });
 check('sanitizeRecord 规则字段补全',
   sanitizeRecord({ rules: [{ col: 'A', mode: 'control' }], excluded: [] }),
-  { rules: [{ col: 'A', mode: 'control', pattern: '', limit: null }], excluded: [], updatedAt: 0 });
+  { rules: [{ col: 'A', mode: 'control', pattern: '', limit: null }], excluded: [], formats: [], updatedAt: 0 });
+check('sanitizeRecord formats 键值对规整（非法键值/非文本格式剔除）',
+  sanitizeRecord({ rules: [], excluded: [], formats: [['售价', 'number'], [0, 'number'], ['x', 'text'], ['y', null], 'bad', [null, 'number']], updatedAt: 5 }),
+  { rules: [], excluded: [], formats: [['售价', 'number'], [0, 'number']], updatedAt: 5 });
+check('sanitizeRecord 仅 formats 也保留（全空仍返回 null）',
+  [!!sanitizeRecord({ formats: [['售价', 'number']] }), sanitizeRecord({ rules: [], excluded: [], formats: [] })],
+  [true, null]);
 check('sanitizeRecord 全空 / 非对象返回 null',
   [sanitizeRecord({ rules: [], excluded: [] }), sanitizeRecord(null), sanitizeRecord('x')],
   [null, null, null]);

@@ -1,5 +1,6 @@
 /**
- * 拆分规则与列筛选持久化（v1.7）：chrome.storage.local 按「页面 + 表指纹」存储
+ * 拆分规则/列筛选/列格式持久化（v1.7 起，v1.9 增列格式）：chrome.storage.local
+ * 按「页面 + 表指纹」存储
  * - 页面键 = origin + pathname（忽略 query/hash：分页/筛选参数不拆散同一份配置）
  * - 表指纹 = 表头单元格文本归一化后以 \u0001 拼接（thead 无 tr 的组件库写法兼容；
  *   指纹绝不取数据行——虚拟滚动数据行动态渲染会不稳定）；保存与恢复同用本函数
@@ -18,6 +19,7 @@
   const KEY_PREFIX = 'h2x.v1:p:'; // 页面存储键前缀（含存储结构版本号）
   const PAGE_LIMIT = 50;          // 页面条目上限（LRU 淘汰）
   const RULE_MODES = ['control', 'block', 'delimiter'];
+  const FMT_VALUES = ['number'];  // 可持久化的列格式（文本为默认行为，无需存储）
 
   // 归一化（与 cell.js normText 同规则）：nbsp → 空格、连续空白 → 单空格、去首尾
   const normText = (s) => (s || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -85,7 +87,9 @@
 
   /** 存储记录校验/规整（纯函数）：损坏字段剔除、类型归位；全空返回 null。
    *  rules 各项归一为 { col, mode, pattern, limit }；excluded 保留字符串或数字
-   *  （列序号兜底的列键是数字）；updatedAt 缺损记 0 */
+   *  （列序号兜底的列键是数字）；formats 为 [列键, 格式] 键值对数组（键值对而非
+   *  对象——对象键只能是字符串，数字列键 0 会被串化成 '0' 而错位）；
+   *  updatedAt 缺损记 0 */
   function sanitizeRecord(rec) {
     if (!rec || typeof rec !== 'object') return null;
     const rules = (Array.isArray(rec.rules) ? rec.rules : [])
@@ -98,8 +102,13 @@
       }));
     const excluded = (Array.isArray(rec.excluded) ? rec.excluded : [])
       .filter(k => (typeof k === 'string' && k !== '') || typeof k === 'number');
-    if (!rules.length && !excluded.length) return null;
-    return { rules: rules, excluded: excluded, updatedAt: Number(rec.updatedAt) || 0 };
+    const formats = (Array.isArray(rec.formats) ? rec.formats : [])
+      .filter(p => Array.isArray(p) && p.length === 2 &&
+        ((typeof p[0] === 'string' && p[0] !== '') || typeof p[0] === 'number') &&
+        FMT_VALUES.indexOf(p[1]) >= 0)
+      .map(p => [p[0], p[1]]);
+    if (!rules.length && !excluded.length && !formats.length) return null;
+    return { rules: rules, excluded: excluded, formats: formats, updatedAt: Number(rec.updatedAt) || 0 };
   }
 
   /** LRU 淘汰（纯函数）：输入全量存储快照与当前页键，返回应删除的页面键列表。
@@ -127,7 +136,7 @@
 
   /* ---------------- 会话内存（唯一恢复源）与存储读写 ---------------- */
 
-  const records = new Map(); // 表指纹 -> { rules, excluded: [], updatedAt }
+  const records = new Map(); // 表指纹 -> { rules, excluded: [], formats: [], updatedAt }
   let readyPromise = null;   // 预载 Promise（无存储/无页面键时为 null，ready() 直接通过）
   let writeChain = Promise.resolve(); // 落盘串行链（后写覆盖前写，避免乱序回退）
   let writePending = false;  // 待写标志：突发连写（如多表保存）合并为一次落盘
@@ -159,21 +168,25 @@
     return readyPromise || Promise.resolve();
   }
 
-  /** 读取某表已保存配置：{ rules, excluded: Set } 或 null（无记录/指纹无效） */
+  /** 读取某表已保存配置：{ rules, excluded: Set, formats: Map } 或 null（无记录/指纹无效） */
   function getSaved(table) {
     const key = tableKeyOf(table);
     if (!key) return null;
     const rec = records.get(key);
     if (!rec) return null;
-    return { rules: rec.rules, excluded: new Set(rec.excluded) };
+    return { rules: rec.rules, excluded: new Set(rec.excluded), formats: new Map(rec.formats) };
   }
 
   /** 保存某表配置（面板「保存」后调用）：同步更新会话内存（本会话恢复源），异步
-   *  落盘 fire-and-forget。rules 与 excluded 均空 = 重置：删除该表记录 */
-  function save(table, rules, excluded) {
+   *  落盘 fire-and-forget。rules / excluded / formats 均空 = 重置：删除该表记录 */
+  function save(table, rules, excluded, formats) {
     const key = tableKeyOf(table);
     if (!key || !pageKey) return;
-    if ((rules && rules.length) || (excluded && excluded.size)) {
+    const fmtPairs = [];
+    for (const [k, v] of (formats || new Map())) {
+      if (FMT_VALUES.indexOf(v) >= 0) fmtPairs.push([k, v]);
+    }
+    if ((rules && rules.length) || (excluded && excluded.size) || fmtPairs.length) {
       records.set(key, {
         rules: (rules || []).map(r => ({
           col: r.col,
@@ -182,6 +195,7 @@
           limit: (typeof r.limit === 'number' && r.limit >= 2) ? r.limit : null
         })),
         excluded: Array.from(excluded || []),
+        formats: fmtPairs,
         updatedAt: Date.now()
       });
     } else {
@@ -220,7 +234,7 @@
   function serializeRecords() {
     const out = {};
     for (const [key, rec] of records) {
-      out[key] = { rules: rec.rules, excluded: rec.excluded, updatedAt: rec.updatedAt };
+      out[key] = { rules: rec.rules, excluded: rec.excluded, formats: rec.formats, updatedAt: rec.updatedAt };
     }
     return out;
   }

@@ -10,7 +10,7 @@
   const { timestamp, sanitizeFilename } = ns.util;
   const { extractTable, makeSheetName, splitGroupOf } = ns.table;
   const { isVirtualTable, collectVirtual } = ns.virtual;
-  const { applyColumnSplits, columnLayout, filterColumns, colKeys, formatColumns, applyColFormats } = ns.split;
+  const { applyColumnSplits, columnLayout, filterColumns, colKeys, formatColumns, applyColFormats, autoColWidths } = ns.split;
   const panel = ns.panel;
   const persist = ns.persist;
 
@@ -358,15 +358,19 @@
         let i = 0;
         for (const table of selected.keys()) {
           if (!active) return; // yield 间隙用户可能已退出，放弃导出
-          let ws;
+          let aoa;
+          let merges = null;
           if (snapshots.has(table)) {
             // 虚拟滚动表格：使用采集到的全量快照（列拆分与列筛选一并应用）
-            ws = XLSX.utils.aoa_to_sheet(buildAoa(snapshots.get(table), table));
+            aoa = buildAoa(snapshots.get(table), table);
           } else {
             const ex = extractTable(table);
-            ws = XLSX.utils.aoa_to_sheet(buildAoa(ex, table));
-            if (ex.merges.length) ws['!merges'] = ex.merges;
+            aoa = buildAoa(ex, table);
+            if (ex.merges.length) merges = ex.merges;
           }
+          const ws = XLSX.utils.aoa_to_sheet(aoa);
+          if (merges) ws['!merges'] = merges;
+          ws['!cols'] = autoColWidths(aoa); // 列宽随内容自适应（上下限钳制，见 split.js）
           XLSX.utils.book_append_sheet(wb, ws, makeSheetName(table, i++, used));
           await yieldToMain(); // 每表之间让出主线程：多表/大表导出期间页面不冻结
         }

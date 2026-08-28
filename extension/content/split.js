@@ -227,6 +227,57 @@
     });
   }
 
+  /** 列宽估算上下限（wch 字符数）：下限保证窄列可读，上限防止超长内容撑爆版面 */
+  const COL_WCH_MIN = 6;
+  const COL_WCH_MAX = 50;
+
+  /** 宽字符判定（列宽估算用）：CJK 汉字/全角符号/谚文等显示宽度为 2 个半角字符 */
+  function isWideCode(c) {
+    return (c >= 0x1100 && c <= 0x115F)   // 谚文字母
+      || (c >= 0x2E80 && c <= 0xA4CF)     // CJK 部首/汉字/注音
+      || (c >= 0xAC00 && c <= 0xD7A3)     // 谚文音节
+      || (c >= 0xF900 && c <= 0xFAFF)     // CJK 兼容表意文字
+      || (c >= 0xFE30 && c <= 0xFE6F)     // CJK 兼容形式
+      || (c >= 0xFF00 && c <= 0xFF60)     // 全角 ASCII/片假名
+      || (c >= 0xFFE0 && c <= 0xFFE6);    // 全角符号
+  }
+
+  /** 单元格视觉宽度（列宽估算）：宽字符按 2、其余按 1；内嵌换行取最长行；
+   *  计满 cap 即截断返回（列宽最终钳制到上限，超长内容无需精确计数，大表保性能） */
+  function cellWidth(v, cap) {
+    const s = v == null ? '' : String(v);
+    let max = 0;
+    let w = 0;
+    for (let i = 0; i < s.length; i++) {
+      const code = s.charCodeAt(i);
+      if (code === 10) { // 换行：结算当前行宽，开始计下一行
+        if (w > max) max = w;
+        if (max >= cap) return max;
+        w = 0;
+      } else {
+        w += isWideCode(code) ? 2 : 1;
+        if (w >= cap) return cap; // 已达上限，无需继续
+      }
+    }
+    return w > max ? w : max;
+  }
+
+  /** 自适应列宽（导出用）：逐列取各单元格视觉宽度的最大值，钳制在
+   *  [COL_WCH_MIN, COL_WCH_MAX]。返回 SheetJS !cols 结构 [{ wch }]，
+   *  列顺序与最终输出 aoa 一致（列拆分/列筛选/列格式应用后再计算）；
+   *  空列取下限，短列（如序号）不至窄成一条线，超长列（如商品标题）封顶换行 */
+  function autoColWidths(aoa) {
+    const widths = [];
+    for (const row of (aoa || [])) {
+      if (!row) continue;
+      for (let c = 0; c < row.length; c++) {
+        const w = cellWidth(row[c], COL_WCH_MAX);
+        if (w > (widths[c] || 0)) widths[c] = w;
+      }
+    }
+    return widths.map(w => ({ wch: Math.min(Math.max(w || 0, COL_WCH_MIN), COL_WCH_MAX) }));
+  }
+
   /** 列拆分主函数：把通道中命中的列拆为多列（原列保留，新列追加其后，错了可删）。
    *  ch：extractTable 结果 { aoa, merges, ctrl, text, blocks, headerRows }
    *      或虚拟快照 { rows, ctrl, text, blocks, headerRows }；rules：[{ col, mode, pattern, limit }]
@@ -328,6 +379,7 @@
     resolveRuleCol: resolveRuleCol, colKeys: colKeys, columnLayout: columnLayout,
     filterColumns: filterColumns, toNumValue: toNumValue,
     formatColumns: formatColumns, applyColFormats: applyColFormats,
+    cellWidth: cellWidth, autoColWidths: autoColWidths,
     applyColumnSplits: applyColumnSplits
   };
 })();

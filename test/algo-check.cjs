@@ -19,7 +19,7 @@ const { overlapLen } = loadModule('virtual.js', 'virtual');
 const {
   splitByDelimiter, splitBlocks, limitBlocks, splitSegments, splitColName,
   resolveRuleCol, colKeys, columnLayout, filterColumns, applyColumnSplits,
-  toNumValue, formatColumns, applyColFormats
+  toNumValue, formatColumns, applyColFormats, cellWidth, autoColWidths
 } = loadModule('split.js', 'split');
 const { pairSplitGroup } = loadModule('table.js', 'table');
 const { pageKeyOf, tableKeyOf, sanitizeRecord, evictKeys } = loadModule('persist.js', 'persist');
@@ -598,6 +598,33 @@ check('端到端 control拆分+筛选+数字格式',
     formatColumns(columnLayout(chCtl, rulesCtl), colKeys(chCtl), new Set(['售价', '售价#2']), new Map([['售价', 'number']])),
     1),
   [['售价_控件', '备注'], [2249, 'a'], ['', 'b']]);
+
+/* ================= 自适应列宽（cellWidth / autoColWidths，v1.10） ================= */
+
+// 51. cellWidth：视觉宽度估算（半角 1、全角 2），内嵌换行取最长行，计满 cap 截断
+check('cellWidth 半角/全角/谚文宽度',
+  [cellWidth('abc', 50), cellWidth('中文', 50), cellWidth('，！', 50), cellWidth('한글', 50), cellWidth('a中', 50)],
+  [3, 4, 4, 4, 3]);
+check('cellWidth 内嵌换行取最长行',
+  [cellWidth('aaa\nbbbbbbb\ncc', 50), cellWidth('\n\nxx', 50)],
+  [7, 2]);
+check('cellWidth 计满上限截断（超长内容无需精确计数）',
+  [cellWidth('x'.repeat(999), 50), cellWidth('中'.repeat(999), 50), cellWidth('abc', 5)],
+  [50, 50, 3]);
+
+// 52. autoColWidths：逐列取最大视觉宽度，钳制 [6, 50]，输出 SheetJS !cols 结构
+check('autoColWidths 逐列最大宽度与下限钳制',
+  autoColWidths([['列', '标题列'], ['a', 'abcdef'], ['中文内容', 'x']]),
+  [{ wch: 8 }, { wch: 6 }]);
+check('autoColWidths 超长内容钳制到上限 50',
+  autoColWidths([['商品标题'], ['x'.repeat(200)]]),
+  [{ wch: 50 }]);
+check('autoColWidths 数值按文本长度计、空值/短行/空行安全',
+  autoColWidths([['数量', '备注'], [123456789012, null], ['长内容xxx', undefined], []]),
+  [{ wch: 12 }, { wch: 6 }]);
+check('autoColWidths 空表/空行返回空或下限',
+  [autoColWidths([]), autoColWidths([null, ['a']])],
+  [[], [{ wch: 6 }]]);
 
 /* ================= 分体表格配对（table.js pairSplitGroup 纯函数，文件头部已加载） ================= */
 

@@ -924,5 +924,22 @@ check('makeSheetName 空 caption 文本回落 aria-label / 纯空白回落序号
    makeSheetName(stubTable('   '), 0, new Set())],
   ['支付宝订单', '表格1']);
 
+// 43. 模块清单一致性（防新增模块漏同步：三份清单各自维护，任何一份缺文件即注入不全）
+const swSrc = fs.readFileSync(path.join(__dirname, '..', 'extension', 'background', 'service-worker.js'), 'utf8');
+const swModules = [...swSrc.matchAll(/'content\/(\w+)\.js'/g)].map(m => m[1]);
+const harnessSrc = fs.readFileSync(path.join(__dirname, 'e2e-harness.js'), 'utf8');
+const filesDecl = harnessSrc.match(/const FILES = \[([^\]]*)\]/);
+const harnessModules = filesDecl ? [...filesDecl[1].matchAll(/'(\w+)'/g)].map(m => m[1]) : [];
+const actualModules = fs.readdirSync(path.join(__dirname, '..', 'extension', 'content'))
+  .filter(f => f.endsWith('.js')).map(f => f.replace(/\.js$/, ''));
+check('模块清单：service-worker 注入列表与实际文件一致',
+  [...swModules].sort(), [...actualModules].sort());
+check('模块清单：e2e-harness FILES 与实际文件一致',
+  [...harnessModules].sort(), [...actualModules].sort());
+check('模块清单：service-worker 与 harness 注入顺序一致（依赖序）',
+  swModules, harnessModules);
+check('模块清单：注入顺序首尾正确（entry 先行守卫 / main 殿后建 UI）',
+  [swModules[0], swModules[swModules.length - 1]], ['entry', 'main']);
+
 console.log(fail === 0 ? '\n全部通过' : '\n' + fail + ' 个失败');
 process.exit(fail === 0 ? 0 : 1);

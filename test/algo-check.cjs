@@ -606,6 +606,23 @@ check('端到端 control拆分+筛选+数字格式',
     1),
   [['售价_控件', '备注'], [2249, 'a'], ['', 'b']]);
 
+// 50b. 端到端：block 拆分 + 筛选 + 数字格式（补 control 之外的格式组合；千分位/失败保原文本均覆盖）
+const chBlkFmt = {
+  aoa: [['标题/产品ID', '本地展示价'], ['T1\nI1', '4,722'], ['T2\nI2', 'x']],
+  ctrl: [[null, null], [null, null], [null, null]],
+  text: [[null, null], [null, null], [null, null]],
+  blocks: [[null, null], [['T1', 'I1'], null], [['T2', 'I2'], null]],
+  headerRows: 1
+};
+const rulesBlkFmt = [{ col: '标题/产品ID', mode: 'block' }];
+const excludedBlkFmt = new Set(['标题/产品ID', '标题/产品ID#2']); // 块拆分保留原列，排除原列与 ID 段只留标题段
+check('端到端 block拆分+筛选+数字格式',
+  applyColFormats(
+    filterColumns(applyColumnSplits(chBlkFmt, rulesBlkFmt), columnLayout(chBlkFmt, rulesBlkFmt), excludedBlkFmt),
+    formatColumns(columnLayout(chBlkFmt, rulesBlkFmt), colKeys(chBlkFmt), excludedBlkFmt, new Map([['本地展示价', 'number']])),
+    1),
+  [['标题/产品ID1', '本地展示价'], ['T1', 4722], ['T2', 'x']]);
+
 /* ================= 自适应列宽（cellWidth / autoColWidths，v1.10） ================= */
 
 // 51. cellWidth：视觉宽度估算（半角 1、全角 2），内嵌换行取最长行，计满 cap 截断

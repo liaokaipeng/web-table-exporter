@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>html2xlsx DOM 自动回归</title>
+<!--
+  DOM 层自动化回归（无扩展环境）：页内 fetch 内容脚本逐字 eval 注入
+  （util→controls→split→cell→table→format，依赖序），对真实 DOM 跑控件取值、
+  四通道单元格、extractTable 与导出管线（提取→拆分→筛选→格式→csv/json），
+  结果页内自判 PASS/FAIL，替代 fixture.html 中对应部分的手工对照。
+  运行：仓库根目录 `npx serve`（或任一静态服务器）→ 访问 /test/auto-check.html
+  注意：file:// 协议下 fetch 受限，必须经 http 访问；fixture 表格需保持可见
+  （innerText 排除不可见文本），页内勿加 display:none / visibility:hidden
+-->
+<style>
+  body { font: 14px/1.6 Consolas, "Microsoft YaHei", monospace; margin: 24px; color: #222; }
+  h1 { font-size: 18px; }
+  h2 { font-size: 15px; margin: 20px 0 6px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  #summary { font-size: 16px; font-weight: bold; margin: 8px 0 16px; }
+  .pass { color: #0a7d32; } .fail { color: #c62828; }
+  li { margin: 2px 0; list-style: none; white-space: pre-wrap; }
+  table { border-collapse: collapse; margin: 6px 0 14px; }
+  td, th { border: 1px solid #999; padding: 4px 8px; }
+  section { margin-top: 28px; }
+</style>
+</head>
+<body>
+<h1>html2xlsx DOM 自动回归（控件取值 / 单元格四通道 / 表格提取 / 导出管线）</h1>
+<div id="summary">运行中…</div>
+<ol id="results"></ol>
+
+<!-- ================= fixture DOM（保持可见，勿隐藏） ================= -->
+<section>
+  <h2>fixture：控件格（controls / cell 通道取证）</h2>
+  <table>
+    <tbody>
+      <tr>
+        <td id="c-in">单价 <input id="in-live" type="text"> 元</td>
+        <td id="c-ck"><input type="checkbox" checked><input type="checkbox"></td>
+        <td id="c-date"><input id="in-date" type="date"></td>
+        <td id="c-hidden"><input type="hidden" value="x">可见文本</td>
+        <td id="c-multi"><input class="m" type="text"><input class="m" type="text"></td>
+      </tr>
+      <tr>
+        <td id="c-sel"><select id="sel1">
+          <option value="1">华东仓</option><option value="2" selected>华南仓</option>
+        </select></td>
+        <td id="c-selm"><select id="selm" multiple size="3">
+          <option value="a" selected>甲</option><option value="b" selected>乙</option><option value="c">丙</option>
+        </select></td>
+        <td id="c-sw"><div class="el-switch is-checked"><input type="checkbox" checked></div></td>
+        <td id="c-aria"><span role="switch" aria-checked="true">开关</span></td>
+        <td id="c-ta"><textarea id="ta1"></textarea></td>
+      </tr>
+      <tr>
+        <td id="c-ws">a&nbsp;&nbsp;b<br>c   d</td>
+        <td id="c-img"><img src="f.png" alt="图">文字</td>
+        <td id="c-mix"><img src="g.png"><svg width="8" height="8"><rect width="8" height="8"/></svg>附注</td>
+        <td id="c-noimg"><img alt="无图">文案</td>
+        <td id="c-out"><output id="out1">100</output></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>fixture：提取表格（extractTable）</h2>
+  <table id="t-basic">
+    <thead><tr><th>名称</th><th>数量</th></tr></thead>
+    <tbody><tr><td>苹果</td><td>3</td></tr><tr><td>梨</td><td>5</td></tr></tbody>
+  </table>
+  <table id="t-merge">
+    <thead>
+      <tr><th rowspan="2">名称</th><th colspan="2">信息</th></tr>
+      <tr><th>值</th><th>单位</th></tr>
+    </thead>
+    <tbody><tr><td>a</td><td>1</td><td>个</td></tr></tbody>
+  </table>
+  <table id="t-nothead">
+    <tbody>
+      <tr><th>甲</th><th>乙</th></tr>
+      <tr><td>1</td><td>2</td></tr>
+    </tbody>
+  </table>
+  <table id="t-hidden">
+    <thead><tr><th>列</th></tr></thead>
+    <tbody>
+      <tr><td>可见</td></tr>
+      <tr style="display:none"><td>隐藏</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>fixture：导出管线端到端（提取→拆分→筛选→格式→csv/json）</h2>
+  <table id="t-e2e">
+    <thead><tr><th>标题/产品ID</th><th>一口价</th><th>操作</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><div>冬款羽绒服</div><div>PID-1001</div></td>
+        <td><input class="price" type="text"></td>
+        <td><a href="#">删除</a></td>
+      </tr>
+      <tr>
+        <td><div>夏款T恤</div><div>PID-1002</div></td>
+        <td><input class="price" type="text"></td>
+        <td><a href="#">删除</a></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<script>
+(async () => {
+  const ns = window.__h2x = {};
+  const list = document.getElementById('results');
+  const summary = document.getElementById('summary');
+  let fail = 0, total = 0;
+
+  const check = (name, got, want) => {
+    total++;
+    const ok = JSON.stringify(got) === JSON.stringify(want);
+    if (!ok) fail++;
+    const li = document.createElement('li');
+    li.className = ok ? 'pass' : 'fail';
+    li.textContent = (ok ? 'PASS ' : 'FAIL ') + name +
+      (ok ? '' : '\n  期望 ' + JSON.stringify(want) + '\n  实际 ' + JSON.stringify(got));
+    list.appendChild(li);
+    console[ok ? 'log' : 'error']((ok ? 'PASS ' : 'FAIL ') + name);
+  };
+
+  // ---- 模块加载（依赖序逐字 eval，与 service-worker 注入序一致子集） ----
+  try {
+    const modules = ['util.js', 'controls.js', 'split.js', 'cell.js', 'table.js', 'format.js'];
+    for (const m of modules) {
+      const res = await fetch('../extension/content/' + m);
+      if (!res.ok) throw new Error(m + ' 加载失败 ' + res.status);
+      (0, eval)(await res.text()); // 间接 eval：全局作用域，IIFE 挂到 window.__h2x
+    }
+  } catch (e) {
+    summary.textContent = '模块加载失败：' + e.message + '（file:// 下 fetch 受限，请在仓库根目录 npx serve 后经 http 访问）';
+    summary.className = 'fail';
+    return;
+  }
+
+  // ---- JS 属性设值（复刻 Vue 等框架运行时状态；cloneNode 会丢，必须活元素直读） ----
+  document.getElementById('in-live').value = '1299';
+  document.getElementById('in-date').value = '2026-01-02';
+  document.getElementById('ta1').value = '备注文本';
+  document.querySelectorAll('#c-multi .m').forEach((el, i) => { el.value = i ? '20.00' : '10.00'; });
+  document.querySelectorAll('#t-e2e .price').forEach((el, i) => { el.value = i ? '2599' : '1,299'; });
+
+  const group = (title) => {
+    const h = document.createElement('h2');
+    h.textContent = title;
+    list.parentElement.insertBefore(h, list);
+  };
+
+  // ================ 1. controlValue：控件取值（controls.js） ================
+  group('1. 控件取值（controls.controlValue）');
+  const cv = ns.controls.controlValue;
+  check('input 文本（JS 属性设值实时读）', cv(document.getElementById('in-live')), '1299');
+  check('input checkbox 勾选/未勾选',
+    [cv(document.querySelector('#c-ck input:checked')), cv(document.querySelector('#c-ck input:not(:checked)'))],
+    ['是', '否']);
+  check('input hidden 忽略（导出为空）', cv(document.querySelector('#c-hidden input[type=hidden]')), '');
+  check('input date', cv(document.getElementById('in-date')), '2026-01-02');
+  check('textarea', cv(document.getElementById('ta1')), '备注文本');
+  check('output', cv(document.getElementById('out1')), '100');
+  check('select 单选 文本(value) 格式', cv(document.getElementById('sel1')), '华南仓(2)');
+  check('select 多选 顿号分隔',
+    cv(document.getElementById('selm')), '甲(a)、乙(b)');
+  check('ARIA switch aria-checked', cv(document.getElementById('c-aria').firstElementChild), '是');
+  check('ARIA switch 未勾选', cv((() => { const s = document.createElement('span'); s.setAttribute('role', 'switch'); s.setAttribute('aria-checked', 'false'); return s; })()), '否');
+  check('ARIA slider aria-valuenow',
+    cv((() => { const s = document.createElement('div'); s.setAttribute('role', 'slider'); s.setAttribute('aria-valuenow', '60'); return s; })()), '60');
+  check('类名开关 el-switch is-checked', cv(document.querySelector('#c-sw .el-switch')), '是');
+  check('类名开关 未勾选态',
+    cv((() => { const d = document.createElement('div'); d.className = 'el-switch'; return d; })()), '否');
+  check('类名形似（switcher）回退 null',
+    cv((() => { const d = document.createElement('div'); d.className = 'switcher'; return d; })()), null);
+  check('无角色无类名元素 null',
+    cv((() => { const d = document.createElement('div'); d.className = 'plain'; return d; })()), null);
+
+  // ================ 2. 单元格四通道（cell.openBatch） ================
+  group('2. 单元格四通道（cell.openBatch）');
+  const batch = ns.cell.openBatch();
+  const prep = {};
+  for (const id of ['c-in', 'c-ck', 'c-multi', 'c-sel', 'c-selm', 'c-sw', 'c-aria', 'c-hidden',
+    'c-ta', 'c-out', 'c-ws', 'c-img', 'c-mix', 'c-noimg']) {
+    prep[id] = batch.prepare(document.getElementById(id));
+  }
+  batch.resolve();
+  const abs = (f) => new URL(f, location.href).href; // img src 相对地址的解析后绝对值
+
+  check('空白归一化 merged（nbsp/换行/连续空格→单空格）', prep['c-ws'].merged, 'a b c d');
+  check('空白归一化 blocks（块内空格保留）', prep['c-ws'].blocks, ['a b', 'c d']);
+  check('控件格 merged/text/ctrl 三通道',
+    [prep['c-in'].merged, prep['c-in'].text, prep['c-in'].ctrl],
+    ['单价 1299 元', '单价 元', ['1299']]);
+  check('多控件各自成列（ctrl 数组对齐）', prep['c-multi'].ctrl, ['10.00', '20.00']);
+  check('checkbox 组合 是/否', prep['c-ck'].ctrl, ['是', '否']);
+  check('hidden 控件替换为空（页面文本保留）', prep['c-hidden'].merged, '可见文本');
+  check('select 单选/多选格', [prep['c-sel'].ctrl, prep['c-selm'].ctrl], [['华南仓(2)'], ['甲(a)、乙(b)']]);
+  check('el-switch 嵌套 checkbox 不重复计数', [prep['c-sw'].merged, prep['c-sw'].ctrl], ['是', ['是']]);
+  check('ARIA switch 格', prep['c-aria'].ctrl, ['是']);
+  check('textarea/output 格', [prep['c-ta'].ctrl, prep['c-out'].ctrl], [['备注文本'], ['100']]);
+  check('图片导出绝对链接', prep['c-img'].merged, abs('f.png') + ' 文字');
+  check('图片+svg 混排（svg 置空、图片成链接）', prep['c-mix'].merged, abs('g.png') + ' 附注');
+  check('无 src 图片导出为空', prep['c-noimg'].merged, '文案');
+  check('双行块（块级边界=换行）', prep['c-multi'].blocks !== undefined && ns.split.splitBlocks('x\ny'), ['x', 'y']);
+
+  // ================ 3. 表格提取（table.extractTable） ================
+  group('3. 表格提取（table.extractTable）');
+  const exBasic = ns.table.extractTable(document.getElementById('t-basic'));
+  check('常规 thead 表 aoa 与 headerRows',
+    [exBasic.aoa, exBasic.headerRows],
+    [[['名称', '数量'], ['苹果', '3'], ['梨', '5']], 1]);
+  const exMerge = ns.table.extractTable(document.getElementById('t-merge'));
+  check('rowspan/colspan 展开（延续格 null + merges）',
+    [exMerge.aoa, exMerge.merges],
+    [
+      [['名称', '信息', null], [null, '值', '单位'], ['a', '1', '个']],
+      [{ s: { r: 0, c: 0 }, e: { r: 1, c: 0 } }, { s: { r: 0, c: 1 }, e: { r: 0, c: 2 } }]
+    ]);
+  check('多行表头 headerRows', exMerge.headerRows, 2);
+  const exNoHead = ns.table.extractTable(document.getElementById('t-nothead'));
+  check('无 thead 全 th 行计表头（v1.11）',
+    [exNoHead.aoa, exNoHead.headerRows], [[['甲', '乙'], ['1', '2']], 1]);
+  check('display:none 行过滤',
+    ns.table.extractTable(document.getElementById('t-hidden')).aoa, [['列'], ['可见']]);
+
+  // ================ 4. 导出管线端到端（提取→拆分→筛选→格式→序列化） ================
+  group('4. 导出管线端到端');
+  // 复刻 main.js buildAoa 的组装序：拆分 → 筛选 → 格式（merges 表跳过筛选）
+  const buildAoa = (ch, rules, excluded, formats) => {
+    const layout = ns.split.columnLayout(ch, rules);
+    let aoa = ns.split.applyColumnSplits(ch, rules);
+    if (!(ch.merges && ch.merges.length)) aoa = ns.split.filterColumns(aoa, layout, excluded);
+    if (formats && formats.size) {
+      aoa = ns.split.applyColFormats(aoa,
+        ns.split.formatColumns(layout, ns.split.colKeys(ch), excluded, formats), ch.headerRows || 0);
+    }
+    return aoa;
+  };
+  const chE2E = ns.table.extractTable(document.getElementById('t-e2e'));
+  const rulesE2E = [{ col: '标题/产品ID', mode: 'block' }, { col: '一口价', mode: 'control' }];
+  const excludedE2E = new Set(['标题/产品ID', '标题/产品ID#2', '一口价', '一口价#2', '操作']); // 拆分保留原列：排除原列、ID 段、文本段与操作列
+  const formatsE2E = new Map([['一口价', 'number']]);      // 一口价（拆分新列继承）数值化
+  const aoaE2E = buildAoa(chE2E, rulesE2E, excludedE2E, formatsE2E);
+  check('管线 aoa（block+control 拆分 / 筛选 / 千分位数值化）',
+    aoaE2E,
+    [['标题/产品ID1', '一口价_控件'], ['冬款羽绒服', 1299], ['夏款T恤', 2599]]);
+  check('管线 CSV（BOM+CRLF）',
+    ns.format.toCsv(aoaE2E),
+    '\ufeff标题/产品ID1,一口价_控件\r\n冬款羽绒服,1299\r\n夏款T恤,2599\r\n');
+  check('管线 JSON（数字列输出数值）',
+    JSON.parse(ns.format.toJson([{ name: '表1', aoa: aoaE2E, headerRows: 1 }])),
+    [{ '标题/产品ID1': '冬款羽绒服', '一口价_控件': 1299 }, { '标题/产品ID1': '夏款T恤', '一口价_控件': 2599 }]);
+
+  summary.textContent = fail === 0
+    ? total + ' 项全部 PASS'
+    : total + ' 项中 ' + fail + ' 项 FAIL';
+  summary.className = fail === 0 ? 'pass' : 'fail';
+})();
+</script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 /**
- * 表格提取：行获取（表头兜底 + 占位/隐藏行过滤 + 分体表格合并）、合并单元格展开、Sheet 命名
+ * 表格提取：行获取（表头兜底 + 占位/隐藏行过滤 + 分体表格合并 + div 网格表格）、
+ * 合并单元格展开、Sheet 命名
  * 依赖：cell（openBatch 批量四通道取值）
  */
 (() => {
@@ -102,9 +103,11 @@
    * 解析分体表格。el 可为分体中的成员 table（悬浮/点击命中）或包装容器（选中态的键），
    * 返回 { root, headerTable, bodyTable }；非分体返回 null。
    * 成员 table 侧自最紧祖先向上找、首个命中即返回，避免误并远祖容器中的多个独立表格；
-   * 完整表格（自带表头+数据）不参与合并，保证普通页零回归
+   * 完整表格（自带表头+数据）不参与合并，保证普通页零回归；
+   * div 网格表格（el-table-v2）不参与分体配对（无 table 结构，gridRowsOf 自行取行）
    */
   function splitGroupOf(el) {
+    if (isGridTable(el)) return null;
     if (el.tagName === 'TABLE') {
       const h = headerRowCount(el), b = bodyRowCount(el);
       if ((h > 0 && b > 0) || (h === 0 && b === 0)) return null; // 完整表 / 空表：只有片段才找配对
@@ -123,6 +126,98 @@
     if (tops.length < 2 || tops.length > 8) return null;
     const g = matchSplitGroup(el, tops);
     return g ? { root: el, headerTable: g.headerTable, bodyTable: g.bodyTable } : null;
+  }
+
+  /* ---------- div 网格表格：Element Plus el-table-v2 虚拟化表格 ----------
+   * 无 <table> 元素，div + ARIA role 模拟表格结构，恒为虚拟滚动（只渲染可见窗口行）。
+   * 组件结构（源码 table-v2.tsx / table-grid.tsx / virtual-list）：
+   *   div.el-table-v2__root                      组件根（同元素带 .el-table-v2 类）
+   *   ├ div.el-table-v2__table.el-table-v2__main 主网格（固定列时另有 __left/__right 各渲染一份）
+   *   │ ├ div.el-vl__wrapper.el-table-v2__body   Grid 根（class 透传合并）
+   *   │ │ └ div(滚动 window, 无类名)             overflow:hidden 但编程式 scrollTop 有效，
+   *   │ │   └ div(总高撑开层)                        组件监听 scroll 重渲染窗口行
+   *   │ │     └ div.el-table-v2__row[role=row]   数据行（绝对定位 top=行号*行高）
+   *   │ │       └ div.el-table-v2__row-cell[role=cell]
+   *   │ └ div.el-table-v2__header-wrapper        固定表头
+   *   │   └ div.el-table-v2__header
+   *   │     └ div.el-table-v2__dynamic-header-row[role=row]
+   *   │       └ div.el-table-v2__header-cell[role=columnheader]
+   * 固定列时 left/main/right 三份网格渲染同一份数据的不同列，行按视觉列序（left→main→right）拼接 */
+
+  /** div 网格表格判定：组件根元素特征类 */
+  function isGridTable(el) {
+    return !!(el && el.tagName === 'DIV' && el.classList.contains('el-table-v2__root'));
+  }
+
+  /** 参与取数的网格分区（视觉列序 left → main → right；无固定列时仅 main） */
+  function gridPartsOf(root) {
+    const parts = [];
+    for (const n of ['left', 'main', 'right']) {
+      const el = root.querySelector('.el-table-v2__table.el-table-v2__' + n);
+      if (el) parts.push(el);
+    }
+    if (!parts.length && root.querySelector('.el-table-v2__row')) parts.push(root); // 兜底：类名微调时不丢数
+    return parts;
+  }
+
+  /** 行内数据格：排除无宽度列的占位格（el-table-v2__row-cell--placeholder） */
+  function gridRowCells(row) {
+    return Array.from(row.querySelectorAll('.el-table-v2__row-cell'))
+      .filter(c => !c.classList.contains('el-table-v2__row-cell--placeholder'));
+  }
+
+  /** 网格表头行：各分区 dynamic-header-row 的表头格按视觉列序拼接（多行表头逐行对齐；
+   *  各分区表头行数一致——同列配置渲染，行号即 headerHeight 数组下标） */
+  function gridHeaderRows(parts) {
+    const byIndex = [];
+    for (const p of parts) {
+      p.querySelectorAll('.el-table-v2__dynamic-header-row').forEach((tr, r) => {
+        const cells = Array.from(tr.querySelectorAll('.el-table-v2__header-cell'));
+        if (!cells.length) return;
+        if (!byIndex[r]) byIndex[r] = { el: tr, cells: [], isHeader: true };
+        byIndex[r].cells.push(...cells);
+      });
+    }
+    return byIndex.filter(Boolean);
+  }
+
+  /** 网格数据行：各分区 body 内 .el-table-v2__row 按 DOM 顺序 zip 拼接（分区渲染同一
+   *  数据的窗口行，行区间一致）；固定行（fixedData，渲染于表头区）不在 body 范围，天然排除 */
+  function gridBodyRows(parts) {
+    const byPart = parts.map(p => Array.from(p.querySelectorAll('.el-table-v2__body .el-table-v2__row')));
+    const n = byPart.reduce((m, rows) => Math.max(m, rows.length), 0);
+    const rows = [];
+    for (let i = 0; i < n; i++) {
+      let el = null;
+      const cells = [];
+      for (const list of byPart) {
+        const r = list[i];
+        if (!r) continue;
+        if (!el) el = r;
+        cells.push(...gridRowCells(r));
+      }
+      if (el && cells.length) rows.push({ cells: cells, el: el, isHeader: false });
+    }
+    return rows;
+  }
+
+  /** div 网格表格行获取：表头行 + 数据行（getRows 分发入口，返回与 rowsOfTable 同构） */
+  function gridRowsOf(root) {
+    const parts = gridPartsOf(root);
+    return gridHeaderRows(parts).concat(gridBodyRows(parts));
+  }
+
+  /** 网格滚动 window 列表：各分区 .el-table-v2__body（el-vl__wrapper）内首个子 div。
+   *  固定列时返回多分区（采集滚动须联动，否则 left/right 渲染窗口与 main 错位） */
+  function gridScrollEls(root) {
+    const els = [];
+    for (const p of gridPartsOf(root)) {
+      const w = p.querySelector('.el-table-v2__body');
+      for (const child of (w ? w.children : [])) {
+        if (child.tagName === 'DIV') { els.push(child); break; }
+      }
+    }
+    return els;
   }
 
   /** 单个物理 table 的行收集：常规 thead>tr>th；部分组件库 thead 直接嵌 th（无 tr 包裹）；
@@ -159,10 +254,12 @@
       .concat(rowsOfTable(group.bodyTable));
   }
 
-  /** 行获取：参数可为普通 table 或分体包装容器（表头表行在前、数据表行在后合并取行）；
+  /** 行获取：参数可为普通 table、分体包装容器（表头表行在前、数据表行在后合并取行）
+   *  或 div 网格表格（el-table-v2：gridRowsOf 取行，固定列分区拼接）；
    *  过滤虚拟滚动占位空行与隐藏行。group 传入调用方已解析的分体组（虚拟采集逐窗
    *  复用，免重复配对计算），undefined 时自行解析。返回 [{ cells, el, isHeader }] */
   function getRows(el, group) {
+    if (isGridTable(el)) return gridRowsOf(el);
     const g = group !== undefined ? group : splitGroupOf(el);
     const rows = g ? rowsOfGroup(g) : rowsOfTable(el);
     return rows.filter(({ cells, el }) => {
@@ -228,5 +325,9 @@
     return name;
   }
 
-  ns.table = { getRows: getRows, extractTable: extractTable, makeSheetName: makeSheetName, splitGroupOf: splitGroupOf, pairSplitGroup: pairSplitGroup };
+  ns.table = {
+    getRows: getRows, extractTable: extractTable, makeSheetName: makeSheetName,
+    splitGroupOf: splitGroupOf, pairSplitGroup: pairSplitGroup,
+    isGridTable: isGridTable, gridScrollEls: gridScrollEls
+  };
 })();

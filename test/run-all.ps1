@@ -41,7 +41,8 @@ try {
   if (-not $ready) { throw '静态服务 15 秒内未就绪（npx serve 启动失败？）' }
   $pages = @(
     @{ name = 'fixture';  url = "$base/test/fixture.html#e2e=1" },
-    @{ name = 'virtual';  url = "$base/test/virtual-fixture.html#e2e=1" }
+    @{ name = 'virtual';  url = "$base/test/virtual-fixture.html#e2e=1" },
+    @{ name = 'tablev2';  url = "$base/test/tablev2-fixture.html#e2e=1" }
   )
 
   if ($Interactive) {
@@ -53,7 +54,7 @@ try {
     return
   }
 
-  # ---- 自动模式：headless Chromium 跑两页（并行进程互不干扰），解析页底结果 ----
+  # ---- 自动模式：headless Chromium 跑三页（并行进程互不干扰），解析页底结果 ----
   $browser = $null
   $cands = @(
     "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
@@ -72,7 +73,7 @@ try {
     return
   }
 
-  # 两页并行启动后依次收割（各自独立 headless 进程 + 独立临时 profile）
+  # 两/三页并行启动后依次收割（各自独立 headless 进程 + 独立临时 profile）
   $runners = @()
   foreach ($pg in $pages) {
     $stamp = [System.IO.Path]::GetFileName([System.IO.Path]::GetRandomFileName())
@@ -117,7 +118,7 @@ try {
     $results += @{ page = $pg; ok = $ok; summary = $summary; fails = $fails; ms = $ms }
   }
 
-  Write-Host "浏览器：$(Split-Path -Leaf $browser)，两页并行 headless 运行："
+  Write-Host "浏览器：$(Split-Path -Leaf $browser)，三页并行 headless 运行："
   foreach ($res in $results) {
     $mark = if ($res.ok) { 'PASS' } else { 'FAIL' }
     $color = if ($res.ok) { 'Green' } else { 'Red' }
@@ -125,7 +126,7 @@ try {
     foreach ($f in $res.fails) { Write-Host "      FAIL $f" -ForegroundColor Red }
     if (-not $res.ok) { $e2eFail++ }
   }
-  if ($e2eFail -eq 0) { Write-Host "`n全部通过：语法 + 算法 + E2E（fixture / virtual）" -ForegroundColor Green }
+  if ($e2eFail -eq 0) { Write-Host "`n全部通过：语法 + 算法 + E2E（fixture / virtual / tablev2）" -ForegroundColor Green }
 } finally {
   if ($srv -and -not $srv.HasExited) { taskkill /PID $srv.Id /T /F | Out-Null }
 }

@@ -787,6 +787,30 @@ check('tableKeyOf thead 全空且 rows 全空返回 null',
   tableKeyOf({ tagName: 'TABLE', tHead: { querySelectorAll: () => [{ cells: [] }], children: [] }, rows: [] }),
   null);
 
+// 37c. div 网格表格（el-table-v2）：无 table 结构，直接取动态表头格拼接
+// （分区间 DOM 序固定，表头不随滚动渲染，指纹稳定）
+check('tableKeyOf 网格表格取 dynamic-header-row 表头格拼接',
+  tableKeyOf({
+    tagName: 'DIV',
+    querySelectorAll: (sel) => sel.indexOf('dynamic-header-row') >= 0
+      ? [{ textContent: ' 标题 ' }, { textContent: '产品\nID' }, { textContent: '\u00a0' }]
+      : [],
+    querySelector: () => null
+  }),
+  '标题\u0001产品 ID\u0001');
+check('tableKeyOf 网格表头格优先于内部 table 回退',
+  tableKeyOf({
+    tagName: 'DIV',
+    querySelectorAll: (sel) => sel.indexOf('dynamic-header-row') >= 0
+      ? [{ textContent: 'GRID' }]
+      : [],
+    querySelector: () => ({ rows: [{ cells: [{ textContent: 'TABLE' }] }] })
+  }),
+  'GRID');
+check('tableKeyOf 网格无表头格且无 table 返回 null',
+  tableKeyOf({ tagName: 'DIV', querySelectorAll: () => [], querySelector: () => null }),
+  null);
+
 // 38. sanitizeRecord：损坏字段剔除、类型归位（数字列键=列序号兜底）
 check('sanitizeRecord 合法规整原样通过',
   sanitizeRecord({ rules: [{ col: '标题', mode: 'block', pattern: 'x', limit: 3 }], excluded: ['标题#1'], formats: [['标题', 'number']], updatedAt: 123 }),

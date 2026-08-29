@@ -69,14 +69,23 @@
    *  文本归一化后以 \u0001 拼接；无 table / 无表头行返回 null（表头异步未渲染等，
    *  不参与持久化）。分体结构（Element Plus / vxe-table）取容器内首个 table 即
    *  表头表，表头不随滚动变化故指纹稳定；同页两表指纹相同（表头完全一致）共享
-   *  一份配置，属可接受降级 */
+   *  一份配置，属可接受降级。div 网格表格（el-table-v2）无 table 结构，直接取
+   *  表头格元素（分区间 DOM 序固定，指纹稳定即可） */
   function tableKeyOf(root) {
     if (!root) return null;
-    const t = root.tagName === 'TABLE'
-      ? root
-      : (root.querySelector ? root.querySelector('table') : null);
-    if (!t || !t.rows) return null;
-    const cells = headerCellsOf(t);
+    let cells = null;
+    if (root.tagName === 'TABLE') {
+      cells = headerCellsOf(root);
+    } else {
+      if (typeof root.querySelectorAll === 'function') {
+        const gridCells = root.querySelectorAll('.el-table-v2__dynamic-header-row .el-table-v2__header-cell');
+        if (gridCells.length) cells = gridCells;
+      }
+      if (!cells && typeof root.querySelector === 'function') {
+        const t = root.querySelector('table');
+        if (t && t.rows) cells = headerCellsOf(t);
+      }
+    }
     if (!cells) return null;
     const parts = [];
     for (let i = 0; i < cells.length; i++) {

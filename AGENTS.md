@@ -9,6 +9,7 @@ Chrome MV3 扩展（原生 JS，零构建）。架构与产品信息见 [docs/ar
 - 不引入构建步骤、框架、npm 依赖；SheetJS 已本地内置（`extension/lib/xlsx.full.min.js`），直接引用
 - 权限最小化：改动 `extension/manifest.json` 权限需有明确理由
 - 注释与文档用中文；提交信息格式：一行标题 + 要点列表
+- 每次 git 提交须同步更新相关文档（架构/产品/控件/测试等 docs 与 test/README），保持文档与代码一致
 
 ## 验证命令（本机为 PowerShell）
 

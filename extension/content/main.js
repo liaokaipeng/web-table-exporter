@@ -6,6 +6,7 @@
  * panel.init() 注入依赖。
  * v2.0：toast 反馈系统（结果性通知迁出 hint 行）、虚拟采集可中止、导出后
  * 保留选择、工具栏折行自适应、设计 token + 深色模式 + 动效（prefers 系列）
+ * v2.1：支持 div 网格表格（Element Plus el-table-v2 虚拟化表格）的识别与滚动采集
  */
 (() => {
   'use strict';
@@ -212,12 +213,15 @@
 
   /** 命中解析：目标最近的 table → 逻辑表格根。组件库分体结构（表头/表体两个
    *  table，如 Element Plus el-table）返回其包装容器，使悬浮高亮、点选、导出
-   *  三者始终识别为同一个表格 */
+   *  三者始终识别为同一个表格；div 网格表格（el-table-v2，无 table 元素）返回
+   *  组件根（单元格内嵌传统 table 时优先命中内层 table，可独立选中） */
   function hitRoot(target) {
     const t = target.closest('table');
-    if (!t) return null;
-    const g = splitGroupOf(t);
-    return g ? g.root : t;
+    if (t) {
+      const g = splitGroupOf(t);
+      return g ? g.root : t;
+    }
+    return target.closest('.el-table-v2__root');
   }
 
   function onMouseOver(e) {
@@ -639,8 +643,9 @@
   /* ---------------- 启动 ---------------- */
 
   buildUI();
-  // v2.0：页面无表格时默认提示切换为「页面未找到表格」（动态加载不主动监测）
-  hasTables = document.querySelectorAll('table').length > 0;
+  // v2.0：页面无表格时默认提示切换为「页面未找到表格」（动态加载不主动监测）；
+  // v2.1：div 网格表格（el-table-v2）一并计入
+  hasTables = document.querySelectorAll('table, .el-table-v2__root').length > 0;
   syncExportBtn();
   resetHint();
   // 装配列设置面板依赖（host/Maps 为稳定引用；可变状态经 getter 读取）

@@ -11,6 +11,8 @@
 | `auto-check.html` | DOM 层自动化回归（无扩展环境，页内自判 PASS/FAIL）：控件取值（controls.controlValue：input/checkbox/radio/hidden/date/textarea/output、select 单/多选、ARIA switch/slider、el-switch 类名开关、类名形似回退 null）；单元格四通道（cell.openBatch：空白归一化、nbsp/换行/连续空格压缩、控件 merged/text/ctrl 三通道、多控件对齐、嵌套开关不重复计数、图片绝对链接、无 src 图片为空）；表格提取（table.extractTable：常规 thead、rowspan/colspan 展开+merges、多行表头、无 thead 全 th 行计表头、display:none 行过滤）；导出管线端到端（提取→block+control 拆分→列筛选→数字格式→csv/json 精确对比，JS 属性设值复刻 Vue 实时状态） | 页内 summary「37 项全部 PASS」 |
 | `e2e-harness.js` | E2E 全链路注入回归（fixture.html，无扩展环境）：桩 chrome.storage（内存）与 runtime.sendMessage（走 blob 回退），捕获导出内容逐项断言。覆盖：选择交互、链接拦截、Esc 退出、CSV/JSON/MD/HTML/XLSX 内容（BOM/CRLF、RFC4180 转义、列N兜底、thead 归位）、merges、Sheet 名、自适应列宽（解包 zip 读 cols XML）、XLSX 全量单元格比对（值+类型逐格，含合并延续空位与数字格式 t:n）、列拆分三模式、列筛选、列格式、分体表格合并、持久化保存/恢复/重置、面板折叠与默认收起 | 控制台输出 `__TEST_RESULT` 数组 105/105 pass |
 | `e2e-harness-virtual.js` | E2E 注入回归（virtual-fixture.html，无扩展环境）：虚拟滚动采集 61 行、合法重复行保留、控件实时值（input/select JS 属性设值）、分体表+虚拟滚动组合 41 行、采集后面板快照与默认收起/展开预设 | 控制台输出 `__TEST_RESULT` 数组 33/33 pass |
+| `tablev2-fixture.html` | Element Plus el-table-v2 虚拟化表格（div 网格结构，无 table 元素）：500 行两例——纯主分区网格 + 固定列（left/main 双分区，滚动联动）、JS 渲染窗口模拟虚拟滚动（仅渲染可见行 ± 缓存）、表头 dynamic-header-row、控件列（input/select JS 属性设值）、行内操作按钮 | 悬浮整体高亮、一次点选自动滚动采集 501 行（500 数据 + 表头）、固定列按视觉列序拼接（固定列在前）、控件取实时值、重复行保留 |
+| `e2e-harness-tablev2.js` | E2E 注入回归（tablev2-fixture.html，无扩展环境）：网格表格识别与悬浮整体高亮、点击后自动滚动采集（500 行全量）、固定列双分区拼接列序、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 24/24 pass |
 | `algo-check.cjs` | 纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列格式/列宽、分体配对、持久化、格式序列化、通用工具、模块清单一致性——覆盖明细见下节 | 全部 PASS（154 项） |
 
 ## algo-check 覆盖明细
@@ -23,7 +25,7 @@
 | 列格式（split.js） | toNumValue 千分位剥离/解析失败保原值、formatColumns 输出列号映射（拆分新列继承、筛选后对齐）、applyColFormats 表头不动/同引用短路、拆分+筛选+数字格式端到端 |
 | 自适应列宽（split.js） | cellWidth 半角/全角/谚文宽度与内嵌换行、autoColWidths 逐列最大宽度与 6~50 钳制、空表/空行边界 |
 | 分体配对（table.js `pairSplitGroup`） | 基础配对、gutter 列容忍（列数差 1）、间隙/对齐/宽度/列数阈值、轻微重叠容忍、完整表格零回归、颠倒不配对、多候选首个命中 |
-| 持久化（persist.js） | pageKeyOf 忽略 query/hash、tableKeyOf 指纹（含 thead 无 tr 的 vxe-table 写法取 th 子元素而非数据行）与空值、sanitizeRecord 损坏剔除自愈（含 formats 键值对）、evictKeys LRU 淘汰 |
+| 持久化（persist.js） | pageKeyOf 忽略 query/hash、tableKeyOf 指纹（含 thead 无 tr 的 vxe-table 写法取 th 子元素而非数据行；v2.1 网格表格取 dynamic-header-row 表头格、优先于内部 table 回退）与空值、sanitizeRecord 损坏剔除自愈（含 formats 键值对）、evictKeys LRU 淘汰 |
 | 格式序列化（format.js） | csvCell RFC4180 转义、toCsv BOM/CRLF、headerKeys 列名兜底、toJson 行对象/表名嵌套、mdCell 转义与 toMarkdown 结构（含无表头生成列N）、toHtmlDocument 结构 |
 | 通用工具 | util.js sanitizeFilename/escapeHtml；table.js makeSheetName 四级兜底、非法字符、31 字符截断、重名后缀 |
 | 模块清单一致性 | service-worker 注入列表 / e2e-harness FILES / extension/content 实际文件三方对齐 + 依赖序（防新增模块漏同步） |
@@ -32,11 +34,11 @@
 
 ```powershell
 # 一键回归（推荐，全链路自动判定）：语法检查 → algo-check → 起静态服务 →
-# headless Chromium 跑两个 E2E 页面（虚拟时间快进定时器，约 2 秒），控制台出结论、退出码即结果。
+# headless Chromium 跑三个 E2E 页面（虚拟时间快进定时器，约 2 秒），控制台出结论、退出码即结果。
 # 注意 run-all.ps1 须保持 UTF-8 带 BOM（PowerShell 5 中文兼容）
 .\test\run-all.ps1
 
-# 交互模式（旧行为）：浏览器打开两个 E2E 页面人工核对，回车停止服务
+# 交互模式（旧行为）：浏览器打开三个 E2E 页面人工核对，回车停止服务
 .\test\run-all.ps1 -Interactive
 
 # 分步执行：
@@ -56,28 +58,29 @@ npx serve .   # 仓库根目录起静态服务 → 访问 /test/auto-check.html�
 ```
 http://localhost:3000/test/fixture.html#e2e=1          → 页底「105 项全部 PASS」
 http://localhost:3000/test/virtual-fixture.html#e2e=1  → 页底「33 项全部 PASS」
+http://localhost:3000/test/tablev2-fixture.html#e2e=1  → 页底「24 项全部 PASS」
 ```
 
 提速说明：
 
 - `run-all.ps1` 默认 headless Chromium + `--virtual-time-budget`（虚拟时间快进全部定时器：
-  toast 自动消失、虚拟采集 settle 等不再等真实时钟，后台标签页节流免疫），两页并行约 2 秒出结论，
+  toast 自动消失、虚拟采集 settle 等不再等真实时钟，后台标签页节流免疫），三页并行约 2 秒出结论，
   退出码 0/1 可直接作流水线门禁；找不到 Chrome/Edge 时自动降级交互模式
-- 两个 harness 内部：固定 sleep 改事件驱动 `waitFor`（面板打开等 mask、退出等 host 移除），
+- 三个 harness 内部：固定 sleep 改事件驱动 `waitFor`（面板打开等 mask、退出等 host 移除），
   模块代码缓存（11 个内容脚本仅首轮拉取），导出轮询 25ms——交互模式/控制台手动跑同样受益，
   虚拟滚动页人工核对约 10-30 秒（真实时钟采集）
 
 也可手动执行（同效果，结果在控制台 `__TEST_RESULT`，结构 `{total, passed, results}`）：
 
 ```js
-const c = await (await fetch('/test/e2e-harness.js?v=' + Date.now())).text();   // 虚拟表页换 e2e-harness-virtual.js
+const c = await (await fetch('/test/e2e-harness.js?v=' + Date.now())).text();   // 虚拟表页换 e2e-harness-virtual.js，el-table-v2 页换 e2e-harness-tablev2.js
 window.__TEST_RESULT = await (0, eval)(c);
 ```
 
 注意：
 
 - harness 自带并发守卫与轮次串行锁，重复执行须等上轮结束（或刷新页面后重来）
-- 两个 harness 均内置后台标签页适配（rAF 定时器替代、scrollTop 补发 scroll 事件），后台跑也可
+- 三个 harness 均内置后台标签页适配（rAF 定时器替代、scrollTop 补发 scroll 事件），后台跑也可
 - `window.__TEST_LOG` 为调试日志，失败排查用
 
 ## 浏览器回归步骤

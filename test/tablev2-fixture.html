@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>el-table-v2 虚拟化表格测试页</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 40px auto; max-width: 1000px; color: #333; }
+  h2 { border-left: 4px solid #2e7d32; padding-left: 10px; }
+  /* 复刻 Element Plus el-table-v2 渲染结构（源码 table-v2.tsx / table-grid.tsx /
+     virtual-list build-grid.ts）：无 <table> 元素，div + role 模拟，恒虚拟滚动 */
+  .el-table-v2__root { position: relative; border: 1px solid #dcdfe6; font-size: 13px; }
+  .el-table-v2__table { position: relative; }
+  .el-table-v2__main, .el-table-v2__left { position: relative; }
+  .el-table-v2__left { position: absolute; left: 0; top: 0; z-index: 2; box-shadow: 2px 0 4px rgba(0,0,0,.08); background: #fff; }
+  .el-vl__wrapper { position: relative; }
+  .el-table-v2__header-wrapper { position: relative; background: #f5f7fa; z-index: 1; }
+  .el-table-v2__header { position: relative; }
+  .el-table-v2__dynamic-header-row { display: flex; }
+  .el-table-v2__header-cell { display: flex; align-items: center; padding: 0 8px; box-sizing: border-box; font-weight: 600; border-right: 1px solid #ebeef5; border-bottom: 1px solid #dcdfe6; }
+  .el-table-v2__row { position: absolute; left: 0; display: flex; }
+  .el-table-v2__row-cell { display: flex; align-items: center; padding: 0 8px; box-sizing: border-box; border-right: 1px solid #ebeef5; border-bottom: 1px solid #ebeef5; overflow: hidden; white-space: nowrap; }
+  .el-table-v2__cell-text { overflow: hidden; text-overflow: ellipsis; }
+  .el-table-v2__row-cell input, .el-table-v2__row-cell select { width: 80px; padding: 2px 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px; }
+  .el-table-v2__vertical-scrollbar { position: absolute; right: 2px; bottom: 2px; width: 4px; border-radius: 2px; background: rgba(144,147,153,.3); }
+  .gray { color: #999; font-size: 12px; }
+  /* 复刻 el-switch 外观（仅测试取值，无交互） */
+  .el-switch { display: inline-block; width: 36px; height: 18px; border-radius: 9px; background: #c0ccda; position: relative; }
+  .el-switch.is-checked { background: #2e7d32; }
+</style>
+</head>
+<body>
+<h1>el-table-v2 虚拟化表格测试页</h1>
+<p>复刻 Element Plus <b>el-table-v2</b>（Virtualized Table）渲染结构：无 <code>&lt;table&gt;</code> 元素，
+div + ARIA role 模拟表格，滚动 window 为组件内 overflow:hidden 容器（编程式 scrollTop 有效），
+DOM 中任意时刻只渲染可见窗口附近的行。共 <b>500</b> 行数据，其中第 1、101、201 行内容完全相同
+（模拟合法重复行），导出应全部保留。<br>
+预期：悬浮/点击表格任意位置（表头、表体）均应整体识别为一张表；点击后自动滚动采集全部行；
+「一口价」列 input 为 JS 属性设值，导出须读实时值；「发货仓」select 与「上架开关」同理。</p>
+
+<h2>el-table-v2 基本结构（500 行，点击后自动滚动采集，导出 501 行含表头）</h2>
+<div id="grid1"></div>
+
+<h2>el-table-v2 固定列（left 固定 1 列 + main 3 列，200 行）</h2>
+<p>复刻固定列结构：left/main 两份网格并列渲染同一份数据的不同列（行区间一致），
+采集滚动须联动两份滚动 window。<br>
+预期：导出 201 行（含表头），列按视觉顺序拼接——「序号,商品,本地展示价,一口价」，
+其中序号列来自 left 网格、其余列来自 main 网格。</p>
+<div id="grid2"></div>
+
+<h2>普通表格（回归验证）</h2>
+<table id="normal">
+  <tr><th>姓名</th><th>部门</th></tr>
+  <tr><td>张三</td><td>研发部</td></tr>
+  <tr><td>李四</td><td>市场部</td></tr>
+</table>
+
+<script>
+  /* ---- el-table-v2 结构与虚拟滚动行为复刻（模拟源码 build-grid.ts 的 window 渲染） ---- */
+  const PLACEHOLDER_CLASS = 'el-table-v2__row-cell--placeholder';
+
+  /** 构造一个 TableGrid 分区（main/left）的 DOM 骨架，返回 { part, window, inner, render } */
+  function buildGrid(opt) {
+    // opt: { mount, className, width, height(体高), headerHeight, columns:[{label,width}], fixed }
+    const part = document.createElement('div');
+    part.setAttribute('role', 'table');
+    part.className = 'el-table-v2__table ' + (opt.className || 'el-table-v2__main');
+    part.style.cssText = 'width:' + opt.width + 'px;height:' + (opt.height + opt.headerHeight) + 'px;';
+
+    // Grid 根：el-vl__wrapper，class 透传合并组件外部 class（el-table-v2__body）
+    const wrapper = document.createElement('div');
+    wrapper.className = 'el-vl__wrapper el-table-v2__body';
+    wrapper.setAttribute('role', 'rowgroup');
+    part.appendChild(wrapper);
+
+    // 滚动 window（overflow:hidden，编程式 scrollTop 有效）+ 总高撑开层
+    const win = document.createElement('div');
+    win.style.cssText = 'position:relative;overflow:hidden;will-change:transform;height:' + opt.height + 'px;width:' + opt.width + 'px;';
+    const inner = document.createElement('div');
+    inner.style.cssText = 'width:' + opt.width + 'px;';
+    win.appendChild(inner);
+    wrapper.appendChild(win);
+
+    // 自定义滚动条（复刻 el-vl__vertical-scrollbar，装饰性）
+    const vbar = document.createElement('div');
+    vbar.className = 'el-table-v2__vertical-scrollbar';
+    wrapper.appendChild(vbar);
+
+    // 固定表头（header-wrapper > header > dynamic-header-row > header-cell）
+    const hw = document.createElement('div');
+    hw.className = 'el-table-v2__header-wrapper';
+    hw.setAttribute('role', 'rowgroup');
+    const hwrap = document.createElement('div');
+    hwrap.className = 'el-table-v2__header';
+    const hrow = document.createElement('div');
+    hrow.className = 'el-table-v2__dynamic-header-row';
+    hrow.setAttribute('role', 'row');
+    hrow.style.cssText = 'width:100%;height:' + opt.headerHeight + 'px;';
+    opt.columns.forEach((c) => {
+      const hc = document.createElement('div');
+      hc.className = 'el-table-v2__header-cell';
+      hc.setAttribute('role', 'columnheader');
+      hc.style.cssText = 'width:' + c.width + 'px;height:' + opt.headerHeight + 'px;';
+      hc.innerHTML = '<span class="el-table-v2__cell-text"></span>';
+      hc.firstChild.textContent = c.label;
+      hrow.appendChild(hc);
+    });
+    hwrap.appendChild(hrow);
+    hw.appendChild(hwrap);
+    part.appendChild(hw);
+
+    opt.mount.appendChild(part);
+
+    // 虚拟渲染：按 window.scrollTop 渲染窗口行（前后各 CACHE 行缓冲），行绝对定位
+    const CACHE = 2;
+    const rows = opt.data;
+    const ROW_H = opt.rowHeight;
+    inner.style.height = rows.length * ROW_H + 'px';
+    function render() {
+      const first = Math.max(0, Math.floor(win.scrollTop / ROW_H) - CACHE);
+      const last = Math.min(rows.length, first + Math.ceil(win.clientHeight / ROW_H) + CACHE * 2);
+      [...inner.children].forEach((el) => el.remove()); // 模拟 Vue 重渲染：整窗重建
+      for (let i = first; i < last; i++) {
+        const row = document.createElement('div');
+        row.className = 'el-table-v2__row';
+        row.setAttribute('role', 'row');
+        row.style.cssText = 'position:absolute;top:' + (i * ROW_H) + 'px;height:' + ROW_H + 'px;width:' + opt.width + 'px;';
+        opt.columns.forEach((c, ci) => {
+          const cell = document.createElement('div');
+          cell.className = 'el-table-v2__row-cell' + (c.placeholder ? ' ' + PLACEHOLDER_CLASS : '');
+          cell.setAttribute('role', 'cell');
+          cell.style.cssText = 'width:' + c.width + 'px;height:' + ROW_H + 'px;';
+          c.render(cell, rows[i], i);
+          row.appendChild(cell);
+        });
+        inner.appendChild(row);
+      }
+    }
+    win.addEventListener('scroll', render);
+    render();
+    return { part: part, win: win, render: render };
+  }
+
+  function textCell(html) {
+    return (cell, d, i) => { cell.innerHTML = html(d, i); }; // 自定义 cell 渲染器：内容任意（文本/多行块）
+  }
+  /** input 值 JS 属性设值（模拟 Vue 受控组件：值不在 value 特性上） */
+  function inputCell(valOf, suffix) {
+    return (cell, d, i) => {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.value = valOf(d, i); // 仅 JS 属性，导出须读实时值
+      cell.appendChild(inp);
+      if (suffix) cell.appendChild(document.createTextNode(' ' + suffix));
+    };
+  }
+  function selectCell(valOf) {
+    return (cell, d) => {
+      const sel = document.createElement('select');
+      sel.innerHTML = '<option value="">全部</option><option value="1">华东仓</option><option value="2">华南仓</option>';
+      sel.value = valOf(d); // 仅 JS 属性
+      cell.appendChild(sel);
+    };
+  }
+  function switchCell(onOf) {
+    return (cell, d) => {
+      const sw = document.createElement('div');
+      sw.className = 'el-switch' + (onOf(d) ? ' is-checked' : '');
+      cell.appendChild(sw);
+    };
+  }
+
+  /* ---- 用例 1：基本结构（500 行 × 6 列） ---- */
+  const TOTAL = 500, ROW_H = 40, BODY_H = 320, HEADER_H = 40;
+  const DATA = Array.from({ length: TOTAL }, (_, i) => ({
+    id: 2886300011000000000 + i,
+    title: 'EPV2-' + String(i + 1).padStart(4, '0') + '_Virtualized Row ' + (i + 1),
+    price: 4722,
+    promo: (i % 4 === 0 ? 2249 : i % 4 === 1 ? 1639 : 1899),
+    wh: i % 3 === 0 ? '1' : '2',
+    on: i % 5 !== 0
+  }));
+  // 合法重复行：第 1/101/201 行（i=0/100/200）内容完全相同，验证采集不误删
+  [100, 200].forEach((j) => { DATA[j] = { ...DATA[0] }; });
+
+  // 根元素固定尺寸（复刻真实组件：width/height props 落到根的内联样式）
+  const root1 = document.getElementById('grid1');
+  root1.style.cssText = 'position:relative;width:720px;height:' + (BODY_H + HEADER_H) + 'px;';
+
+  buildGrid({
+    mount: root1,
+    className: 'el-table-v2__main',
+    width: 720, height: BODY_H, headerHeight: HEADER_H, rowHeight: ROW_H,
+    data: DATA,
+    columns: [
+      { label: '序号', width: 60, render: textCell((d, i) => i + 1) },
+      { label: '标题/产品ID', width: 260, render: textCell((d) => '<div>' + d.title + '</div><div class="gray">' + d.id + '</div>') },
+      { label: '本地展示价', width: 110, render: textCell((d) => d.price + ' PHP') },
+      { label: '一口价', width: 110, render: inputCell((d) => String(d.promo), 'PHP') },
+      { label: '发货仓', width: 100, render: selectCell((d) => d.wh) },
+      { label: '上架开关', width: 80, render: switchCell((d) => d.on) }
+    ]
+  });
+
+  /* ---- 用例 2：固定列（left 固定序号列 + main 3 列，200 行） ---- */
+  const F_TOTAL = 200, F_ROW_H = 36, F_BODY_H = 252, F_HEADER_H = 36;
+  const F_DATA = Array.from({ length: F_TOTAL }, (_, i) => ({
+    name: 'FIX-' + String(i + 1).padStart(3, '0') + '_Fixed Col Row',
+    price: 800 + i * 13,
+    promo: 500 + i * 7
+  }));
+  const root2 = document.getElementById('grid2');
+  root2.style.cssText = 'position:relative;width:560px;height:' + (F_BODY_H + F_HEADER_H) + 'px;';
+
+  const leftCols = [{ label: '序号', width: 70, render: textCell((d, i) => i + 1) }];
+  const mainCols = [
+    { label: '商品', width: 230, render: textCell((d) => d.name) },
+    { label: '本地展示价', width: 110, render: textCell((d) => d.price + ' PHP') },
+    { label: '一口价', width: 110, render: inputCell((d) => String(d.promo), 'PHP') }
+  ];
+  // DOM 序复刻源码：MainTable 先渲染、LeftTable 后渲染（left 绝对定位覆盖在左）
+  const mainGrid = buildGrid({
+    mount: root2, className: 'el-table-v2__main',
+    width: 560, height: F_BODY_H, headerHeight: F_HEADER_H, rowHeight: F_ROW_H,
+    data: F_DATA, columns: mainCols
+  });
+  const leftGrid = buildGrid({
+    mount: root2, className: 'el-table-v2__left',
+    width: 70, height: F_BODY_H, headerHeight: F_HEADER_H, rowHeight: F_ROW_H,
+    data: F_DATA, columns: leftCols
+  });
+  // 真实组件固定列联动：main 滚动驱动 left 同步（left 不回写，无循环）
+  mainGrid.win.addEventListener('scroll', () => {
+    if (leftGrid.win.scrollTop !== mainGrid.win.scrollTop) leftGrid.win.scrollTop = mainGrid.win.scrollTop;
+  });
+
+  // 组件根：el-table-v2__root 特征类挂最外层（发现入口据此识别）
+  [document.getElementById('grid1'), root2].forEach((el) => {
+    el.classList.add('el-table-v2', 'el-table-v2__root');
+  });
+</script>
+
+<script>
+  // #e2e=1（或 ?e2e=1）自动回归：自动执行 E2E harness 并页内渲染结果（用法见 test/README.md）。
+  // 用 hash 而非 query：静态服务器 cleanUrls 重定向会丢查询串，hash 不发服务器、重定向后保留
+  if (new URLSearchParams(location.search).get('e2e') === '1' ||
+      new URLSearchParams(location.hash.slice(1)).get('e2e') === '1') {
+    (async () => {
+      const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const box = document.createElement('div');
+      box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:45vh;overflow:auto;z-index:999999;background:#fff;border-top:2px solid #999;padding:10px 14px;font:13px/1.6 Consolas,"Microsoft YaHei",monospace;box-shadow:0 -2px 8px rgba(0,0,0,.15)';
+      box.innerHTML = '<b id="e2e-summary" style="color:#666">E2E 运行中…（虚拟滚动采集，约需 10-30 秒）</b><ol id="e2e-list" style="margin:6px 0 0;padding-left:22px"></ol>';
+      document.body.appendChild(box);
+      const summary = box.querySelector('#e2e-summary');
+      const list = box.querySelector('#e2e-list');
+      try {
+        await new Promise(r => window.addEventListener('load', r, { once: true }));
+        await new Promise(r => setTimeout(r, 50)); // 等页面脚本（虚拟渲染）就绪
+        const code = await (await fetch('/test/e2e-harness-tablev2.js?v=' + Date.now())).text();
+        const res = await (0, eval)(code);
+        const R = res && res.results;
+        if (!Array.isArray(R)) throw new Error((res && res.error) || 'harness 未返回结果');
+        list.innerHTML = R.map(r =>
+          '<li style="color:' + (r.pass ? '#0a7d32' : '#c62828') + ';white-space:pre-wrap;margin:2px 0">' +
+          (r.pass ? 'PASS ' : 'FAIL ') + esc(r.name) + (r.pass || !r.detail ? '' : '  【' + esc(r.detail) + '】') + '</li>').join('');
+        const fail = R.length - R.filter(r => r.pass).length;
+        summary.textContent = fail ? R.length + ' 项中 ' + fail + ' 项 FAIL' : R.length + ' 项全部 PASS';
+        summary.style.color = fail ? '#c62828' : '#0a7d32';
+        document.title = (fail ? '[FAIL ' + fail + '] ' : '[全部 PASS] ') + document.title;
+      } catch (e) {
+        summary.textContent = 'E2E 执行异常：' + e.message;
+        summary.style.color = '#c62828';
+        document.title = '[ERROR] ' + document.title;
+      }
+    })();
+  }
+</script>
+</body>
+</html>

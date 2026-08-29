@@ -6,10 +6,12 @@
   'use strict';
   const ns = window.__h2x;
 
-  /** 虚拟表格识别：类名含 virtual 的占位元素 / 带高度的无单元格占位 tr。
-   *  参数可为普通 table 或分体包装容器（表头/表体两个 table 合并后的键）。
-   *  宁可误报——误报时采集流程无损（每窗口都返回全量行，重叠合并后不变） */
+  /** 虚拟表格识别：div 网格表格（el-table-v2，恒虚拟滚动）/ 类名含 virtual 的占位元素 /
+   *  带高度的无单元格占位 tr。
+   *  参数可为普通 table、分体包装容器或网格表格根。宁可误报——误报时采集流程无损
+   *  （每窗口都返回全量行，重叠合并后不变） */
   function isVirtualTable(el) {
+    if (ns.table.isGridTable(el)) return true; // el-table-v2：只渲染可见窗口行，恒走滚动采集
     if (el.querySelector('[class*="virtual"]')) return true;
     const group = ns.table.splitGroupOf(el);
     const tables = group ? [group.headerTable, group.bodyTable] : (el.tBodies ? [el] : []);
@@ -55,13 +57,16 @@
    * 自动滚动采集虚拟表格全部行：回顶 → 按视口 80% 步长逐步下滚 → 逐窗口提取。
    * 表头行剥离只保留一份；数据行用「相邻窗口重叠合并」（后缀/前缀匹配）衔接，
    * 既消除窗口重叠区的重复，也保留数据中合法的重复行。
-   * 参数可为普通 table 或分体包装容器（滚动容器挂在数据表上层，表头行经 getRows 合并取）。
+   * 参数可为普通 table、分体包装容器（滚动容器挂在数据表上层，表头行经 getRows
+   * 合并取）或 div 网格表格（el-table-v2：滚动 window 为组件内 overflow:hidden 容器，
+   * 编程式 scrollTop 有效并触发组件重渲染窗口行；固定列时多分区联动设置）。
    * 返回与 extractTable 同构的四通道快照 { rows, ctrl, text, blocks, headerRows }。
    */
   async function collectVirtual(root, onProgress, isCancelled) {
     let group = ns.table.splitGroupOf(root); // 分体组解析一次逐窗复用（失效时重解析）
+    const gridWins = ns.table.isGridTable(root) ? ns.table.gridScrollEls(root) : null;
     const scrollTable = group ? group.bodyTable : root; // 分体结构：从数据表向上找滚动容器
-    const container = findScrollContainer(scrollTable);
+    const container = gridWins && gridWins.length ? gridWins[0] : findScrollContainer(scrollTable);
     const headers = []; // 表头行对象 { merged, ctrl, text, blocks }，首窗口确定，支持多行表头
     const data = [];    // 数据行对象（与 headers 同构，重叠合并同步维护）
     const dataSigs = []; // 数据行签名（与 data 同步增长，免每窗全量重算）
@@ -116,7 +121,10 @@
 
     const progress = () => onProgress(data.length + headers.length);
     const getTop = () => (container ? container.scrollTop : window.scrollY);
-    const setTop = (v) => { if (container) container.scrollTop = v; else window.scrollTo(0, v); };
+    const setTop = (v) => {
+      if (gridWins) { for (const w of gridWins) w.scrollTop = v; return; } // 网格多分区联动（固定列）
+      if (container) container.scrollTop = v; else window.scrollTo(0, v);
+    };
     const getMax = () => container
       ? container.scrollHeight - container.clientHeight
       : document.documentElement.scrollHeight - window.innerHeight;

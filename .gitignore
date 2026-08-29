@@ -6,6 +6,7 @@ test/dianxiaomi-table.html
 
 # 构建产物（扩展目录直接加载，无需提交打包文件）
 extension.zip
+release/*.zip
 
 # 系统文件
 Thumbs.db

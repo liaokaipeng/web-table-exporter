@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>订单管理 - 演示</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", "Microsoft YaHei", -apple-system, sans-serif; margin: 0; background: #f0f2f5; color: #303133; }
+  .topbar { height: 56px; background: #1f2d3d; color: #fff; display: flex; align-items: center; padding: 0 24px; gap: 28px; }
+  .topbar .logo { font-weight: 700; font-size: 16px; letter-spacing: .5px; }
+  .topbar .nav { display: flex; gap: 22px; font-size: 13px; color: #bfcbd9; }
+  .topbar .nav .on { color: #fff; }
+  .crumb { padding: 14px 24px 0; font-size: 13px; color: #909399; }
+  .wrap { padding: 12px 24px 40px; }
+  .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,21,41,.08); padding: 18px 20px; }
+  .card h2 { margin: 0 0 4px; font-size: 16px; }
+  .card .sub { font-size: 12px; color: #909399; margin-bottom: 14px; }
+  .tools { display: flex; gap: 10px; margin-bottom: 14px; }
+  .tools .btn { padding: 7px 14px; border: 1px solid #dcdfe6; border-radius: 4px; background: #fff; font-size: 13px; color: #606266; }
+  .tools .btn.pri { background: #409eff; border-color: #409eff; color: #fff; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { border: 1px solid #ebeef5; padding: 9px 12px; text-align: left; vertical-align: middle; }
+  th { background: #fafafa; color: #606266; font-weight: 600; white-space: nowrap; }
+  tbody tr:nth-child(even) { background: #fcfcfd; }
+  td .sku { color: #909399; font-size: 12px; margin-top: 2px; }
+  td input[type=text] { width: 72px; padding: 4px 8px; border: 1px solid #dcdfe6; border-radius: 4px; font-size: 13px; }
+  .pager { margin-top: 14px; font-size: 12px; color: #909399; text-align: right; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo">ShopAdmin</div>
+  <div class="nav"><span>仪表盘</span><span class="on">订单管理</span><span>商品</span><span>库存</span><span>设置</span></div>
+</div>
+<div class="crumb">首页 / 订单管理 / 订单列表</div>
+<div class="wrap">
+  <div class="card">
+    <h2>订单列表</h2>
+    <div class="sub">共 128 条记录 · 数据每日 06:00 同步</div>
+    <div class="tools">
+      <button class="btn pri">新建订单</button>
+      <button class="btn">批量发货</button>
+      <button class="btn">筛选</button>
+    </div>
+    <table id="orders">
+      <thead>
+        <tr><th>订单号</th><th>商品</th><th>金额</th><th>适用站点</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>SO-20260801-001</td>
+          <td><div>夏季雪纺连衣裙 蓝色</div><div class="sku">SKU 1731340859035700001</div></td>
+          <td><input type="text" class="amt" value="2249"> PHP</td>
+          <td>美国、英国</td>
+        </tr>
+        <tr>
+          <td>SO-20260801-002</td>
+          <td><div>纯棉宽松 T 恤 白色</div><div class="sku">SKU 1731340859035700002</div></td>
+          <td><input type="text" class="amt" value="1639"> PHP</td>
+          <td>美国、英国、德国</td>
+        </tr>
+        <tr>
+          <td>SO-20260801-003</td>
+          <td><div>休闲运动短裤 黑色</div><div class="sku">SKU 1731340859035700003</div></td>
+          <td><input type="text" class="amt" value="1899"> PHP</td>
+          <td>德国、法国</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="pager">共 128 条 · 每页 20 条 · 1 / 7</div>
+  </div>
+</div>
+
+<script src="/extension/lib/xlsx.full.min.js"></script>
+<script>
+/* 截图驱动：注入真实内容脚本并按 ?shot= 场景驱动到目标状态，置 window.__SHOT_READY */
+(async () => {
+  const shot = new URLSearchParams(location.search).get('shot') || 'select';
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const waitFor = async (cond, timeout) => {
+    const t0 = Date.now();
+    while (!cond() && Date.now() - t0 < (timeout || 6000)) await sleep(20);
+    return !!cond();
+  };
+
+  /* chrome 桩：storage 内存实现；sendMessage 抛错走 blob 回退（导出成功路径） */
+  const memStore = {};
+  window.chrome = {
+    storage: { local: {
+      get: async (k) => {
+        const out = {};
+        if (k == null) { for (const key in memStore) out[key] = memStore[key]; return out; }
+        for (const key of (Array.isArray(k) ? k : [k])) if (memStore[key] != null) out[key] = memStore[key];
+        return out;
+      },
+      set: async (obj) => { for (const key in obj) memStore[key] = obj[key]; },
+      remove: async (keys) => { for (const k of (Array.isArray(keys) ? keys : [keys])) delete memStore[k]; }
+    } },
+    runtime: { sendMessage: () => { throw new Error('截图环境：走 blob 回退'); } }
+  };
+  HTMLAnchorElement.prototype.click = function () { /* 拦截下载，不真实落盘 */ };
+  window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
+
+  /* 注入内容脚本（依赖序，与 service-worker 一致） */
+  const FILES = ['entry', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'persist', 'format', 'panel', 'main'];
+  window.__html2xlsx = null;
+  try { delete window.__h2x; } catch (e) { window.__h2x = undefined; }
+  for (const f of FILES) {
+    const code = await (await fetch('/extension/content/' + f + '.js')).text();
+    (0, eval)(code);
+  }
+  if (!window.__html2xlsx) { document.title = 'INJECT_FAIL'; return; }
+  window.__html2xlsx = null; // 隐藏守卫，防误退出
+
+  const host = [...document.documentElement.children].find(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647');
+  const sr = host.shadowRoot;
+  const $ = (s) => sr.querySelector(s);
+  const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+  const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+  const cell = document.querySelector('#orders tbody td');
+
+  if (shot === 'select') {
+    click(cell);                      // 选中表格：绿色覆盖层 + 徽标，工具栏激活
+    await sleep(250);
+    window.__SHOT_READY = true;
+
+  } else if (shot === 'panel') {
+    click(cell);
+    await sleep(120);
+    click($('.h2x-split'));            // 打开列设置面板
+    await waitFor(() => $('.h2x-mask'));
+    const mask = $('.h2x-mask');
+    const rows = [...mask.querySelectorAll('.h2x-col')];
+    const findRow = (kw) => rows.find(r => {
+      const n = r.querySelector('.h2x-cname');
+      return n && n.textContent.indexOf(kw) >= 0;
+    });
+    const rGoods = findRow('商品'), rAmt = findRow('金额');
+    if (rGoods) click(rGoods.querySelector('.h2x-sbtn')); // 多行 → 预设按换行拆分
+    await sleep(80);
+    if (rAmt) click(rAmt.querySelector('.h2x-sbtn'));     // 控件 → 预设控件值拆分
+    await sleep(250);
+    window.__SHOT_READY = true;
+
+  } else if (shot === 'export') {
+    click(cell);
+    await sleep(120);
+    click($('.h2x-primary'));         // 导出 Excel → blob 回退 → 成功 toast
+    await waitFor(() => $('.h2x-toast-success'));
+    await sleep(120);
+    window.__SHOT_READY = true;
+  }
+})();
+</script>
+</body>
+</html>

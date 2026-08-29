@@ -202,16 +202,18 @@
     }
   }
 
-  /* ---- 面板工具 ---- */
+  /* ---- 面板工具（v2.0：拆分勾选改「＋ 拆分」按钮，模式/分隔符收进 .h2x-sub 子行） ---- */
   const rowOf = (h, prefix) => [...h.sr.querySelectorAll('.h2x-col')].find(r => {
     const c = r.querySelector('.h2x-cname');
     return c && c.textContent.indexOf(prefix) === 0;
   });
-  const ckOf = (r) => r.querySelector('.h2x-ck');
+  const sbtnOf = (r) => r.querySelector('.h2x-sbtn');            // 主行拆分按钮（h2x-on = 已展开）
+  const subOf = (r) => r.getRootNode().querySelector('.h2x-sub[data-c="' + r.dataset.c + '"]'); // 对应配置子行
   const ckxOf = (r) => r.querySelector('.h2x-ck-x');
-  const modeOf = (r) => r.querySelector('.h2x-mode');
-  const patOf = (r) => r.querySelector('.h2x-pattern');
+  const modeOf = (r) => { const s = subOf(r); return s && s.querySelector('.h2x-mode'); };
+  const patOf = (r) => { const s = subOf(r); return s && s.querySelector('.h2x-pattern'); };
   const fmtOf = (r) => r.querySelector('.h2x-fmt');
+  const toastText = (h) => [...h.sr.querySelectorAll('.h2x-toast')].map(x => x.textContent).join('|');
 
   /* ================= 轮次 A：基础交互 ================= */
   await round('基础交互', async (h) => {
@@ -224,6 +226,9 @@
     clickCell('#staff td');
     clickCell('#controls td');
     t('多表选择（计数=2）', h.count.textContent === '2', h.count.textContent);
+    const actParent = h.exportBtn.parentElement;
+    t('工具栏三按钮成组同父（换行整组下移，不孤立）', actParent === h.splitBtn.parentElement &&
+      actParent === h.cancelBtn.parentElement && actParent.className === 'h2x-actions', actParent.className);
     const notPrevented = document.querySelector('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     t('选择模式下链接点击被拦截（preventDefault）', notPrevented === false);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
@@ -303,21 +308,37 @@
     click(h.splitBtn);
     await sleep(200); // openPanel 为 async（persist.ready 后才建面板）
     const mask = h.sr.querySelector('.h2x-mask');
-    t('列设置面板打开', !!mask);
+    t('列设置面板打开（role=dialog aria-modal）', !!mask && mask.getAttribute('role') === 'dialog' && mask.getAttribute('aria-modal') === 'true');
     const rTitle = rowOf(h, '标题/产品ID'), rPrice = rowOf(h, '一口价'), rSku = rowOf(h, '秒杀价/库存'), rWh = rowOf(h, '发货仓'), rSite = rowOf(h, '适用站点');
-    t('智能预填：多行文本列默认勾选「按换行拆分」', !!rTitle && ckOf(rTitle).checked === true && modeOf(rTitle).value === 'block');
-    t('智能预填：控件列预设「控件值拆分」但不勾选', !!rPrice && ckOf(rPrice).checked === false && modeOf(rPrice).value === 'control');
-    t('智能预填：纯文本列分隔符探测（、）', !!rSite && ckOf(rSite).checked === false && modeOf(rSite).value === 'delimiter' && patOf(rSite).value === '、', rSite && patOf(rSite).value);
-    [rPrice, rSku, rWh, rSite].forEach(r => { ckOf(r).checked = true; fire(ckOf(r), 'change'); });
-    t('面板预览实时刷新（新列子行出现）', h.sr.querySelectorAll('.h2x-sub').length >= 4, 'subs=' + h.sr.querySelectorAll('.h2x-sub').length);
+    t('智能预填：多行文本列默认展开拆分且模式=按换行', !!rTitle && sbtnOf(rTitle).classList.contains('h2x-on') && modeOf(rTitle).value === 'block');
+    t('智能预填：控件列默认不展开拆分', !!rPrice && !sbtnOf(rPrice).classList.contains('h2x-on'));
+    // 全列预览（默认态：6 原列全部显示 + 标题/产品ID 的 2 个新列 = 8 列）
+    const pvHead = () => [...mask.querySelectorAll('.h2x-pv-body thead th')].map(x => x.textContent);
+    t('全列预览：未拆列也显示（8 列最终序）', JSON.stringify(pvHead()) === JSON.stringify(
+      ['商品', '标题/产品ID', '标题/产品ID1', '标题/产品ID2', '一口价', '秒杀价/库存', '发货仓', '适用站点']), JSON.stringify(pvHead()));
+    t('全列预览：新列绿色标记（标题/产品ID1/2）', [...mask.querySelectorAll('.h2x-pv-body thead th')].filter(x => x.classList.contains('new')).length === 2);
+    t('全列预览：数据行取前 3 行 + 尾注行数', mask.querySelectorAll('.h2x-pv-body tbody tr').length === 3 &&
+      mask.querySelector('.h2x-pv-note').textContent.indexOf('行数据') >= 0, mask.querySelector('.h2x-pv-note').textContent);
+    // 折叠循环：展开 → 预设控件值拆分 → 收起 → 子行移除 → 再展开
+    click(sbtnOf(rPrice));
+    t('智能预填：控件列展开后预设「控件值拆分」', modeOf(rPrice).value === 'control', modeOf(rPrice) && modeOf(rPrice).value);
+    click(sbtnOf(rPrice));
+    t('折叠循环：收起后子行移除', !subOf(rPrice));
+    click(sbtnOf(rPrice)); // 再展开（保持与旧轮次一致的最终态：5 列全拆分）
+    // 其余列展开拆分
+    [rSku, rWh, rSite].forEach(r => click(sbtnOf(r)));
+    t('智能预填：纯文本列分隔符探测（、）', patOf(rSite).value === '、', patOf(rSite) && patOf(rSite).value);
+    t('面板预览实时刷新（新列子行出现）', h.sr.querySelectorAll('.h2x-sub').length >= 5, 'subs=' + h.sr.querySelectorAll('.h2x-sub').length);
     click(mask.querySelector('.h2x-save'));
-    t('面板保存后关闭且提示「已保存并记住」', !h.sr.querySelector('.h2x-mask') && h.hint.textContent.indexOf('已保存') >= 0, h.hint.textContent);
+    t('面板保存后关闭且 toast「已保存并记住」', !h.sr.querySelector('.h2x-mask') && toastText(h).indexOf('已保存') >= 0, toastText(h));
+    await sleep(2700);
+    t('成功 toast 2.5s 后自动消失', h.sr.querySelectorAll('.h2x-toast').length === 0, toastText(h));
   });
 
   /* ================= 轮次 E：持久化恢复 + 拆分导出校验 ================= */
   await round('持久化恢复与拆分导出', async (h) => {
     clickCell('#split td');
-    t('重选同表自动恢复（提示）', h.hint.textContent.indexOf('已恢复上次的列设置') >= 0, h.hint.textContent);
+    t('重选同表自动恢复（toast 提示）', toastText(h).indexOf('已恢复上次的列设置') >= 0, toastText(h));
     h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
     click(h.exportBtn);
     const files = await waitExports(1);
@@ -341,8 +362,9 @@
     await sleep(200); // openPanel 为 async
     const mask = h.sr.querySelector('.h2x-mask');
     [rowOf(h, '标题/产品ID'), rowOf(h, '一口价'), rowOf(h, '秒杀价/库存'), rowOf(h, '发货仓'), rowOf(h, '适用站点')].forEach(r => {
-      if (ckOf(r).checked) { ckOf(r).checked = false; fire(ckOf(r), 'change'); }
+      if (sbtnOf(r).classList.contains('h2x-on')) click(sbtnOf(r)); // 收起 = 取消拆分
     });
+    t('全部拆分收起后无子行', h.sr.querySelectorAll('.h2x-sub').length === 0, 'subs=' + h.sr.querySelectorAll('.h2x-sub').length);
     click(mask.querySelector('.h2x-save'));
     await sleep(200);
     click(h.cancelBtn); // 主动退出（round finally 会再兜底）
@@ -350,7 +372,7 @@
   });
   await round('重置后回落默认（v1.2 零回归）', async (h) => {
     clickCell('#split td');
-    t('重置后不再恢复提示', h.hint.textContent.indexOf('已恢复') < 0, h.hint.textContent);
+    t('重置后不再恢复提示', toastText(h).indexOf('已恢复') < 0, toastText(h));
     h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
     click(h.exportBtn);
     const files = await waitExports(1);
@@ -423,7 +445,7 @@
   /* ================= 轮次 J：列格式 XLSX（持久化恢复 + 数值写入） ================= */
   await round('列格式 XLSX', async (h) => {
     clickCell('#colfmt td');
-    t('列格式持久化恢复提示', h.hint.textContent.indexOf('已恢复') >= 0, h.hint.textContent);
+    t('列格式持久化恢复提示（toast）', toastText(h).indexOf('已恢复') >= 0, toastText(h));
     click(h.exportBtn);
     const files = await waitExports(1);
     const wb = XLSX.read(await files[0].blob.arrayBuffer(), { type: 'array' });
@@ -477,6 +499,81 @@
     t('分体表发货仓控件值（华东仓(1)）', r1[4] === '华东仓(1)', r1[4]);
     const r6 = lines[6].split(',');
     t('分体表末行实时值（1269 PHP）', r6[3] === '1269 PHP', r6[3]);
+  });
+
+  /* ================= 轮次 P：页签 + 就地错误 + focus trap（v2.0 面板） ================= */
+  await round('页签与就地错误', async (h) => {
+    clickCell('#staff td');
+    clickCell('#controls td');
+    click(h.splitBtn);
+    await sleep(200); // openPanel 为 async
+    const mask = h.sr.querySelector('.h2x-mask');
+    t('面板打开（多表页签 2 个，role=tab）', mask.querySelectorAll('.h2x-tab').length === 2 &&
+      mask.querySelector('.h2x-tab').getAttribute('role') === 'tab', mask.querySelectorAll('.h2x-tab').length);
+    t('面板打开自动聚焦首个页签', mask.querySelector('.h2x-tab') === h.sr.activeElement,
+      h.sr.activeElement && h.sr.activeElement.className);
+    let tabs = [...mask.querySelectorAll('.h2x-tab')];
+    t('未配置表页签无状态点', tabs.every(x => x.querySelector('.h2x-tab-dot').classList.contains('h2x-off')));
+    // focus trap：Tab 在首/末元素间圈定（面板内不出走）
+    const focusables = () => [...mask.querySelectorAll('button:not(:disabled),select:not(:disabled),input:not(:disabled)')];
+    focusables()[focusables().length - 1].focus();
+    mask.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+    await sleep(20);
+    t('focus trap：Tab 从末元素圈回首元素', h.sr.activeElement === focusables()[0], h.sr.activeElement && h.sr.activeElement.className);
+    focusables()[0].focus();
+    mask.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+    await sleep(20);
+    t('focus trap：Shift+Tab 从首元素圈回末元素', h.sr.activeElement === focusables()[focusables().length - 1], h.sr.activeElement && h.sr.activeElement.className);
+    // 页签切换（renderPanel 重建后重查 tabs）
+    click(tabs[1]);
+    t('页签点击切换到第 2 表（staff 列消失）', !rowOf(h, '姓名') && mask.querySelectorAll('.h2x-col').length > 0);
+    tabs = [...mask.querySelectorAll('.h2x-tab')];
+    t('切换后目标页签高亮', tabs[1].classList.contains('h2x-tab-on') && !tabs[0].classList.contains('h2x-tab-on'));
+    click(mask.querySelector('.h2x-tab'));
+    t('页签切回第 1 表（姓名列回来）', !!rowOf(h, '姓名'));
+    // 就地错误：姓名列展开（delimiter 预设空分隔符）保存 → 输入框标红 + 底部汇总
+    const rName = rowOf(h, '姓名');
+    click(sbtnOf(rName));
+    click(mask.querySelector('.h2x-save'));
+    const errEl = mask.querySelector('.h2x-err');
+    t('空分隔符保存被拦截（就地标红 + 汇总计数）', patOf(rName).classList.contains('h2x-invalid') &&
+      errEl.textContent.indexOf('1 项配置有误') >= 0, errEl.textContent);
+    patOf(rName).value = '、';
+    fire(patOf(rName), 'input');
+    t('重新输入清除错误标红', !patOf(rName).classList.contains('h2x-invalid'));
+    // 保存有效配置 → 页签状态点亮；再收起保存（空配置）→ 状态点灭（零污染收尾）
+    click(mask.querySelector('.h2x-save'));
+    t('保存有效配置后面板关闭', !h.sr.querySelector('.h2x-mask'));
+    click(h.splitBtn);
+    await sleep(200);
+    const mask2 = h.sr.querySelector('.h2x-mask');
+    t('保存后重开面板：staff 页签状态点亮', mask2.querySelectorAll('.h2x-tab')[0].querySelector('.h2x-tab-dot').classList.contains('h2x-off') === false);
+    click(sbtnOf(rowOf(h, '姓名'))); // 收起拆分
+    click(mask2.querySelector('.h2x-save'));
+    click(h.splitBtn);
+    await sleep(200);
+    const mask3 = h.sr.querySelector('.h2x-mask');
+    t('空配置保存后页签状态点灭（重置路径）', mask3.querySelectorAll('.h2x-tab')[0].querySelector('.h2x-tab-dot').classList.contains('h2x-off'));
+    click(mask3.querySelector('.h2x-pcancel'));
+  });
+
+  /* ================= 轮次 Q：导出保留选择 + toast 退出（v2.0） ================= */
+  await round('导出保留选择与 toast 退出', async (h) => {
+    clickCell('#staff td');
+    h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
+    click(h.exportBtn);
+    const files = await waitExports(1);
+    t('导出成功（首个文件，单表 CSV 无表名后缀）', files.length === 1 && /\.csv$/i.test(files[0].name), files.map(f => f.name).join('|'));
+    t('导出后选择保留（计数仍 1，UI 仍在）', h.count.textContent === '1' && document.documentElement.contains(h.host), 'count=' + h.count.textContent);
+    t('导出成功 toast（含下载与退出动作）', toastText(h).indexOf('下载') >= 0 && toastText(h).indexOf('退出') >= 0, toastText(h));
+    click(h.exportBtn); // 连续第二次导出（重入保护 + 选择仍在）
+    const files2 = await waitExports(2);
+    t('保留选择后可连续导出（累计 2 个文件）', files2.length === 2, 'files=' + files2.length);
+    const exitBtn = [...h.sr.querySelectorAll('.h2x-toast-btn')].find(b => b.textContent === '退出');
+    t('toast 提供「退出」动作按钮', !!exitBtn);
+    click(exitBtn);
+    await sleep(100);
+    t('点击 toast「退出」后 UI 移除', !document.documentElement.contains(h.host));
   });
 
   /* ================= 轮次 M/N/O：JSON / MD / HTML ================= */

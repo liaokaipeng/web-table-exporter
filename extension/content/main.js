@@ -3,7 +3,9 @@
  * （xlsx / csv / json / md / html，须最后注入）
  * 依赖 window.__h2x 命名空间（entry/util/controls/split/cell/table/virtual/
  * format/persist 先行注入）；UI 层与算法层只经命名空间单向调用，面板经
- * panel.init() 注入依赖
+ * panel.init() 注入依赖。
+ * v2.0：toast 反馈系统（结果性通知迁出 hint 行）、虚拟采集可中止、导出后
+ * 保留选择、工具栏折行自适应、设计 token + 深色模式 + 动效（prefers 系列）
  */
 (() => {
   'use strict';
@@ -29,11 +31,13 @@
   let active = true;
   let host = null;
   let hoverBox = null, countEl = null, nameInput = null, exportBtn = null, cancelBtn = null, hintEl = null, splitBtn = null, fmtSel = null;
+  let toastRoot = null;
   let hoverTable = null;
   let rafId = 0;
   let collecting = false; // 虚拟表格滚动采集中
   let exporting = false;  // 导出文件生成/编码进行中（await 让出主线程期间的重入保护）
   let genToken = 0;       // 代际令牌：退出/重新采集时使旧采集任务失效
+  let hasTables = true;   // 进入选择模式时页面是否存在表格（无表时默认提示切换）
 
   const selected = new Map();   // table -> 覆盖层元素（Map 保持选择顺序 = Sheet 顺序）
   const snapshots = new Map();   // table -> 虚拟滚动表格采集快照 { rows, ctrl, text, headerRows }
@@ -51,39 +55,71 @@
     document.documentElement.appendChild(host);
 
     const root = host.attachShadow({ mode: 'open' });
-    // 工具栏样式 + 面板共用的按钮样式（面板专属样式由 panel.js 自持）
+    // 工具栏样式 + 面板共用的按钮样式（面板专属样式由 panel.js 自持）。
+    // v2.0 设计 token：颜色/圆角集中定义于 :host，工具栏与面板两处 <style>
+    // 同一 shadowRoot 共享；深色模式经 prefers-color-scheme 覆写 token
     root.innerHTML = [
       '<style>',
-      '  .h2x-hover{position:absolute;pointer-events:none;box-sizing:border-box;border:2px solid #1976d2;background:rgba(25,118,210,.14);border-radius:2px;}',
+      '  :host{--c-primary:#2e7d32;--c-info:#1976d2;--c-danger:#c62828;--c-warn:#8d6e00;',
+      '    --c-text:#333;--c-text-2:#666;--c-text-3:#999;--c-border:#ccc;--c-border-2:#e0e0e0;',
+      '    --c-bg:#fff;--c-bg-2:#f5f7fa;--c-bg-3:#fafbfc;--c-input:#fff;',
+      '    --c-disable-bg:#757575;--c-disable-fg:#767676;--r:8px;--r-s:6px;}',
+      '  @media (prefers-color-scheme: dark){:host{--c-primary:#4caf50;--c-info:#64b5f6;--c-danger:#ef5350;--c-warn:#ffd54f;',
+      '    --c-text:#e0e0e0;--c-text-2:#aaa;--c-text-3:#777;--c-border:#555;--c-border-2:#3a3a3a;',
+      '    --c-bg:#1e1e1e;--c-bg-2:#2a2a2a;--c-bg-3:#252525;--c-input:#333;',
+      '    --c-disable-bg:#555;--c-disable-fg:#888;}}',
+      '  .h2x-hover{position:absolute;pointer-events:none;box-sizing:border-box;border:2px solid #1976d2;background:rgba(25,118,210,.14);border-radius:2px;transition:left .08s,top .08s,width .08s,height .08s;}',
       '  .h2x-sel{position:absolute;pointer-events:none;box-sizing:border-box;border:2px solid #2e7d32;background:rgba(46,125,50,.10);border-radius:2px;}',
       '  .h2x-badge{position:absolute;top:-12px;left:-12px;min-width:22px;height:22px;padding:0 6px;box-sizing:border-box;border-radius:11px;background:#2e7d32;color:#fff;font:700 12px/22px -apple-system,"Segoe UI",sans-serif;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.35);}',
-      '  .h2x-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);pointer-events:auto;display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fff;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.25);font:13px/1.4 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;color:#333;white-space:nowrap;}',
-      '  .h2x-hint{color:#666;}',
-      '  .h2x-count b{color:#2e7d32;}',
-      '  .h2x-name{width:240px;max-width:40vw;padding:6px 10px;border:1px solid #ccc;border-radius:6px;font:13px/1.2 -apple-system,"Segoe UI",sans-serif;color:#333;outline:none;}',
-      '  .h2x-name:focus{border-color:#2e7d32;}',
-      '  .h2x-ext{padding:6px 8px;border:1px solid #ccc;border-radius:6px;font:13px/1.2 -apple-system,"Segoe UI",sans-serif;color:#333;background:#fff;outline:none;cursor:pointer;}',
-      '  .h2x-ext:focus{border-color:#2e7d32;}',
-      '  .h2x-btn{padding:6px 16px;border:none;border-radius:6px;cursor:pointer;font:13px/1.2 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}',
-      '  .h2x-primary{background:#2e7d32;color:#fff;}',
-      '  .h2x-primary:disabled{background:#b0bec5;cursor:not-allowed;}',
-      '  .h2x-ghost{background:#f5f5f5;color:#666;}',
-      '  .h2x-ghost:disabled{color:#bbb;cursor:not-allowed;}',
-      '  .h2x-split{background:#fff;color:#2e7d32;border:1px solid #2e7d32;}',
-      '  .h2x-split:disabled{background:#f5f5f5;color:#bbb;border-color:#ccc;cursor:not-allowed;}',
+      '  .h2x-sel.h2x-flip-x .h2x-badge{left:auto;right:-12px;}',   /* 表格贴左边缘：徽标翻内侧 */
+      '  .h2x-sel.h2x-flip-y .h2x-badge{top:auto;bottom:-12px;}',   /* 表格贴上边缘：徽标翻内侧 */
+      '  .h2x-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);pointer-events:auto;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px 10px;max-width:96vw;box-sizing:border-box;padding:10px 14px;background:var(--c-bg);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.25);font:13px/1.4 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--c-text);}',
+      '  .h2x-hint{color:var(--c-text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',  /* 空间不足先截断提示文案，按钮不被迫换行 */
+      '  .h2x-count{flex:none;white-space:nowrap;}',
+      '  .h2x-count b{color:var(--c-primary);}',
+      '  .h2x-name{flex:1 1 150px;min-width:110px;max-width:260px;padding:6px 10px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 -apple-system,"Segoe UI",sans-serif;color:var(--c-text);outline:none;background:var(--c-input);box-sizing:border-box;}',
+      '  .h2x-name:focus{border-color:var(--c-primary);}',
+      '  .h2x-ext{padding:6px 8px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 -apple-system,"Segoe UI",sans-serif;color:var(--c-text);background:var(--c-input);outline:none;cursor:pointer;flex:none;}',
+      '  .h2x-ext:focus{border-color:var(--c-primary);}',
+      '  .h2x-btn{padding:6px 16px;border:none;border-radius:var(--r-s);cursor:pointer;font:13px/1.2 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}',
+      '  .h2x-btn:hover:not(:disabled){filter:brightness(1.06);}',
+      '  .h2x-btn:active:not(:disabled){filter:brightness(.94);}',
+      '  .h2x-primary{background:var(--c-primary);color:#fff;}',
+      '  .h2x-primary:disabled{background:var(--c-disable-bg);color:#fff;cursor:not-allowed;filter:none;}',
+      '  .h2x-ghost{background:var(--c-bg-3);color:var(--c-text-2);border:1px solid var(--c-border);}',
+      '  .h2x-ghost:disabled{color:var(--c-disable-fg);cursor:not-allowed;}',
+      '  .h2x-split{background:var(--c-bg);color:var(--c-primary);border:1px solid var(--c-primary);position:relative;}',
+      '  .h2x-split:disabled{background:var(--c-bg-3);color:var(--c-disable-fg);border-color:var(--c-border);cursor:not-allowed;filter:none;}',
+      '  .h2x-split.h2x-has-cfg::after{content:"";position:absolute;top:-4px;right:-4px;width:8px;height:8px;border-radius:50%;background:var(--c-info);box-shadow:0 0 0 2px var(--c-bg);}',  /* 已配置徽标点 */
+      '  .h2x-actions{display:flex;gap:8px;flex:none;}',  /* 三按钮成组：极窄屏整组换行，不出现孤立按钮 */
+      '  .h2x-toasts{position:fixed;top:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:1;pointer-events:none;font:13px/1.4 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}',
+      '  .h2x-toast{pointer-events:auto;display:flex;align-items:center;gap:10px;max-width:min(420px,86vw);padding:10px 12px 10px 14px;border-radius:var(--r);background:var(--c-bg);color:var(--c-text);box-shadow:0 4px 16px rgba(0,0,0,.25);animation:h2x-in .15s ease-out;border-left:3px solid var(--c-info);}',
+      '  .h2x-toast-success{border-left-color:var(--c-primary);}',
+      '  .h2x-toast-error{border-left-color:var(--c-danger);}',
+      '  .h2x-toast-msg{flex:1;min-width:0;color:var(--c-text);}',
+      '  .h2x-toast-btn{padding:3px 10px;border:1px solid var(--c-border);border-radius:var(--r-s);background:var(--c-bg);color:var(--c-text-2);cursor:pointer;font:12px/1.4 -apple-system,"Segoe UI",sans-serif;}',
+      '  .h2x-toast-btn:hover{border-color:var(--c-primary);color:var(--c-primary);}',
+      '  .h2x-toast-x{border:none;background:none;color:var(--c-text-3);cursor:pointer;font:16px/1 -apple-system,"Segoe UI",sans-serif;padding:0 2px;}',
+      '  .h2x-toast-x:hover{color:var(--c-text);}',
+      '  button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--c-info);outline-offset:1px;}',
+      '  @keyframes h2x-in{from{opacity:0;transform:translateY(-6px);}}',
+      '  @media (prefers-reduced-motion: reduce){:host *{animation:none!important;transition:none!important;}}',
       '</style>',
       '<div class="h2x-hover" hidden></div>',
       '<div class="h2x-bar">',
-      '  <span class="h2x-hint">点击选择表格（可多选）</span>',
+      '  <span class="h2x-hint"></span>',
       '  <span class="h2x-count">已选 <b>0</b> 个</span>',
-      '<input class="h2x-name" type="text" spellcheck="false" />',
-      '<select class="h2x-ext" title="导出格式">' +
-      Object.keys(FORMATS).map(k => '<option value="' + k + '">' + FORMATS[k].ext + '</option>').join('') +
+      '  <input class="h2x-name" type="text" spellcheck="false" />',
+      '  <select class="h2x-ext" title="导出格式">' +
+      Object.keys(FORMATS).map(k => '<option value="' + k + '">' + FORMATS[k].label + ' (.' + FORMATS[k].ext + ')</option>').join('') +
       '</select>',
-      '  <button class="h2x-btn h2x-split" disabled>列设置</button>',
-      '  <button class="h2x-btn h2x-primary" disabled>导出 Excel</button>',
-      '  <button class="h2x-btn h2x-ghost">取消 (Esc)</button>',
-      '</div>'
+      '  <div class="h2x-actions">',
+      '    <button class="h2x-btn h2x-split" disabled>列设置</button>',
+      '    <button class="h2x-btn h2x-primary" disabled></button>',
+      '    <button class="h2x-btn h2x-ghost">取消 (Esc)</button>',
+      '  </div>',
+      '</div>',
+      '<div class="h2x-toasts"></div>'
     ].join('');
 
     hoverBox = root.querySelector('.h2x-hover');
@@ -94,25 +130,82 @@
     cancelBtn = root.querySelector('.h2x-ghost');
     hintEl = root.querySelector('.h2x-hint');
     splitBtn = root.querySelector('.h2x-split');
+    toastRoot = root.querySelector('.h2x-toasts');
     exportBtn.addEventListener('click', doExport);
-    cancelBtn.addEventListener('click', exit);
+    // v2.0：采集中「取消」变「停止采集」（只作废当前任务，不退出选择模式）
+    cancelBtn.addEventListener('click', () => { collecting ? stopCollect() : exit(); });
     splitBtn.addEventListener('click', openPanel);
     // 格式切换：导出按钮文案同步（文件名扩展名在导出时按格式追加）
-    fmtSel.addEventListener('change', () => {
-      exportBtn.textContent = '导出 ' + (FORMATS[fmtSel.value] || FORMATS.xlsx).label;
-    });
+    fmtSel.addEventListener('change', syncExportBtn);
 
     nameInput.value = sanitizeFilename(document.title) + '_' + timestamp();
   }
 
-  // 工具栏提示统一入口：文案 + 语义色（默认灰）；所有状态提示经此写入
+  // 导出按钮文案与格式下拉同步（含「导出中…」结束后的恢复）
+  function syncExportBtn() {
+    if (exporting) return; // 导出中保持「导出中…」，结束时统一恢复
+    exportBtn.textContent = '导出 ' + (FORMATS[fmtSel.value] || FORMATS.xlsx).label;
+  }
+
+  /* ---------------- Toast 反馈系统（v2.0） ---------------- */
+
+  /** 结果性通知：成功/信息 2.5s 自动消失，错误常驻 + 关闭钮；同屏最多 3 条。
+   *  返回句柄 { update(msg), close() } 供进度型 toast 复用同一条。
+   *  hint 只保留引导与进行时文案（默认提示、采集进度、导出中），结果全部走 toast */
+  function toast(msg, opts) {
+    opts = opts || {};
+    const type = opts.type || 'info';
+    const box = document.createElement('div');
+    box.className = 'h2x-toast h2x-toast-' + type;
+    box.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    const msgEl = document.createElement('span');
+    msgEl.className = 'h2x-toast-msg';
+    msgEl.textContent = msg;
+    box.appendChild(msgEl);
+    let timer = 0;
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      if (timer) clearTimeout(timer);
+      box.remove();
+    };
+    (opts.actions || []).forEach((a) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'h2x-toast-btn';
+      btn.textContent = a.label;
+      btn.addEventListener('click', () => { close(); if (a.onClick) a.onClick(); });
+      box.appendChild(btn);
+    });
+    if (type === 'error') {
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'h2x-toast-x';
+      x.setAttribute('aria-label', '关闭');
+      x.textContent = '×';
+      x.addEventListener('click', close);
+      box.appendChild(x);
+    }
+    toastRoot.appendChild(box);
+    while (toastRoot.children.length > 3) toastRoot.firstElementChild.remove();
+    if (type !== 'error' && !opts.sticky) {
+      timer = setTimeout(close, opts.duration || 2500);
+    }
+    return {
+      update: (m) => { if (!closed) msgEl.textContent = m; },
+      close: close
+    };
+  }
+
+  // 工具栏提示统一入口：文案 + 语义色（默认灰）；引导/进行时文案经此写入
   function setHint(msg, color) {
     hintEl.textContent = msg;
     hintEl.style.color = color || '#666';
   }
 
   function resetHint() {
-    setHint('点击选择表格（可多选）');
+    setHint(hasTables ? '点击选择表格（可多选）' : '页面未找到表格');
   }
 
   /* ---------------- 事件处理 ---------------- */
@@ -168,7 +261,7 @@
       e.preventDefault();
       e.stopPropagation();
       exit();
-    } else if (e.key === 'Enter' && !e.isComposing && !collecting) {
+    } else if (e.key === 'Enter' && !e.isComposing && !collecting && !exporting) {
       // 焦点在工具栏按钮上时，Enter 走按钮默认行为（触发 click）
       const focused = host.shadowRoot && host.shadowRoot.activeElement;
       if (focused && focused.tagName === 'BUTTON') return;
@@ -223,10 +316,8 @@
     if (saved.rules.length) splitRules.set(table, saved.rules);
     if (saved.excluded.size) colFilters.set(table, saved.excluded);
     if (saved.formats.size) colFormats.set(table, saved.formats);
-    setHint('已恢复上次的列设置', '#2e7d32');
-    setTimeout(() => {
-      if (active && !collecting && !panel.isOpen()) resetHint();
-    }, 2500);
+    toast('已恢复上次的列设置', { type: 'info' });
+    updateBar(); // 「列设置」徽标点状态同步
   }
 
   /** 打开列设置面板：先兜底持久化加载与恢复（面板读取 splitRules 显示已保存状态） */
@@ -255,27 +346,36 @@
     hoverBox.hidden = true;
     exportBtn.disabled = true;
     splitBtn.disabled = true;
-    cancelBtn.disabled = true;
+    cancelBtn.textContent = '停止采集'; // v2.0：采集中可中止（不退出选择模式）
     setHint('虚拟表格采集滚动中…', '#1976d2');
     try {
       const snap = await collectVirtual(
         table,
-        (n) => setHint('虚拟表格采集滚动中… 已采集 ' + n + ' 行', '#1976d2'),
+        (n) => { if (gen === genToken) setHint('虚拟表格采集滚动中… 已采集 ' + n + ' 行', '#1976d2'); },
         () => !active || gen !== genToken
       );
-      if (!active || gen !== genToken) return; // 已退出/已作废
+      if (!active || gen !== genToken) return; // 已退出/已作废（含「停止采集」）
       snapshots.set(table, snap);
       addSelected(table);
-      setHint('采集完成，共 ' + snap.rows.length + ' 行（含表头）', '#2e7d32');
-      setTimeout(() => { if (active && !collecting) resetHint(); }, 2500);
+      toast('采集完成，共 ' + snap.rows.length + ' 行（含表头）', { type: 'success' });
+      resetHint();
     } catch (err) {
       console.error('[HTML2XLSX] 虚拟表格采集失败：', err);
-      setHint('采集失败：' + (err && err.message ? err.message : err), '#c62828');
+      toast('采集失败：' + (err && err.message ? err.message : err), { type: 'error' });
+      resetHint();
     } finally {
       collecting = false;
-      cancelBtn.disabled = false;
+      cancelBtn.textContent = '取消 (Esc)';
       updateBar();
     }
+  }
+
+  /** v2.0：停止当前虚拟采集——genToken 作废进行中任务（collectVirtual 回 null、
+   *  快照不写入、表格不选中）；不退出选择模式，按钮与提示随后由 finally 恢复 */
+  function stopCollect() {
+    genToken++;
+    toast('已停止采集', { type: 'info' });
+    resetHint();
   }
 
   function updateBar() {
@@ -285,9 +385,15 @@
       box.firstChild.textContent = String(++i);
     }
     countEl.textContent = String(selected.size);
-    const busy = collecting || panel.isOpen(); // 面板打开时主工具栏同步禁用
+    const busy = collecting || exporting || panel.isOpen(); // 面板/导出中主工具栏同步禁用
     exportBtn.disabled = busy || selected.size === 0;
     splitBtn.disabled = busy || selected.size === 0;
+    // v2.0：已选表中存在拆分/筛选/格式配置 → 「列设置」按钮带徽标点
+    let cfg = false;
+    for (const tb of selected.keys()) {
+      if (splitRules.has(tb) || colFilters.has(tb) || colFormats.has(tb)) { cfg = true; break; }
+    }
+    splitBtn.classList.toggle('h2x-has-cfg', cfg);
   }
 
   function positionBox(box, table) {
@@ -296,6 +402,11 @@
     box.style.top = (r.top + window.scrollY) + 'px';
     box.style.width = r.width + 'px';
     box.style.height = r.height + 'px';
+    // v2.0：选中框徽标在表格贴视口左/上边缘时翻到内侧，避免出屏
+    if (box.classList.contains('h2x-sel')) {
+      box.classList.toggle('h2x-flip-x', r.left < 12);
+      box.classList.toggle('h2x-flip-y', r.top < 12);
+    }
     box.hidden = false;
   }
 
@@ -336,12 +447,16 @@
   }
 
   function showError(msg) {
-    setHint(msg, '#c62828');
+    toast(msg, { type: 'error' }); // v2.0：错误常驻可关（迁出 hint 行）
   }
 
-  function finish() {
-    setHint('已开始下载…', '#2e7d32');
-    setTimeout(exit, 600);
+  /** v2.0：导出成功保留选择（不再 0.6s 自动退出）——toast 给「退出」动作，
+   *  用户可换格式连续导出；Esc / 取消 / toast 退出三条路径均可退出 */
+  function finish(n) {
+    toast(n > 1 ? '已下载 ' + n + ' 个文件' : '已开始下载…', {
+      type: 'success',
+      actions: [{ label: '退出', onClick: exit }]
+    });
   }
 
   /** 导出 aoa 组装：先应用列拆分，再按排除集过滤列（列筛选），最后按列格式数值化
@@ -434,6 +549,10 @@
   async function doExport() {
     if (exporting || collecting || !selected.size) return;
     exporting = true; // await 让出主线程期间按钮未禁用，防重入（原同步链路天然互斥）
+    // v2.0：导出中按钮反馈（防点击被静默吞掉）+ 进行时提示
+    exportBtn.disabled = true;
+    exportBtn.textContent = '导出中…';
+    setHint('正在生成导出文件…', '#1976d2');
     try {
       await persist.ready(); // 兜底注入初期的存储加载竞态（正常情况早已就绪）
       if (collecting || !selected.size) return; // await 期间状态可能变化
@@ -473,15 +592,23 @@
         return;
       }
 
-      // 3. 逐文件编码下载（后台 downloads 优先，失败回退 blob）
-      for (const file of files) {
+      // 3. 逐文件编码下载（后台 downloads 优先，失败回退 blob）；
+      //    v2.0：多文件时 toast 实时进度「正在下载 i/n」
+      let pt = null;
+      if (files.length > 1) pt = toast('正在下载 1/' + files.length + '…', { type: 'info', sticky: true });
+      for (let fi = 0; fi < files.length; fi++) {
         if (!active) return; // 编码间隙用户已退出，放弃下载
-        await downloadFile(await arrayBufferToBase64(file.buf), file);
+        if (pt) pt.update('正在下载 ' + (fi + 1) + '/' + files.length + '…');
+        await downloadFile(await arrayBufferToBase64(files[fi].buf), files[fi]);
         await yieldToMain();
       }
-      finish();
+      if (pt) pt.close();
+      finish(files.length);
     } finally {
       exporting = false;
+      syncExportBtn(); // 恢复按钮文案（导出中… → 导出 <格式>）
+      updateBar();
+      if (active) resetHint();
     }
   }
 
@@ -512,6 +639,10 @@
   /* ---------------- 启动 ---------------- */
 
   buildUI();
+  // v2.0：页面无表格时默认提示切换为「页面未找到表格」（动态加载不主动监测）
+  hasTables = document.querySelectorAll('table').length > 0;
+  syncExportBtn();
+  resetHint();
   // 装配列设置面板依赖（host/Maps 为稳定引用；可变状态经 getter 读取）
   panel.init({
     host: host,
@@ -523,8 +654,7 @@
     isBusy: () => collecting,
     isAlive: () => active,
     updateBar: updateBar,
-    setHint: setHint,
-    resetHint: resetHint
+    toast: toast
   });
   document.addEventListener('mouseover', onMouseOver, true);
   document.addEventListener('click', onClickCapture, true);

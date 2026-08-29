@@ -1,6 +1,6 @@
-# HTML2XLSX 表格导出
+# Web Table Exporter
 
-Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页表格，一键导出为 xlsx / csv / json / md / html。
+Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页表格，一键导出为 xlsx / csv / json / md / html。v2.3 前名为「HTML2XLSX 表格导出」。
 
 支持：合并单元格（rowspan/colspan）、多表格多 Sheet、自定义文件名、虚拟滚动表格全量采集、表单控件值（input/select）导出、单元格多段文本以空格连接、导出前列拆分（控件值/换行/分隔符三种模式）、导出列筛选（含拆分新列逐列勾选）、列格式（文本/数字，数字列可求和）、拆分规则与列筛选与列格式按页面记忆（重进自动恢复）、CSV（RFC4180 + BOM）、JSON（行对象）、Markdown（GFM 表格）、HTML（完整文档）。
 
@@ -39,7 +39,7 @@ Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页
 │   │   ├── panel.js            #   列设置面板（列筛选 + 拆分配置 + 列格式）
 │   │   └── main.js             #   主 UI / 事件 / 导出
 │   ├── lib/xlsx.full.min.js    # SheetJS 0.20.3（Apache-2.0）
-│   └── icons/icon128.png
+│   └── icons/                  # 图标 16/32/48/128（test/gen-icon.ps1 生成）
 ├── test/                       # 测试材料（不随插件分发）
 │   ├── algo-check.cjs          # 采集算法 + 列拆分/列筛选/持久化回归测试（Node 直接运行）
 │   ├── fixture.html            # 基础测试页（合并单元格/多表/控件取值/列拆分/列筛选）

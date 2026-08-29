@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "HTML2XLSX 表格导出",
-  "description": "悬浮选择页面表格，一键导出为 xlsx / csv / json / md / html（支持合并单元格、多表格多 Sheet、虚拟滚动表格及 el-table-v2 / AG Grid / MUI DataGrid / Tabulator 等网格组件）",
-  "version": "2.2.0",
+  "name": "Web Table Exporter",
+  "description": "选择网页表格，一键导出 xlsx/csv/json/md/html。支持虚拟滚动全量采集，兼容 Element Plus / AG Grid 等组件表格。支持列设置：拆分/筛选/格式化导出列，规则按页面自动记忆。",
+  "version": "2.3.0",
   "action": {
     "default_title": "导出表格"
   },
@@ -11,6 +11,9 @@
     "service_worker": "background/service-worker.js"
   },
   "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   }
 }

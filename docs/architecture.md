@@ -20,6 +20,7 @@
 
 - MV3，权限最小化：`activeTab` + `scripting`（点击时注入）+ `downloads`（绕过页面 CSP）+ `storage`（v1.7 拆分规则与列筛选持久化；无安装警告的本地存储）
 - 无 `host_permissions`、无静态 `content_scripts`——SheetJS 约 950KB，不常驻所有页面
+- 图标 16/32/48/128 四尺寸（纯色极简：品牌蓝底 + 白色表格）：`test/gen-icon.ps1` GDI+ 矢量绘制 512px 母版降采样生成，勿手改二进制
 - `extension/` 为插件本体目录（chrome://extensions 加载）；`test/`、`docs/` 为开发材料，不随插件分发
 
 ### extension/background/service-worker.js

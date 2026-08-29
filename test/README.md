@@ -57,6 +57,9 @@ node test/algo-check.cjs
 
 # DOM 自动回归（auto-check.html，无扩展环境）：
 npx serve .   # 仓库根目录起静态服务 → 访问 /test/auto-check.html，页内自判 PASS/FAIL
+
+# 重新生成扩展图标（extension/icons/ 四尺寸；本脚本同样须保持 UTF-8 带 BOM）：
+powershell -ExecutionPolicy Bypass -File test/gen-icon.ps1
 ```
 
 ## E2E 注入回归（无扩展环境）

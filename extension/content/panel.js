@@ -5,6 +5,8 @@
  * v2.0 面板重构：列行 7 控件收敛为 4 元素折叠式（拆分配置收进展开子行，
  * 模式/分隔符/上限键入时只局部刷新新列勾选区，焦点不丢）、多表下拉改页签
  * （含已配置状态点）、校验错误就地标红 + 滚动定位、focus trap + role="dialog"。
+ * v2.0.1 列设置 UI 细节优化：拆分子行左缘竖线（从属层级）、列名 title 全名、
+ * 面板加宽至 1000px、预览区限高自滚 + 表头 sticky、展开子行滚入视野。
  * 保存时草稿回写主 UI 内存 Map，并经 persist 模块落盘（跨会话恢复）。
  * 依赖：主 UI 经 init() 注入 { host, selected, snapshots, splitRules,
  *   colFilters, colFormats, isBusy, isAlive, updateBar, toast }（main.js 最后装配）；
@@ -210,7 +212,7 @@
       // 按钮样式（h2x-btn/primary/ghost）由主 UI的 <style> 提供
       '<style>',
       '  .h2x-mask{position:fixed;inset:0;pointer-events:auto;background:rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;z-index:1;animation:h2x-fade .15s ease-out;}',
-      '  .h2x-panel{background:var(--c-bg);color:var(--c-text);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.3);width:min(900px,95vw);max-height:86vh;overflow:auto;padding:18px 20px 16px;box-sizing:border-box;font:13px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;animation:h2x-pop .15s ease-out;}',
+      '  .h2x-panel{background:var(--c-bg);color:var(--c-text);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.3);width:min(1000px,95vw);max-height:86vh;overflow:auto;padding:18px 20px 16px;box-sizing:border-box;font:13px/1.5 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;animation:h2x-pop .15s ease-out;}',
       '  .h2x-panel-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}',
       '  .h2x-panel-top h3{margin:0;font-size:15px;font-weight:600;}',
       '  .h2x-px{border:none;background:none;color:var(--c-text-3);cursor:pointer;font:18px/1 -apple-system,"Segoe UI",sans-serif;padding:2px 6px;border-radius:4px;}',
@@ -248,14 +250,17 @@
       '  .h2x-sbtn:hover:not(:disabled){border-color:var(--c-primary);color:var(--c-primary);}',
       '  .h2x-sbtn:disabled{color:var(--c-disable-fg);cursor:not-allowed;}',
       '  .h2x-sbtn.h2x-on{border-color:var(--c-primary);color:var(--c-primary);background:var(--c-bg-2);}',
-      '  .h2x-sub{padding:8px 10px 8px 52px;background:var(--c-bg-2);border-bottom:1px solid var(--c-border-2);}',
+      '  .h2x-sub{padding:8px 10px 8px 52px;background:var(--c-bg-2);border-bottom:1px solid var(--c-border-2);border-left:3px solid rgba(46,125,50,.4);}',  /* 左缘竖线：标示拆分配置从属于上方列 */
+      '  @media (prefers-color-scheme: dark){.h2x-sub{border-left-color:rgba(76,175,80,.5);}}',
       '  .h2x-sub-cfg{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;}',
       '  .h2x-sub-cfg label{display:flex;align-items:center;gap:5px;color:var(--c-text-2);font-size:12px;}',
       '  .h2x-sub-cols{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;font-size:12px;color:var(--c-text-2);}',
       '  .h2x-sub-cols label{display:flex;align-items:center;gap:4px;cursor:pointer;}',
       '  .h2x-sub-cols label.noexp{color:var(--c-text-3);text-decoration:line-through;}',
       '  .h2x-invalid{border-color:var(--c-danger)!important;box-shadow:0 0 0 1px var(--c-danger);}',  /* 校验错误就地标红 */
-      '  .h2x-pv{border:1px solid var(--c-border-2);border-radius:var(--r);padding:10px;margin-bottom:12px;overflow:auto;}',
+      '  .h2x-pv{border:1px solid var(--c-border-2);border-radius:var(--r);padding:10px;margin-bottom:12px;}',  /* 高度限制移至 body：标题/尾注不随滚动 */
+      '  .h2x-pv-body{max-height:24vh;overflow:auto;}',  /* 限高自滚：列设置与预览始终同屏可见 */
+      '  .h2x-pv thead th{position:sticky;top:0;z-index:1;}',  /* 预览滚动时表头保持可见（th 已有 --c-bg-2 背景遮底） */
       '  .h2x-pv-title{font-size:12px;color:var(--c-text-2);margin-bottom:6px;}',
       '  .h2x-pv table{border-collapse:collapse;font-size:12px;}',
       '  .h2x-pv th,.h2x-pv td{border:1px solid var(--c-border);padding:4px 10px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
@@ -456,7 +461,7 @@
         : (d.checked ? '收起并取消该列拆分' : splitHint(col));
       html += '<div class="h2x-col' + (d.export ? '' : ' noexp') + '" data-c="' + c + '">' +
         '<label class="h2x-ckw"><input type="checkbox" class="h2x-ck-x"' + (d.export ? ' checked' : '') + (hasMerges ? ' disabled' : '') + '></label>' +
-        '<span class="h2x-cname">' + escapeHtml(name) + (col.hasCtrl ? '<i class="h2x-tag">控件</i>' : '') + (col.multiBlock ? '<i class="h2x-tag">多行</i>' : '') + '</span>' +
+        '<span class="h2x-cname" title="' + escapeHtml(name) + '">' + escapeHtml(name) + (col.hasCtrl ? '<i class="h2x-tag">控件</i>' : '') + (col.multiBlock ? '<i class="h2x-tag">多行</i>' : '') + '</span>' +
         '<select class="h2x-fmt" title="数字格式：数值化后写入 Excel（含千分位逗号会先剥离，无法解析保持原文本）；作用于该列及其拆分新列">' +
         '<option value="text"' + (d.fmt !== 'number' ? ' selected' : '') + '>文本</option>' +
         '<option value="number"' + (d.fmt === 'number' ? ' selected' : '') + '>数字</option>' +
@@ -552,6 +557,11 @@
       sbtn.classList.toggle('h2x-on', d.checked);
       sbtn.title = d.checked ? '收起并取消该列拆分' : splitHint(panelCols[c]);
       syncSubRow(panelDrafts.get(panelTable), c, d, row);
+      if (d.checked) {
+        // 展开后子行可能超出列区视口（38vh 滚动容器），滚入可见
+        const sub = panelMask.querySelector('.h2x-sub[data-c="' + c + '"]');
+        if (sub) sub.scrollIntoView({ block: 'nearest' });
+      }
       updateTools();
       renderPreview();
       return;

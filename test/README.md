@@ -9,8 +9,8 @@
 | `fixture.html` | 普通表格、rowspan/colspan 合并（带 caption）、空单元格/长文本、控件取值（第 4 节：select 单/多选、空值/value=文本、checkbox/radio、hidden、date/textarea/output、一格多控件、ARIA switch/slider/listbox/combobox、el/ant/van 组件开关、嵌套开关、类名形似非开关回退）、列拆分（第 5 节：控件值拆分（含同格多控件各自成列，复刻店小秘秒杀价/库存双输入）、按换行拆分、分隔符拆分、智能预填、段数不足补空、合并表格禁用）、分体表格合并（第 6 节：表头/表体两个 table 复刻 Element Plus el-table，垂直+水平双向滚动裁剪（表宽 860 > 容器 620，表头 scrollLeft 同步）、gutter 占位列）、图片链接导出（第 8 节：纯图片/图片+文字/无链接图片/控件+图片/双行格含图按换行拆分）、列格式（第 9 节：文本=默认零回归、数字列数值化（千分位剥离、解析失败保原文本）、拆分新列继承、合并单元格表格仍可设置）、选择模式下链接不跳转 | 行内「预期导出」列 |
 | `virtual-fixture.html` | 60 行虚拟滚动（thead 无 tr、input/select 由 JS 属性设值模拟 Vue、el-switch 开关列）；分体表格 + 虚拟滚动组合（表头/表体两个 table 复刻 vxe-table，滚动容器在数据表上层）；采集后拆分列面板回归（预期值见页内说明） | 61 行全采集（60 数据 + 表头）；序号 1/26/41 三行内容完全相同应全部保留（重复行不误删）；发货仓「华东仓(1)/华南仓(2)」、开关「是/否」；分体表悬浮整体高亮、一次点选、采集 41 行（40 数据 + 表头）、一口价取 JS 实时值 |
 | `auto-check.html` | DOM 层自动化回归（无扩展环境，页内自判 PASS/FAIL）：控件取值（controls.controlValue：input/checkbox/radio/hidden/date/textarea/output、select 单/多选、ARIA switch/slider、el-switch 类名开关、类名形似回退 null）；单元格四通道（cell.openBatch：空白归一化、nbsp/换行/连续空格压缩、控件 merged/text/ctrl 三通道、多控件对齐、嵌套开关不重复计数、图片绝对链接、无 src 图片为空）；表格提取（table.extractTable：常规 thead、rowspan/colspan 展开+merges、多行表头、无 thead 全 th 行计表头、display:none 行过滤）；导出管线端到端（提取→block+control 拆分→列筛选→数字格式→csv/json 精确对比，JS 属性设值复刻 Vue 实时状态） | 页内 summary「37 项全部 PASS」 |
-| `e2e-harness.js` | E2E 全链路注入回归（fixture.html，无扩展环境）：桩 chrome.storage（内存）与 runtime.sendMessage（走 blob 回退），捕获导出内容逐项断言。覆盖：选择交互、链接拦截、Esc 退出、CSV/JSON/MD/HTML/XLSX 内容（BOM/CRLF、RFC4180 转义、列N兜底、thead 归位）、merges、Sheet 名、自适应列宽（解包 zip 读 cols XML）、XLSX 全量单元格比对（值+类型逐格，含合并延续空位与数字格式 t:n）、列拆分三模式、列筛选、列格式、分体表格合并、持久化保存/恢复/重置 | 控制台输出 `__TEST_RESULT` 数组 76/76 pass |
-| `e2e-harness-virtual.js` | E2E 注入回归（virtual-fixture.html，无扩展环境）：虚拟滚动采集 61 行、合法重复行保留、控件实时值（input/select JS 属性设值）、分体表+虚拟滚动组合 41 行、采集后面板快照与智能预填。含后台标签页适配（rAF 定时器替代、scrollTop 赋值补发 scroll 事件） | 控制台输出 `__TEST_RESULT` 数组 21/21 pass |
+| `e2e-harness.js` | E2E 全链路注入回归（fixture.html，无扩展环境）：桩 chrome.storage（内存）与 runtime.sendMessage（走 blob 回退），捕获导出内容逐项断言。覆盖：选择交互、链接拦截、Esc 退出、CSV/JSON/MD/HTML/XLSX 内容（BOM/CRLF、RFC4180 转义、列N兜底、thead 归位）、merges、Sheet 名、自适应列宽（解包 zip 读 cols XML）、XLSX 全量单元格比对（值+类型逐格，含合并延续空位与数字格式 t:n）、列拆分三模式、列筛选、列格式、分体表格合并、持久化保存/恢复/重置、面板折叠与默认收起 | 控制台输出 `__TEST_RESULT` 数组 105/105 pass |
+| `e2e-harness-virtual.js` | E2E 注入回归（virtual-fixture.html，无扩展环境）：虚拟滚动采集 61 行、合法重复行保留、控件实时值（input/select JS 属性设值）、分体表+虚拟滚动组合 41 行、采集后面板快照与默认收起/展开预设 | 控制台输出 `__TEST_RESULT` 数组 33/33 pass |
 | `algo-check.cjs` | 采集算法回归：滑动窗口去重、合法重复行保留、非虚拟误报无损、渲染延迟、5000 行性能。列拆分纯函数回归：三模式（control/block/delimiter，control 含多控件各自成列/参差补齐/空值占位）、段数上限、从右到左多规则、块内空格不拆（对照 delimiter）、参差行补齐、多行表头、含 merges 禁用。列筛选纯函数回归：colKeys 唯一表头/重名/空表头兜底、columnLayout 段列映射与短路、filterColumns 排除/全排除防御/短行补空、拆分+筛选端到端。列格式纯函数回归：toNumValue 千分位剥离/解析失败保原值、formatColumns 输出列号映射（拆分新列继承、筛选后对齐）、applyColFormats 表头不动/同引用短路、control/block 拆分+筛选+数字格式端到端。分体配对纯函数回归（table.js `pairSplitGroup`）：基础配对、gutter 列容忍（列数差 1）、间隙/对齐/宽度/列数阈值、轻微重叠容忍、完整表格零回归（两侧均不参与）、颠倒不配对、多候选首个命中。持久化纯函数回归（persist.js）：pageKeyOf 忽略 query/hash、tableKeyOf 指纹拼接（含 thead 无 tr 的 vxe-table 写法取 th 子元素而非数据行）与空值、sanitizeRecord 损坏数据剔除与类型归位（含 formats 键值对）、evictKeys LRU 淘汰。通用工具回归（util.js）：sanitizeFilename Windows 非法字符替换、escapeHtml 五字符转义。工作表名生成回归（table.js makeSheetName，对象桩模拟 DOM）：caption/aria-label/id/序号四级兜底、非法字符转空格与空白折叠、31 字符截断、重名 (n) 后缀。模块清单一致性：service-worker 注入列表 / e2e-harness FILES / extension/content 实际文件三方对齐（防新增模块漏同步导致注入不全） | 全部 PASS |
 
 ## 命令
@@ -43,7 +43,7 @@ http://localhost:3000/test/fixture.html#e2e=1          → 页底「105 项全�
 http://localhost:3000/test/virtual-fixture.html#e2e=1  → 页底「33 项全部 PASS」
 ```
 
-提速说明（v2.2）：
+提速说明：
 
 - `run-all.ps1` 默认 headless Chromium + `--virtual-time-budget`（虚拟时间快进全部定时器：
   toast 自动消失、虚拟采集 settle 等不再等真实时钟，后台标签页节流免疫），两页并行约 2 秒出结论，

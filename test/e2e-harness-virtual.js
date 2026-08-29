@@ -6,6 +6,8 @@
  * 覆盖：虚拟滚动采集 61 行、合法重复行保留、控件实时值、分体表+虚拟滚动
  * 组合采集 41 行、采集后面板快照取样与智能预填、普通表回归、
  * v2.0 停止采集（中止不退出、可重新采集）。
+ * 提速（v2.2）：事件驱动 waitFor 替代固定 sleep、模块代码缓存、导出轮询 25ms；
+ * 配 run-all.ps1 headless 虚拟时间模式整页约 1 秒跑完（真实定时器被快进）。
  */
 (async () => {
   if (window.__HARNESS_STARTED) return { error: 'harness 已在运行（并发守卫）' };
@@ -15,6 +17,12 @@
   const R = [];
   const t = (name, pass, detail) => R.push({ name, pass: !!pass, detail: detail == null ? '' : String(detail) });
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  // 事件驱动等待：条件满足立即返回（替代固定 sleep，提速且比盲等更强）
+  const waitFor = async (cond, timeout) => {
+    const t0 = Date.now();
+    while (!cond() && Date.now() - t0 < (timeout || 3000)) await sleep(20);
+    return !!cond();
+  };
 
   /* ---- 全局桩 ---- */
   const memStore = {};
@@ -43,11 +51,14 @@
   };
 
   const FILES = ['entry', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'persist', 'format', 'panel', 'main'];
+  const modCache = Object.create(null); // 模块代码缓存：11 文件只拉取一次，多轮免重复网络往返
   async function inject() {
     // 防御性清理：若上一轮 UI/命名空间残留，先退出再注入（避免 entry 守卫误触发退出语义）
+    // （exit 为同步清理，无需等待；残留兜底由 staleHosts 式强删完成——见 ui() 的 host 定位）
     if (window.__html2xlsx) { try { window.__html2xlsx.toggle(); } catch (e) { /* 忽略 */ } }
+    [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647').forEach(el => el.remove());
+    window.__html2xlsx = null;
     try { delete window.__h2x; } catch (e) { window.__h2x = undefined; }
-    await sleep(60);
     // 后台/不可见标签页 rAF 不触发 → virtual.js settle 永久挂起；
     // 测试环境用定时器替代（fixture 渲染走 scroll 事件，不依赖真实绘制）
     window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
@@ -65,8 +76,12 @@
       }
     }
     for (const f of FILES) {
-      const code = await (await fetch('/extension/content/' + f + '.js')).text();
-      (0, eval)(code);
+      if (!modCache[f]) {
+        const r = await fetch('/extension/content/' + f + '.js');
+        if (!r.ok) throw new Error(f + '.js HTTP ' + r.status);
+        modCache[f] = await r.text();
+      }
+      (0, eval)(modCache[f]);
     }
     return !!window.__html2xlsx;
   }
@@ -92,7 +107,7 @@
   const toastText = (h) => [...h.sr.querySelectorAll('.h2x-toast')].map(x => x.textContent).join('|'); // v2.0：结果性通知走 toast
   async function waitExports(n, timeout) {
     const t0 = Date.now();
-    while (window.__exports.length < n && Date.now() - t0 < (timeout || 20000)) await sleep(100);
+    while (window.__exports.length < n && Date.now() - t0 < (timeout || 20000)) await sleep(25);
     return window.__exports.slice();
   }
   const csvLines = async (f) => (await f.blob.text()).replace(/^\uFEFF/, '').split('\r\n').filter(x => x !== '');
@@ -102,7 +117,7 @@
     const vc = document.getElementById('vcontainer');
     const sBodyEl = document.getElementById('sgbody');
     while (h.count.textContent !== '1' && Date.now() - t0 < (timeout || 90000)) {
-      await sleep(200);
+      await sleep(100);
       if (++polls % 5 === 1) {
         const vt = vc ? ' [vt st=' + vc.scrollTop + '/' + vc.scrollHeight + '/' + vc.clientHeight + ' rows=' + document.querySelectorAll('#vtbody tr:not(.virtual-spacer)').length + ']' : '';
         const sg = sBodyEl ? ' [sg st=' + sBodyEl.scrollTop + '/' + sBodyEl.scrollHeight + '/' + sBodyEl.clientHeight + ' rows=' + document.querySelectorAll('#sgtbody tr:not(.virtual-spacer)').length + ']' : '';
@@ -120,7 +135,7 @@
       if (!(await inject())) throw new Error('注入失败（window.__html2xlsx 为空）');
       const h = ui();
       try { await fn(h); }
-      finally { try { click(h.cancelBtn); } catch (e) { /* 已退出 */ } await sleep(250); }
+      finally { try { click(h.cancelBtn); } catch (e) { /* 已退出 */ } await waitFor(() => !document.documentElement.contains(h.host), 1500); }
       log('=== 轮次结束: ' + name);
     } catch (e) {
       t('【' + name + '】轮次执行异常', false, String((e && e.stack) || e));
@@ -138,7 +153,7 @@
     t('采集完成提示（toast 61 行含表头）', toastText(h).indexOf('采集完成，共 61 行') >= 0, toastText(h));
     // 采集后列设置面板（快照取样 + 智能预填）
     click(h.splitBtn);
-    await sleep(200); // openPanel 为 async（persist.ready 后才建面板）
+    await waitFor(() => h.sr.querySelector('.h2x-mask')); // openPanel 为 async（persist.ready 后才建面板）
     const mask = h.sr.querySelector('.h2x-mask');
     t('采集后面板可用（虚拟表用快照取样）', !!mask);
     if (mask) {

@@ -16,9 +16,13 @@
 ## 命令
 
 ```powershell
-# 一键回归（推荐）：语法检查 → algo-check → 起静态服务 → 自动打开两个 E2E 页面，
-# 任一步失败即停；回车停止服务。注意 run-all.ps1 须保持 UTF-8 带 BOM（PowerShell 5 中文兼容）
+# 一键回归（推荐，全链路自动判定）：语法检查 → algo-check → 起静态服务 →
+# headless Chromium 跑两个 E2E 页面（虚拟时间快进定时器，约 2 秒），控制台出结论、退出码即结果。
+# 注意 run-all.ps1 须保持 UTF-8 带 BOM（PowerShell 5 中文兼容）
 .\test\run-all.ps1
+
+# 交互模式（旧行为）：浏览器打开两个 E2E 页面人工核对，回车停止服务
+.\test\run-all.ps1 -Interactive
 
 # 分步执行：
 Get-ChildItem extension/content/*.js | ForEach-Object { node --check $_.FullName }
@@ -35,9 +39,18 @@ npx serve .   # 仓库根目录起静态服务 → 访问 /test/auto-check.html�
 用 `#e2e=1`（hash）而非 `?e2e=1`：serve 等静态服务器的 cleanUrls 重定向会丢查询串，hash 不受影响（两种写法均支持）：
 
 ```
-http://localhost:3000/test/fixture.html#e2e=1          → 页底「76 项全部 PASS」
-http://localhost:3000/test/virtual-fixture.html#e2e=1  → 页底「21 项全部 PASS」（虚拟滚动采集约 10-30 秒）
+http://localhost:3000/test/fixture.html#e2e=1          → 页底「105 项全部 PASS」
+http://localhost:3000/test/virtual-fixture.html#e2e=1  → 页底「33 项全部 PASS」
 ```
+
+提速说明（v2.2）：
+
+- `run-all.ps1` 默认 headless Chromium + `--virtual-time-budget`（虚拟时间快进全部定时器：
+  toast 自动消失、虚拟采集 settle 等不再等真实时钟，后台标签页节流免疫），两页并行约 2 秒出结论，
+  退出码 0/1 可直接作流水线门禁；找不到 Chrome/Edge 时自动降级交互模式
+- 两个 harness 内部：固定 sleep 改事件驱动 `waitFor`（面板打开等 mask、退出等 host 移除），
+  模块代码缓存（11 个内容脚本仅首轮拉取），导出轮询 25ms——交互模式/控制台手动跑同样受益，
+  虚拟滚动页人工核对约 10-30 秒（真实时钟采集）
 
 也可手动执行（同效果，结果在控制台 `__TEST_RESULT`，结构 `{total, passed, results}`）：
 

@@ -8,6 +8,9 @@
  * 分体表格合并、持久化保存/恢复/重置。
  * v2 加固：强制全新注入（预清 __html2xlsx/__h2x 与残留 host，entry 守卫永不误触发）、
  * 注入后隐藏 __html2xlsx（防外部脚本误退出本会话）、轮次串行锁、调试日志。
+ * 提速（v2.2）：固定 sleep 改事件驱动 waitFor（exit/openPanel 均同步或微任务级），
+ * 模块代码缓存（11 文件仅首轮拉取），导出轮询 25ms；配 run-all.ps1 headless
+ * 虚拟时间模式整页约 1 秒跑完。
  */
 (async () => {
   if (window.__HARNESS_STARTED) return { error: 'harness 已在运行（并发守卫）' };
@@ -17,6 +20,12 @@
   const R = [];
   const t = (name, pass, detail) => R.push({ name, pass: !!pass, detail: detail == null ? '' : String(detail) });
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  // 事件驱动等待：条件满足立即返回（替代固定 sleep，提速且比盲等更强：等不到会显式超时暴露）
+  const waitFor = async (cond, timeout) => {
+    const t0 = Date.now();
+    while (!cond() && Date.now() - t0 < (timeout || 3000)) await sleep(20);
+    return !!cond();
+  };
 
   /* ---- 全局桩：chrome.storage（内存实现）、chrome.runtime.sendMessage（抛错走 blob 回退） ---- */
   const memStore = {};
@@ -55,22 +64,27 @@
 
   /* ---- 注入与 UI 定位 ---- */
   const FILES = ['entry', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'persist', 'format', 'panel', 'main'];
+  const modCache = Object.create(null); // 模块代码缓存：11 文件只拉取一次，17 轮免重复网络往返
   function staleHosts() {
     return [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647');
   }
   async function inject(roundName) {
     // 强制全新注入：先尝试退出旧会话、移除残留 host、清空守卫状态
+    // （exit 为同步清理，无需等待；残留兜底由 staleHosts 强删完成）
     if (window.__html2xlsx) { try { window.__html2xlsx.toggle(); } catch (e) { /* 已失效 */ } }
     staleHosts().forEach(el => el.remove());
     window.__html2xlsx = null;   // entry 守卫永不触发退出语义
     try { delete window.__h2x; } catch (e) { window.__h2x = undefined; }
-    await sleep(60);
     // 后台/不可见标签页 rAF 不触发 → virtual.js settle 永久挂起；
     // 测试环境用定时器替代（fixture 渲染走 scroll 事件，不依赖真实绘制）
     window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
     for (const f of FILES) {
-      const code = await (await fetch('/extension/content/' + f + '.js').then(r => { if (!r.ok) throw new Error(f + '.js HTTP ' + r.status); return r; })).text();
-      try { (0, eval)(code); }
+      if (!modCache[f]) {
+        const r = await fetch('/extension/content/' + f + '.js');
+        if (!r.ok) throw new Error(f + '.js HTTP ' + r.status);
+        modCache[f] = await r.text();
+      }
+      try { (0, eval)(modCache[f]); }
       catch (e) { log('[' + roundName + '] ' + f + '.js 求值异常: ' + e); throw e; }
     }
     const ok = !!window.__html2xlsx;
@@ -99,7 +113,7 @@
   const clickCell = (sel) => click(document.querySelector(sel));
   async function waitExports(n, timeout) {
     const t0 = Date.now();
-    while (window.__exports.length < n && Date.now() - t0 < (timeout || 8000)) await sleep(80);
+    while (window.__exports.length < n && Date.now() - t0 < (timeout || 8000)) await sleep(25);
     return window.__exports.slice();
   }
   const csvLines = async (f) => (await f.blob.text()).replace(/^\uFEFF/, '').split('\r\n').filter(x => x !== '');
@@ -192,7 +206,7 @@
       const h = ui();
       log('[' + name + '] 工具栏已定位');
       try { await fn(h, () => touchLock()); }
-      finally { try { click(h.cancelBtn); } catch (e) { /* 已退出 */ } await sleep(250); }
+      finally { try { click(h.cancelBtn); } catch (e) { /* 已退出 */ } await waitFor(() => !document.documentElement.contains(h.host), 1500); }
       log('=== 轮次结束: ' + name);
     } catch (e) {
       t('【' + name + '】轮次执行异常', false, String((e && e.stack) || e));
@@ -306,7 +320,7 @@
   await round('列拆分配置与保存', async (h) => {
     clickCell('#split td');
     click(h.splitBtn);
-    await sleep(200); // openPanel 为 async（persist.ready 后才建面板）
+    await waitFor(() => h.sr.querySelector('.h2x-mask')); // openPanel 为 async（persist.ready 后才建面板）
     const mask = h.sr.querySelector('.h2x-mask');
     t('列设置面板打开（role=dialog aria-modal）', !!mask && mask.getAttribute('role') === 'dialog' && mask.getAttribute('aria-modal') === 'true');
     const rTitle = rowOf(h, '标题/产品ID'), rPrice = rowOf(h, '一口价'), rSku = rowOf(h, '秒杀价/库存'), rWh = rowOf(h, '发货仓'), rSite = rowOf(h, '适用站点');
@@ -361,16 +375,16 @@
   await round('重置路径', async (h) => {
     clickCell('#split td'); // 恢复
     click(h.splitBtn);
-    await sleep(200); // openPanel 为 async
+    await waitFor(() => h.sr.querySelector('.h2x-mask')); // openPanel 为 async
     const mask = h.sr.querySelector('.h2x-mask');
     [rowOf(h, '标题/产品ID'), rowOf(h, '一口价'), rowOf(h, '秒杀价/库存'), rowOf(h, '发货仓'), rowOf(h, '适用站点')].forEach(r => {
       if (sbtnOf(r).classList.contains('h2x-on')) click(sbtnOf(r)); // 收起 = 取消拆分
     });
     t('全部拆分收起后无子行', h.sr.querySelectorAll('.h2x-sub').length === 0, 'subs=' + h.sr.querySelectorAll('.h2x-sub').length);
     click(mask.querySelector('.h2x-save'));
-    await sleep(200);
+    await waitFor(() => !h.sr.querySelector('.h2x-mask')); // 面板关闭
     click(h.cancelBtn); // 主动退出（round finally 会再兜底）
-    await sleep(300);
+    await waitFor(() => !document.documentElement.contains(h.host)); // 退出完成
   });
   await round('重置后回落默认（v1.2 零回归）', async (h) => {
     clickCell('#split td');
@@ -388,7 +402,7 @@
   await round('列筛选', async (h) => {
     clickCell('#colfilter td');
     click(h.splitBtn);
-    await sleep(200); // openPanel 为 async
+    await waitFor(() => h.sr.querySelector('.h2x-mask')); // openPanel 为 async
     const mask = h.sr.querySelector('.h2x-mask');
     const tools = () => mask.querySelector('.h2x-exp-n').textContent;
     t('列筛选默认全选（v2.1 默认不拆分：5 原列）', tools() === '5/5', tools());
@@ -414,7 +428,7 @@
   await round('拆分子列筛选', async (h) => {
     clickCell('#colfilter td'); // 恢复上轮保存的筛选
     click(h.splitBtn);
-    await sleep(200); // openPanel 为 async
+    await waitFor(() => h.sr.querySelector('.h2x-mask')); // openPanel 为 async
     const mask = h.sr.querySelector('.h2x-mask');
     const rTitle = rowOf(h, '标题/产品ID');
     ckxOf(rTitle).checked = false; fire(ckxOf(rTitle), 'change'); // 原列不导出
@@ -434,7 +448,7 @@
   await round('列格式 CSV', async (h) => {
     clickCell('#colfmt td');
     click(h.splitBtn);
-    await sleep(200); // openPanel 为 async
+    await waitFor(() => h.sr.querySelector('.h2x-mask')); // openPanel 为 async
     const mask = h.sr.querySelector('.h2x-mask');
     [rowOf(h, '数量'), rowOf(h, '金额')].forEach(r => { fmtOf(r).value = 'number'; fire(fmtOf(r), 'change'); });
     click(mask.querySelector('.h2x-save'));
@@ -510,7 +524,7 @@
     clickCell('#staff td');
     clickCell('#controls td');
     click(h.splitBtn);
-    await sleep(200); // openPanel 为 async
+    await waitFor(() => h.sr.querySelector('.h2x-mask')); // openPanel 为 async
     const mask = h.sr.querySelector('.h2x-mask');
     t('面板打开（多表页签 2 个，role=tab）', mask.querySelectorAll('.h2x-tab').length === 2 &&
       mask.querySelector('.h2x-tab').getAttribute('role') === 'tab', mask.querySelectorAll('.h2x-tab').length);
@@ -549,13 +563,13 @@
     click(mask.querySelector('.h2x-save'));
     t('保存有效配置后面板关闭', !h.sr.querySelector('.h2x-mask'));
     click(h.splitBtn);
-    await sleep(200);
+    await waitFor(() => h.sr.querySelector('.h2x-mask'));
     const mask2 = h.sr.querySelector('.h2x-mask');
     t('保存后重开面板：staff 页签状态点亮', mask2.querySelectorAll('.h2x-tab')[0].querySelector('.h2x-tab-dot').classList.contains('h2x-off') === false);
     click(sbtnOf(rowOf(h, '姓名'))); // 收起拆分
     click(mask2.querySelector('.h2x-save'));
     click(h.splitBtn);
-    await sleep(200);
+    await waitFor(() => h.sr.querySelector('.h2x-mask'));
     const mask3 = h.sr.querySelector('.h2x-mask');
     t('空配置保存后页签状态点灭（重置路径）', mask3.querySelectorAll('.h2x-tab')[0].querySelector('.h2x-tab-dot').classList.contains('h2x-off'));
     click(mask3.querySelector('.h2x-pcancel'));
@@ -576,7 +590,7 @@
     const exitBtn = [...h.sr.querySelectorAll('.h2x-toast-btn')].find(b => b.textContent === '退出');
     t('toast 提供「退出」动作按钮', !!exitBtn);
     click(exitBtn);
-    await sleep(100);
+    await waitFor(() => !document.documentElement.contains(h.host), 1500); // exit 同步清理
     t('点击 toast「退出」后 UI 移除', !document.documentElement.contains(h.host));
   });
 

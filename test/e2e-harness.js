@@ -310,8 +310,10 @@
     const mask = h.sr.querySelector('.h2x-mask');
     t('列设置面板打开（role=dialog aria-modal）', !!mask && mask.getAttribute('role') === 'dialog' && mask.getAttribute('aria-modal') === 'true');
     const rTitle = rowOf(h, '标题/产品ID'), rPrice = rowOf(h, '一口价'), rSku = rowOf(h, '秒杀价/库存'), rWh = rowOf(h, '发货仓'), rSite = rowOf(h, '适用站点');
-    t('智能预填：多行文本列默认展开拆分且模式=按换行', !!rTitle && sbtnOf(rTitle).classList.contains('h2x-on') && modeOf(rTitle).value === 'block');
+    t('智能预填：多行文本列默认不展开（v2.1 默认不拆分）', !!rTitle && !sbtnOf(rTitle).classList.contains('h2x-on'));
     t('智能预填：控件列默认不展开拆分', !!rPrice && !sbtnOf(rPrice).classList.contains('h2x-on'));
+    click(sbtnOf(rTitle)); // v2.1 默认不拆分：手动展开验证预设（保持后续轮次最终态不变）
+    t('智能预填：多行文本列展开后预设「按换行拆分」', modeOf(rTitle).value === 'block', modeOf(rTitle) && modeOf(rTitle).value);
     // 全列预览（默认态：6 原列全部显示 + 标题/产品ID 的 2 个新列 = 8 列）
     const pvHead = () => [...mask.querySelectorAll('.h2x-pv-body thead th')].map(x => x.textContent);
     t('全列预览：未拆列也显示（8 列最终序）', JSON.stringify(pvHead()) === JSON.stringify(
@@ -389,7 +391,9 @@
     await sleep(200); // openPanel 为 async
     const mask = h.sr.querySelector('.h2x-mask');
     const tools = () => mask.querySelector('.h2x-exp-n').textContent;
-    t('列筛选默认全选（7/7 = 4 原列 + 拆分 3 新列）', tools() === '7/7', tools());
+    t('列筛选默认全选（v2.1 默认不拆分：5 原列）', tools() === '5/5', tools());
+    click(sbtnOf(rowOf(h, '标题/产品ID'))); // v2.1 默认不拆分：展开（预设按换行）后进入拆分新列语境
+    t('列筛选默认全选（5 原列 + 拆分 2 新列 = 7/7）', tools() === '7/7', tools());
     click(mask.querySelector('.h2x-none'));
     click(mask.querySelector('.h2x-save'));
     t('「全不选」保存被拦截（至少保留一个导出列）', mask.querySelector('.h2x-err').textContent.indexOf('至少保留一个') >= 0, mask.querySelector('.h2x-err').textContent);

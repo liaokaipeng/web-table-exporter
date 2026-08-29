@@ -76,13 +76,13 @@
     return cols;
   }
 
-  /** 智能预填：多块文本列默认勾选拆分并预设 block（按换行拆）；含控件列预设
-   *  control 但不勾选（由用户确认）；其余纯文本列探测分隔符预填（默认不勾选）。
+  /** 智能预填（v2.1 起所有列默认不拆分）：多块文本列展开后预设 block（按换行拆）；
+   *  含控件列展开后预设 control（由用户确认）；其余纯文本列探测分隔符预填。
    *  导出勾选默认全选（export: true），子列排除集默认为空，列格式默认文本 */
   function prefillDrafts(cols) {
     return cols.map(col => {
       const base = { export: true, skipSegs: new Set(), fmt: 'text' };
-      if (col.multiBlock) return Object.assign(base, { checked: true, mode: 'block', pattern: '', limit: '' });
+      if (col.multiBlock) return Object.assign(base, { checked: false, mode: 'block', pattern: '', limit: '' });
       if (col.hasCtrl) return Object.assign(base, { checked: false, mode: 'control', pattern: col.delim, limit: '' });
       return Object.assign(base, { checked: false, mode: 'delimiter', pattern: col.delim, limit: '' });
     });

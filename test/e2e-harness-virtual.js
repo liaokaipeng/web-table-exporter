@@ -149,8 +149,10 @@
       const rTitle = rowOf('标题/产品ID'), rPrice = rowOf('一口价');
       const sbtnOf = (r) => r.querySelector('.h2x-sbtn');   // v2.0：拆分按钮（h2x-on = 已展开）
       const modeOf = (r) => h.sr.querySelector('.h2x-sub[data-c="' + r.dataset.c + '"] .h2x-mode'); // 模式在展开子行内
-      t('虚拟表面板预填：多行列默认展开且按换行拆分', !!rTitle && sbtnOf(rTitle).classList.contains('h2x-on') && modeOf(rTitle).value === 'block');
+      t('虚拟表面板预填：多行列默认不展开（v2.1 默认不拆分）', !!rTitle && !sbtnOf(rTitle).classList.contains('h2x-on'));
       t('虚拟表面板预填：控件列默认不展开', !!rPrice && !sbtnOf(rPrice).classList.contains('h2x-on'));
+      click(sbtnOf(rTitle)); // v2.1 默认不拆分：手动展开验证预设
+      t('虚拟表面板预填：多行列展开后预设「按换行拆分」', modeOf(rTitle).value === 'block', modeOf(rTitle) && modeOf(rTitle).value);
       click(sbtnOf(rPrice)); // 展开验证预设（面板稍后整体取消，不保存）
       t('虚拟表面板预填：控件列展开后预设「控件值拆分」', modeOf(rPrice).value === 'control', modeOf(rPrice) && modeOf(rPrice).value);
       click(mask.querySelector('.h2x-pcancel')); // 关面板不保存（导出走无规则零回归）

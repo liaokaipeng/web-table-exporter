@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "HTML2XLSX 表格导出",
-  "description": "悬浮选择页面表格，一键导出为 xlsx / csv / json / md / html（支持合并单元格、多表格多 Sheet、虚拟滚动表格）",
-  "version": "2.1.0",
+  "description": "悬浮选择页面表格，一键导出为 xlsx / csv / json / md / html（支持合并单元格、多表格多 Sheet、虚拟滚动表格及 el-table-v2 / AG Grid / MUI DataGrid / Tabulator 等网格组件）",
+  "version": "2.2.0",
   "action": {
     "default_title": "导出表格"
   },

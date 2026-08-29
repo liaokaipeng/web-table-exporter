@@ -7,13 +7,15 @@
  * v2.0：toast 反馈系统（结果性通知迁出 hint 行）、虚拟采集可中止、导出后
  * 保留选择、工具栏折行自适应、设计 token + 深色模式 + 动效（prefers 系列）
  * v2.1：支持 div 网格表格（Element Plus el-table-v2 虚拟化表格）的识别与滚动采集
+ * v2.2：网格表格识别经 ns.table 适配器注册表分发，扩展支持 AG Grid / MUI X
+ * DataGrid / Tabulator（hitRoot 与 hasTables 走通用入口，组件无关）
  */
 (() => {
   'use strict';
   const ns = window.__h2x;
   if (!ns || ns.aborted) return; // 守卫已退出（再次点击图标 = 退出选择模式），不初始化
   const { timestamp, sanitizeFilename } = ns.util;
-  const { extractTable, makeSheetName, splitGroupOf } = ns.table;
+  const { extractTable, makeSheetName, splitGroupOf, gridRootOf, GRID_ROOT_SELECTOR } = ns.table;
   const { isVirtualTable, collectVirtual } = ns.virtual;
   const { applyColumnSplits, columnLayout, filterColumns, colKeys, formatColumns, applyColFormats, autoColWidths } = ns.split;
   const { toCsv, toJson, toMarkdown, toHtmlDocument } = ns.format;
@@ -212,16 +214,17 @@
   /* ---------------- 事件处理 ---------------- */
 
   /** 命中解析：目标最近的 table → 逻辑表格根。组件库分体结构（表头/表体两个
-   *  table，如 Element Plus el-table）返回其包装容器，使悬浮高亮、点选、导出
-   *  三者始终识别为同一个表格；div 网格表格（el-table-v2，无 table 元素）返回
-   *  组件根（单元格内嵌传统 table 时优先命中内层 table，可独立选中） */
+   *  table，如 Element Plus el-table / Ant Design Vue Table）返回其包装容器，
+   *  使悬浮高亮、点选、导出三者始终识别为同一个表格；div 网格表格（el-table-v2 /
+   *  AG Grid / MUI DataGrid / Tabulator，无 table 元素）经 ns.table.gridRootOf
+   *  返回组件根（单元格内嵌传统 table 时优先命中内层 table，可独立选中） */
   function hitRoot(target) {
     const t = target.closest('table');
     if (t) {
       const g = splitGroupOf(t);
       return g ? g.root : t;
     }
-    return target.closest('.el-table-v2__root');
+    return gridRootOf(target);
   }
 
   function onMouseOver(e) {
@@ -644,8 +647,8 @@
 
   buildUI();
   // v2.0：页面无表格时默认提示切换为「页面未找到表格」（动态加载不主动监测）；
-  // v2.1：div 网格表格（el-table-v2）一并计入
-  hasTables = document.querySelectorAll('table, .el-table-v2__root').length > 0;
+  // v2.1 起 div 网格表格一并计入（v2.2 经 ns.table.GRID_ROOT_SELECTOR 覆盖全部适配组件）
+  hasTables = document.querySelectorAll('table, ' + GRID_ROOT_SELECTOR).length > 0;
   syncExportBtn();
   resetHint();
   // 装配列设置面板依赖（host/Maps 为稳定引用；可变状态经 getter 读取）

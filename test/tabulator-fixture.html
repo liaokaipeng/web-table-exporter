@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Tabulator 虚拟化表格测试页</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 40px auto; max-width: 1000px; color: #333; }
+  h2 { border-left: 4px solid #9466e0; padding-left: 10px; }
+  /* 复刻 Tabulator（v6，vdom 渲染模式）结构：无 <table> 元素，div + ARIA role 模拟。
+   * 与其他网格的差异：数据行追加序即视觉序（无节点复用重排，保持 DOM 序）；
+   * 冻结列为同行 .tabulator-frozen cell，无独立分区容器；滚动容器为 tableHolder */
+  .tabulator { position: relative; border: 1px solid #d0d4e8; background: #fff; font-size: 13px; box-sizing: border-box; overflow: hidden; }
+  .tabulator-header { position: relative; background: #f4f5fa; border-bottom: 1px solid #d0d4e8; white-space: nowrap; overflow: hidden; }
+  .tabulator-headers { position: relative; }
+  .tabulator-col { display: inline-block; box-sizing: border-box; height: 32px; padding: 0 8px; line-height: 32px; font-weight: 600; border-right: 1px solid #e2e5f0; vertical-align: top; }
+  .tabulator-tableHolder { position: relative; overflow-x: hidden; overflow-y: auto; }
+  .tabulator-table { position: relative; }
+  .tabulator-row { position: absolute; left: 0; height: 34px; box-sizing: border-box; white-space: nowrap; }
+  .tabulator-cell { display: inline-block; box-sizing: border-box; height: 34px; padding: 0 8px; line-height: 32px; border-right: 1px solid #eceef7; border-bottom: 1px solid #eceef7; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+  .tabulator-frozen { position: relative; z-index: 2; background: #f6f4fc; box-shadow: 2px 0 4px rgba(0,0,0,.08); }
+  .tabulator-cell input, .tabulator-cell select { width: 80px; padding: 2px 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>Tabulator 虚拟化表格测试页</h1>
+<p>复刻 <b>Tabulator</b>（v6，vdom 渲染模式）结构：无 <code>&lt;table&gt;</code> 元素，div 模拟表格，
+滚动容器为 <code>.tabulator-tableHolder</code>。冻结列为同行 <code>.tabulator-frozen</code> cell，
+无独立分区容器。行追加序即视觉序（vdom 整窗重建，无节点复用重排）。共 <b>300</b> 行数据，
+其中第 1、101、201 行内容完全相同（模拟合法重复行），导出应全部保留。<br>
+预期：悬浮/点击表格任意位置均应整体识别为一张表；点击后自动滚动采集全部行；
+「一口价」列 input 为 JS 属性设值，导出须读实时值；「发货仓」select 同理。</p>
+
+<h2>Tabulator 基本结构（首列冻结 + 4 列，300 行，导出 301 行含表头）</h2>
+<div id="grid1"></div>
+
+<h2>Tabulator 无冻结列（4 列，150 行）</h2>
+<div id="grid2"></div>
+
+<h2>普通表格（回归验证）</h2>
+<table id="normal">
+  <tr><th>姓名</th><th>部门</th></tr>
+  <tr><td>张三</td><td>研发部</td></tr>
+  <tr><td>李四</td><td>市场部</td></tr>
+</table>
+
+<script>
+  /* ---- Tabulator 结构与虚拟滚动行为复刻（vdom 整窗重建，追加序即视觉序） ---- */
+
+  /** 构造一个 Tabulator 组件（.tabulator 根），返回 { root, holder } */
+  function buildTabulator(opt) {
+    // opt: { mount, width, bodyH, data, columns:[{label,width,frozen?}] }
+    const root = document.createElement('div');
+    root.className = 'tabulator';
+    root.style.width = opt.width + 'px';
+
+    // 表头：tabulator-header > tabulator-headers > tabulator-col
+    const header = document.createElement('div');
+    header.className = 'tabulator-header';
+    const hrow = document.createElement('div');
+    hrow.className = 'tabulator-headers';
+    for (const c of opt.columns) {
+      const col = document.createElement('div');
+      col.className = 'tabulator-col' + (c.frozen ? ' tabulator-col-frozen' : '');
+      col.style.width = c.width + 'px';
+      col.textContent = c.label;
+      hrow.appendChild(col);
+    }
+    header.appendChild(hrow);
+    root.appendChild(header);
+
+    // 表体：tabulator-tableHolder（滚动容器）> tabulator-table > tabulator-row
+    const holder = document.createElement('div');
+    holder.className = 'tabulator-tableHolder';
+    holder.style.height = opt.bodyH + 'px';
+    const table = document.createElement('div');
+    table.className = 'tabulator-table';
+    table.style.height = opt.data.length * 34 + 'px';
+    holder.appendChild(table);
+    root.appendChild(holder);
+
+    // 虚拟渲染：按 holder.scrollTop 整窗重建（前后各 CACHE 行缓冲），
+    // 行按视觉序追加（Tabulator vdom 无节点复用重排，DOM 序即视觉序）
+    const data = opt.data;
+    const ROW_H = 34, CACHE = 3;
+    function render() {
+      const first = Math.max(0, Math.floor(holder.scrollTop / ROW_H) - CACHE);
+      const last = Math.min(data.length, first + Math.ceil(holder.clientHeight / ROW_H) + CACHE * 2);
+      table.innerHTML = '';
+      for (let idx = first; idx < last; idx++) {
+        const row = document.createElement('div');
+        row.className = 'tabulator-row';
+        row.setAttribute('role', 'row');
+        row.style.top = (idx * ROW_H) + 'px';
+        for (const c of opt.columns) {
+          const cell = document.createElement('div');
+          cell.className = 'tabulator-cell' + (c.frozen ? ' tabulator-frozen' : '');
+          cell.setAttribute('role', 'gridcell');
+          cell.style.width = c.width + 'px';
+          c.render(cell, data[idx], idx);
+          row.appendChild(cell);
+        }
+        table.appendChild(row);
+      }
+    }
+    holder.addEventListener('scroll', render);
+    opt.mount.appendChild(root);
+    render(); // 挂载后渲染（此前 clientHeight 为 0，算不出可见窗口）
+    return { root: root, holder: holder };
+  }
+
+  function textCell(html) {
+    return (cell, d, i) => { cell.innerHTML = html(d, i); };
+  }
+  /** input 值 JS 属性设值（模拟受控单元格编辑器：值不在 value 特性上） */
+  function inputCell(valOf, suffix) {
+    return (cell, d, i) => {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.value = valOf(d, i); // 仅 JS 属性，导出须读实时值
+      cell.appendChild(inp);
+      if (suffix) cell.appendChild(document.createTextNode(' ' + suffix));
+    };
+  }
+  function selectCell(valOf) {
+    return (cell, d) => {
+      const sel = document.createElement('select');
+      sel.innerHTML = '<option value="">全部</option><option value="1">华东仓</option><option value="2">华南仓</option>';
+      sel.value = valOf(d); // 仅 JS 属性
+      cell.appendChild(sel);
+    };
+  }
+
+  /* ---- 用例 1：基本结构（首列冻结 + 4 列，300 行） ---- */
+  const TOTAL = 300;
+  const DATA = Array.from({ length: TOTAL }, (_, i) => ({
+    title: 'TAB-' + String(i + 1).padStart(4, '0') + '_Interactive Table Row ' + (i + 1),
+    price: 2680 + i,
+    promo: (i % 4 === 0 ? 2249 : i % 4 === 1 ? 1639 : 1899),
+    wh: i % 3 === 0 ? '1' : '2'
+  }));
+  // 合法重复行：第 1/101/201 行（i=0/100/200）内容完全相同，验证采集不误删
+  [100, 200].forEach((j) => { DATA[j] = { ...DATA[0] }; });
+
+  buildTabulator({
+    mount: document.getElementById('grid1'),
+    width: 720, bodyH: 324, data: DATA,
+    columns: [
+      { label: '序号', width: 70, frozen: true, render: textCell((d, i) => i + 1) },
+      { label: '商品', width: 250, render: textCell((d) => d.title) },
+      { label: '本地展示价', width: 110, render: textCell((d) => d.price + ' PHP') },
+      { label: '一口价', width: 110, render: inputCell((d) => String(d.promo), 'PHP') },
+      { label: '发货仓', width: 100, render: selectCell((d) => d.wh) }
+    ]
+  });
+
+  /* ---- 用例 2：无冻结列（4 列，150 行） ---- */
+  const F_TOTAL = 150;
+  const F_DATA = Array.from({ length: F_TOTAL }, (_, i) => ({
+    name: 'TABX-' + String(i + 1).padStart(3, '0') + '_No Frozen Row',
+    price: 700 + i * 9,
+    promo: 450 + i * 6
+  }));
+
+  buildTabulator({
+    mount: document.getElementById('grid2'),
+    width: 560, bodyH: 252, data: F_DATA,
+    columns: [
+      { label: '序号', width: 70, render: textCell((d, i) => i + 1) },
+      { label: '商品', width: 230, render: textCell((d) => d.name) },
+      { label: '本地展示价', width: 130, render: textCell((d) => d.price + ' PHP') },
+      { label: '一口价', width: 130, render: inputCell((d) => String(d.promo), 'PHP') }
+    ]
+  });
+</script>
+
+<script>
+  // #e2e=1（或 ?e2e=1）自动回归：自动执行 E2E harness 并页内渲染结果（用法见 test/README.md）。
+  // 用 hash 而非 query：静态服务器 cleanUrls 重定向会丢查询串，hash 不发服务器、重定向后保留
+  if (new URLSearchParams(location.search).get('e2e') === '1' ||
+      new URLSearchParams(location.hash.slice(1)).get('e2e') === '1') {
+    (async () => {
+      const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const box = document.createElement('div');
+      box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:45vh;overflow:auto;z-index:999999;background:#fff;border-top:2px solid #999;padding:10px 14px;font:13px/1.6 Consolas,"Microsoft YaHei",monospace;box-shadow:0 -2px 8px rgba(0,0,0,.15)';
+      box.innerHTML = '<b id="e2e-summary" style="color:#666">E2E 运行中…（虚拟滚动采集，约需 10-30 秒）</b><ol id="e2e-list" style="margin:6px 0 0;padding-left:22px"></ol>';
+      document.body.appendChild(box);
+      const summary = box.querySelector('#e2e-summary');
+      const list = box.querySelector('#e2e-list');
+      try {
+        await new Promise(r => window.addEventListener('load', r, { once: true }));
+        await new Promise(r => setTimeout(r, 50)); // 等页面脚本（虚拟渲染）就绪
+        const code = await (await fetch('/test/e2e-harness-tabulator.js?v=' + Date.now())).text();
+        const res = await (0, eval)(code);
+        const R = res && res.results;
+        if (!Array.isArray(R)) throw new Error((res && res.error) || 'harness 未返回结果');
+        list.innerHTML = R.map(r =>
+          '<li style="color:' + (r.pass ? '#0a7d32' : '#c62828') + ';white-space:pre-wrap;margin:2px 0">' +
+          (r.pass ? 'PASS ' : 'FAIL ') + esc(r.name) + (r.pass || !r.detail ? '' : '  【' + esc(r.detail) + '】') + '</li>').join('');
+        const fail = R.length - R.filter(r => r.pass).length;
+        summary.textContent = fail ? R.length + ' 项中 ' + fail + ' 项 FAIL' : R.length + ' 项全部 PASS';
+        summary.style.color = fail ? '#c62828' : '#0a7d32';
+        document.title = (fail ? '[FAIL ' + fail + '] ' : '[全部 PASS] ') + document.title;
+      } catch (e) {
+        summary.textContent = 'E2E 执行异常：' + e.message;
+        summary.style.color = '#c62828';
+        document.title = '[ERROR] ' + document.title;
+      }
+    })();
+  }
+</script>
+</body>
+</html>

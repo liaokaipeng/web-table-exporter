@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Ant Design Vue Table 测试页</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 40px auto; max-width: 1000px; color: #333; }
+  h2 { border-left: 4px solid #1677ff; padding-left: 10px; }
+  /* 复刻 Ant Design Vue 4.x Table 渲染结构（原生 table，仅包装层类名） */
+  .ant-table-wrapper { margin: 12px 0; }
+  .ant-table { color: rgba(0,0,0,.88); font-size: 14px; }
+  .ant-table-container { position: relative; }
+  .ant-table-cell { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
+  .ant-table-thead .ant-table-cell { background: #fafafa; font-weight: 600; text-align: left; }
+  .ant-table-header { background: #fafafa; }
+  .ant-table-body { overflow-y: scroll; } /* scroll.y 模式：数据表自带垂直滚动 */
+  .ant-table-content { overflow: auto; }  /* scroll.x 模式：水平滚动容器 */
+  .fixed-col { position: sticky; left: 0; z-index: 2; background: #fff; }
+  .ant-table-thead .fixed-col { background: #fafafa; }
+  .ant-table-cell input, .ant-table-cell select { width: 90px; padding: 2px 4px; border: 1px solid #d9d9d9; border-radius: 4px; font-size: 12px; }
+  .gray { color: #999; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>Ant Design Vue Table 测试页</h1>
+<p>复刻 <b>Ant Design Vue 4.x</b> Table 渲染结构：原生 <code>&lt;table&gt;</code> 元素 + ant-table 包装类。
+本页核心验证 <code>scroll.y</code> 分体结构（表头表 + 数据表两个独立 table）——插件应走既有分体配对逻辑
+（与 Element Plus el-table 同构），<b>悬浮/点选/导出整体识别为一张表，无需组件特判</b>。
+固定列为 sticky cell（antdv 4.x 无克隆单元格）。「一口价」input 与「发货仓」select 为 JS 属性设值，
+导出须读实时值。</p>
+
+<h2>例 1：普通表格（无滚动，4 行 × 4 列，含控件列）</h2>
+<p>预期：一次点选，导出 4 行——表头 <code>商品,本地展示价,一口价,发货仓</code>；
+首行 <code>儿童速干T恤,4722 PHP,2249 PHP,华东仓(1)</code></p>
+<div class="ant-table-wrapper" id="adv1">
+  <div class="ant-table">
+    <div class="ant-table-container">
+      <div class="ant-table-content">
+        <table style="table-layout:fixed;width:620px">
+          <colgroup><col style="width:220px"><col style="width:130px"><col style="width:130px"><col style="width:140px"></colgroup>
+          <thead class="ant-table-thead">
+            <tr><th class="ant-table-cell">商品</th><th class="ant-table-cell">本地展示价</th><th class="ant-table-cell">一口价</th><th class="ant-table-cell">发货仓</th></tr>
+          </thead>
+          <tbody class="ant-table-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>例 2：scroll.y 分体结构（30 行 × 4 列）——核心验证点</h2>
+<p>复刻 antdv <code>scroll={{ y: 200 }}</code> 渲染：<code>.ant-table-header &gt; table</code>（仅 thead）+
+<code>.ant-table-body &gt; table</code>（仅 tbody，overflow 滚动）。<br>
+预期：悬浮两表任意位置均<b>整体高亮</b>（命中分体包装容器，块级全宽）；点击一次选中整表；导出 31 行（表头 + 30 数据），
+首行 <code>1,ADV-001 Scroll Row,100,下架</code>、末行 <code>30,ADV-030 Scroll Row,129,在售</code></p>
+<div class="ant-table-wrapper" id="adv2">
+  <div class="ant-table">
+    <div class="ant-table-container">
+      <div class="ant-table-header">
+        <table style="table-layout:fixed;width:620px">
+          <colgroup><col style="width:60px"><col style="width:320px"><col style="width:100px"><col style="width:140px"></colgroup>
+          <thead class="ant-table-thead">
+            <tr><th class="ant-table-cell">序号</th><th class="ant-table-cell">商品</th><th class="ant-table-cell">库存</th><th class="ant-table-cell">状态</th></tr>
+          </thead>
+        </table>
+      </div>
+      <div class="ant-table-body" style="max-height:200px">
+        <table style="table-layout:fixed;width:620px">
+          <colgroup><col style="width:60px"><col style="width:320px"><col style="width:100px"><col style="width:140px"></colgroup>
+          <tbody class="ant-table-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>例 3：固定列 + scroll.x（3 行 × 5 列，sticky 首列）</h2>
+<p>表宽 640 &gt; 容器 420（水平滚动）；首列「商品」sticky。<br>
+预期：一次点选，导出 4 行 × 5 列（水平滚动不影响取列），表头
+<code>商品,本地展示价,一口价,发货仓,操作</code></p>
+<div class="ant-table-wrapper" id="adv3">
+  <div class="ant-table">
+    <div class="ant-table-container">
+      <div class="ant-table-content" style="max-width:420px">
+        <table style="table-layout:fixed;width:640px">
+          <colgroup><col style="width:180px"><col style="width:120px"><col style="width:120px"><col style="width:120px"><col style="width:100px"></colgroup>
+          <thead class="ant-table-thead">
+            <tr>
+              <th class="ant-table-cell fixed-col">商品</th><th class="ant-table-cell">本地展示价</th><th class="ant-table-cell">一口价</th><th class="ant-table-cell">发货仓</th><th class="ant-table-cell">操作</th>
+            </tr>
+          </thead>
+          <tbody class="ant-table-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>普通表格（回归验证）</h2>
+<table id="normal">
+  <tr><th>姓名</th><th>部门</th></tr>
+  <tr><td>张三</td><td>研发部</td></tr>
+  <tr><td>李四</td><td>市场部</td></tr>
+</table>
+
+<script>
+  /* ---- antdv Table 结构复刻（非虚拟：行一次性全量渲染，控件 JS 属性设值） ---- */
+  function inputCell(val, suffix) {
+    const td = document.createElement('td');
+    td.className = 'ant-table-cell';
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.value = val; // 仅 JS 属性，导出须读实时值
+    td.appendChild(inp);
+    if (suffix) td.appendChild(document.createTextNode(' ' + suffix));
+    return td;
+  }
+  function selectCell(val) {
+    const td = document.createElement('td');
+    td.className = 'ant-table-cell';
+    const sel = document.createElement('select');
+    sel.innerHTML = '<option value="">全部</option><option value="1">华东仓</option><option value="2">华南仓</option>';
+    sel.value = val;
+    td.appendChild(sel);
+    return td;
+  }
+  function textCell(text) {
+    const td = document.createElement('td');
+    td.className = 'ant-table-cell';
+    td.textContent = text;
+    return td;
+  }
+  function fillRows(tbody, rows) {
+    rows.forEach((cells) => {
+      const tr = document.createElement('tr');
+      cells.forEach((c) => tr.appendChild(c));
+      tbody.appendChild(tr);
+    });
+  }
+
+  /* 例 1：普通表格（3 数据行，含控件列） */
+  fillRows(document.querySelector('#adv1 tbody'), [
+    [textCell('儿童速干T恤'), textCell('4722 PHP'), inputCell('2249', 'PHP'), selectCell('1')],
+    [textCell('珊瑚绒睡袋'), textCell('1639 PHP'), inputCell('1299', 'PHP'), selectCell('2')],
+    [textCell('不锈钢保温杯'), textCell('1899 PHP'), inputCell('1599', 'PHP'), selectCell('1')]
+  ]);
+
+  /* 例 2：scroll.y 分体（30 数据行） */
+  fillRows(document.querySelector('#adv2 .ant-table-body tbody'),
+    Array.from({ length: 30 }, (_, i) => [
+      textCell(String(i + 1)),
+      textCell('ADV-' + String(i + 1).padStart(3, '0') + ' Scroll Row'),
+      textCell(String(100 + i)),
+      textCell(i % 2 ? '在售' : '下架')
+    ]));
+
+  /* 例 3：固定列 + scroll.x（3 数据行，首列 sticky） */
+  fillRows(document.querySelector('#adv3 tbody'), [
+    [textCell('儿童速干T恤'), textCell('4722 PHP'), inputCell('2249', 'PHP'), selectCell('1'), textCell('编辑')],
+    [textCell('珊瑚绒睡袋'), textCell('1639 PHP'), inputCell('1299', 'PHP'), selectCell('2'), textCell('编辑')],
+    [textCell('不锈钢保温杯'), textCell('1899 PHP'), inputCell('1599', 'PHP'), selectCell('1'), textCell('编辑')]
+  ]);
+</script>
+
+<script>
+  // #e2e=1（或 ?e2e=1）自动回归：自动执行 E2E harness 并页内渲染结果（用法见 test/README.md）。
+  // 用 hash 而非 query：静态服务器 cleanUrls 重定向会丢查询串，hash 不受影响（两种写法均支持）
+  if (new URLSearchParams(location.search).get('e2e') === '1' ||
+      new URLSearchParams(location.hash.slice(1)).get('e2e') === '1') {
+    (async () => {
+      const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const box = document.createElement('div');
+      box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:45vh;overflow:auto;z-index:999999;background:#fff;border-top:2px solid #999;padding:10px 14px;font:13px/1.6 Consolas,"Microsoft YaHei",monospace;box-shadow:0 -2px 8px rgba(0,0,0,.15)';
+      box.innerHTML = '<b id="e2e-summary" style="color:#666">E2E 运行中…</b><ol id="e2e-list" style="margin:6px 0 0;padding-left:22px"></ol>';
+      document.body.appendChild(box);
+      const summary = box.querySelector('#e2e-summary');
+      const list = box.querySelector('#e2e-list');
+      try {
+        await new Promise(r => window.addEventListener('load', r, { once: true }));
+        await new Promise(r => setTimeout(r, 50)); // 等页面脚本就绪
+        const code = await (await fetch('/test/e2e-harness-antdv.js?v=' + Date.now())).text();
+        const res = await (0, eval)(code);
+        const R = res && res.results;
+        if (!Array.isArray(R)) throw new Error((res && res.error) || 'harness 未返回结果');
+        list.innerHTML = R.map(r =>
+          '<li style="color:' + (r.pass ? '#0a7d32' : '#c62828') + ';white-space:pre-wrap;margin:2px 0">' +
+          (r.pass ? 'PASS ' : 'FAIL ') + esc(r.name) + (r.pass || !r.detail ? '' : '  【' + esc(r.detail) + '】') + '</li>').join('');
+        const fail = R.length - R.filter(r => r.pass).length;
+        summary.textContent = fail ? R.length + ' 项中 ' + fail + ' 项 FAIL' : R.length + ' 项全部 PASS';
+        summary.style.color = fail ? '#c62828' : '#0a7d32';
+        document.title = (fail ? '[FAIL ' + fail + '] ' : '[全部 PASS] ') + document.title;
+      } catch (e) {
+        summary.textContent = 'E2E 执行异常：' + e.message;
+        summary.style.color = '#c62828';
+        document.title = '[ERROR] ' + document.title;
+      }
+    })();
+  }
+</script>
+</body>
+</html>

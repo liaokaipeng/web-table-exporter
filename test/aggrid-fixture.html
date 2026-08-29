@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>AG Grid 虚拟化表格测试页</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 40px auto; max-width: 1000px; color: #333; }
+  h2 { border-left: 4px solid #2d6435; padding-left: 10px; }
+  /* 复刻 AG Grid（v28+，ag-theme-balham 风格）渲染结构：无 <table> 元素，div + ARIA
+     role 模拟。与 el-table-v2 的关键差异：单垂直滚动容器（.ag-body-viewport，固定列
+     分区容器是其子级，天然联动）；行节点复用——窗口滚动时节点的 aria-rowindex 重新
+     分配，DOM 顺序非视觉顺序（本页刻意倒置注入，验证按 aria-rowindex 排序取数） */
+  .ag-root-wrapper { position: relative; border: 1px solid #b7c5be; background: #fff; font-size: 13px; box-sizing: border-box; }
+  .ag-root { position: relative; overflow: hidden; }
+  .ag-header { position: relative; height: 32px; background: #f5f7f7; border-bottom: 1px solid #d4d4d4; white-space: nowrap; }
+  .ag-pinned-left-header { position: absolute; left: 0; top: 0; z-index: 2; background: #eef1f1; border-right: 1px solid #d4d4d4; }
+  .ag-header-viewport { position: relative; height: 100%; overflow: hidden; }
+  .ag-header-container { position: relative; white-space: nowrap; }
+  .ag-header-row { position: relative; }
+  .ag-header-cell { display: inline-block; box-sizing: border-box; padding: 0 8px; line-height: 31px; font-weight: 600; border-right: 1px solid #d4d4d4; vertical-align: top; }
+  .ag-body { position: relative; }
+  .ag-body-viewport { position: relative; height: 100%; overflow-x: hidden; overflow-y: auto; }
+  .ag-center-cols-viewport { overflow: hidden; }
+  .ag-center-cols-container { position: relative; }
+  .ag-pinned-left-cols-container { position: absolute; left: 0; top: 0; z-index: 2; background: #f2f7f2; border-right: 1px solid #d4d4d4; }
+  .ag-row { position: absolute; left: 0; height: 34px; box-sizing: border-box; white-space: nowrap; }
+  .ag-cell { display: inline-block; box-sizing: border-box; height: 34px; padding: 0 8px; line-height: 32px; border-right: 1px solid #e3e8e6; border-bottom: 1px solid #e3e8e6; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+  .ag-cell input, .ag-cell select { width: 80px; padding: 2px 4px; border: 1px solid #ccc; border-radius: 3px; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>AG Grid 虚拟化表格测试页</h1>
+<p>复刻 <b>AG Grid</b>（v28+，ag-theme-balham）渲染结构：无 <code>&lt;table&gt;</code> 元素，
+div + ARIA role 模拟表格，垂直滚动容器为 <code>.ag-body-viewport</code>（固定列分区容器是其
+子级，滚动天然联动）。行节点复用：滚动窗口移动时节点的 <code>aria-rowindex</code> 重新分配、
+DOM 顺序与视觉顺序无关（本页刻意将 DOM 序倒置注入，导出正确性完全依赖按 aria-rowindex
+排序）。共 <b>300</b> 行数据，其中第 1、101、201 行内容完全相同（模拟合法重复行），导出应全部
+保留。<br>
+预期：悬浮/点击表格任意位置（表头、表体、固定列）均应整体识别为一张表；点击后自动滚动采集
+全部行；「一口价」列 input 为 JS 属性设值，导出须读实时值；「发货仓」select 同理。</p>
+
+<h2>AG Grid 基本结构（300 行，点击后自动滚动采集，导出 301 行含表头）</h2>
+<div id="grid1"></div>
+
+<h2>AG Grid 固定列（pinned-left 1 列 + center 3 列，150 行）</h2>
+<p>复刻固定列结构：pinned-left 分区容器与 center 分区容器并列渲染同一份数据的不同列
+（行区间一致、aria-rowindex 同步），列按视觉顺序拼接——「序号」来自 pinned 分区、
+其余列来自 center 分区。<br>
+预期：导出 151 行（含表头），表头与数据列序均为「序号,商品,本地展示价,一口价」。</p>
+<div id="grid2"></div>
+
+<h2>普通表格（回归验证）</h2>
+<table id="normal">
+  <tr><th>姓名</th><th>部门</th></tr>
+  <tr><td>张三</td><td>研发部</td></tr>
+  <tr><td>李四</td><td>市场部</td></tr>
+</table>
+
+<script>
+  /* ---- AG Grid 结构与虚拟滚动行为复刻（行节点复用 + aria-rowindex 重排） ---- */
+
+  /** 构造一个 AG Grid 组件（.ag-root-wrapper 根），返回 { wrapper, vp } */
+  function buildAgGrid(opt) {
+    // opt: { mount, width, bodyH, total, data, centerCols, pinnedCols? }
+    const wrapper = document.createElement('div');
+    wrapper.className = 'ag-root-wrapper ag-theme-balham';
+    wrapper.style.width = opt.width + 'px';
+    const root = document.createElement('div');
+    root.className = 'ag-root';
+    root.setAttribute('role', 'grid');
+    wrapper.appendChild(root);
+
+    // 表头：ag-header > [ag-pinned-left-header] + ag-header-viewport > ag-header-container
+    const header = document.createElement('div');
+    header.className = 'ag-header';
+    header.setAttribute('role', 'rowgroup');
+    const headerParts = [];
+    if (opt.pinnedCols && opt.pinnedCols.length) {
+      const ph = document.createElement('div');
+      ph.className = 'ag-pinned-left-header';
+      headerParts.push({ mount: ph, cols: opt.pinnedCols });
+      header.appendChild(ph);
+    }
+    const hv = document.createElement('div');
+    hv.className = 'ag-header-viewport';
+    const hc = document.createElement('div');
+    hc.className = 'ag-header-container';
+    hv.appendChild(hc);
+    header.appendChild(hv);
+    headerParts.push({ mount: hc, cols: opt.centerCols });
+    for (const p of headerParts) {
+      const row = document.createElement('div');
+      row.className = 'ag-header-row';
+      row.setAttribute('role', 'row');
+      for (const c of p.cols) {
+        const cell = document.createElement('div');
+        cell.className = 'ag-header-cell';
+        cell.setAttribute('role', 'columnheader');
+        cell.style.width = c.width + 'px';
+        cell.textContent = c.label;
+        row.appendChild(cell);
+      }
+      p.mount.appendChild(row);
+    }
+    root.appendChild(header);
+
+    // 表体：ag-body > ag-body-viewport（垂直滚动容器）
+    const body = document.createElement('div');
+    body.className = 'ag-body';
+    body.style.height = opt.bodyH + 'px';
+    const vp = document.createElement('div');
+    vp.className = 'ag-body-viewport';
+    vp.setAttribute('role', 'rowgroup');
+    const cv = document.createElement('div');
+    cv.className = 'ag-center-cols-viewport';
+    const cc = document.createElement('div');
+    cc.className = 'ag-center-cols-container';
+    cv.appendChild(cc);
+    vp.appendChild(cv);
+    body.appendChild(vp);
+    root.appendChild(body);
+
+    // 虚拟渲染：按 vp.scrollTop 渲染窗口行（前后各 CACHE 行缓冲）；行节点复用轮转
+    // 分配（窗口移动 → 节点/行号对应关系轮换，模拟 AG Grid 真实复用行为）
+    const data = opt.data;
+    const ROW_H = 34, CACHE = 3;
+    function makePart(container, cols) {
+      container.style.height = data.length * ROW_H + 'px';
+      const nodes = [];
+      function render() {
+        const first = Math.max(0, Math.floor(vp.scrollTop / ROW_H) - CACHE);
+        const last = Math.min(data.length, first + Math.ceil(vp.clientHeight / ROW_H) + CACHE * 2);
+        const need = last - first;
+        while (nodes.length < need) {
+          const r = document.createElement('div');
+          r.className = 'ag-row';
+          r.setAttribute('role', 'row');
+          container.appendChild(r);
+          nodes.push(r);
+        }
+        while (nodes.length > need) nodes.pop().remove();
+        const ordered = [];
+        for (let k = 0; k < need; k++) {
+          const node = nodes[(k + first) % need];
+          const idx = first + k;
+          node.setAttribute('aria-rowindex', String(idx + 2)); // AG Grid 惯例：表头计第 1 行，数据行从 2 起
+          node.style.top = (idx * ROW_H) + 'px';
+          node.innerHTML = '';
+          for (const c of cols) {
+            const cell = document.createElement('div');
+            cell.className = 'ag-cell';
+            cell.setAttribute('role', 'gridcell');
+            cell.style.width = c.width + 'px';
+            c.render(cell, data[idx], idx);
+            node.appendChild(cell);
+          }
+          ordered.push(node);
+        }
+        // DOM 序倒置注入：复用节点重排后 DOM 序 ≠ 视觉序（导出正确性依赖 aria-rowindex 排序）
+        for (let k = ordered.length - 1; k >= 0; k--) container.appendChild(ordered[k]);
+      }
+      render();
+      return render;
+    }
+
+    const renders = [makePart(cc, opt.centerCols)];
+    if (opt.pinnedCols && opt.pinnedCols.length) {
+      const pc = document.createElement('div');
+      pc.className = 'ag-pinned-left-cols-container';
+      vp.appendChild(pc);
+      renders.push(makePart(pc, opt.pinnedCols));
+    }
+    vp.addEventListener('scroll', () => renders.forEach(fn => fn()));
+    opt.mount.appendChild(wrapper);
+    renders.forEach(fn => fn()); // 挂载后渲染（此前 clientHeight 为 0，算不出可见窗口）
+    return { wrapper: wrapper, vp: vp };
+  }
+
+  function textCell(html) {
+    return (cell, d, i) => { cell.innerHTML = html(d, i); };
+  }
+  /** input 值 JS 属性设值（模拟受控单元格编辑器：值不在 value 特性上） */
+  function inputCell(valOf, suffix) {
+    return (cell, d, i) => {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.value = valOf(d, i); // 仅 JS 属性，导出须读实时值
+      cell.appendChild(inp);
+      if (suffix) cell.appendChild(document.createTextNode(' ' + suffix));
+    };
+  }
+  function selectCell(valOf) {
+    return (cell, d) => {
+      const sel = document.createElement('select');
+      sel.innerHTML = '<option value="">全部</option><option value="1">华东仓</option><option value="2">华南仓</option>';
+      sel.value = valOf(d); // 仅 JS 属性
+      cell.appendChild(sel);
+    };
+  }
+
+  /* ---- 用例 1：基本结构（300 行 × 5 列，无固定列） ---- */
+  const TOTAL = 300;
+  const DATA = Array.from({ length: TOTAL }, (_, i) => ({
+    title: 'AG-' + String(i + 1).padStart(4, '0') + '_Enterprise Grid Row ' + (i + 1),
+    price: 4722 + i,
+    promo: (i % 4 === 0 ? 2249 : i % 4 === 1 ? 1639 : 1899),
+    wh: i % 3 === 0 ? '1' : '2'
+  }));
+  // 合法重复行：第 1/101/201 行（i=0/100/200）内容完全相同，验证采集不误删
+  [100, 200].forEach((j) => { DATA[j] = { ...DATA[0] }; });
+
+  buildAgGrid({
+    mount: document.getElementById('grid1'),
+    width: 720, bodyH: 320, data: DATA,
+    centerCols: [
+      { label: '序号', width: 60, render: textCell((d, i) => i + 1) },
+      { label: '商品', width: 260, render: textCell((d) => d.title) },
+      { label: '本地展示价', width: 110, render: textCell((d) => d.price + ' PHP') },
+      { label: '一口价', width: 110, render: inputCell((d) => String(d.promo), 'PHP') },
+      { label: '发货仓', width: 100, render: selectCell((d) => d.wh) }
+    ]
+  });
+
+  /* ---- 用例 2：固定列（pinned-left 序号列 + center 3 列，150 行） ---- */
+  const F_TOTAL = 150;
+  const F_DATA = Array.from({ length: F_TOTAL }, (_, i) => ({
+    name: 'AGFIX-' + String(i + 1).padStart(3, '0') + '_Pinned Grid Row',
+    price: 800 + i * 13,
+    promo: 500 + i * 7
+  }));
+
+  buildAgGrid({
+    mount: document.getElementById('grid2'),
+    width: 560, bodyH: 252, data: F_DATA,
+    pinnedCols: [{ label: '序号', width: 70, render: textCell((d, i) => i + 1) }],
+    centerCols: [
+      { label: '商品', width: 230, render: textCell((d) => d.name) },
+      { label: '本地展示价', width: 130, render: textCell((d) => d.price + ' PHP') },
+      { label: '一口价', width: 130, render: inputCell((d) => String(d.promo), 'PHP') }
+    ]
+  });
+</script>
+
+<script>
+  // #e2e=1（或 ?e2e=1）自动回归：自动执行 E2E harness 并页内渲染结果（用法见 test/README.md）。
+  // 用 hash 而非 query：静态服务器 cleanUrls 重定向会丢查询串，hash 不发服务器、重定向后保留
+  if (new URLSearchParams(location.search).get('e2e') === '1' ||
+      new URLSearchParams(location.hash.slice(1)).get('e2e') === '1') {
+    (async () => {
+      const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const box = document.createElement('div');
+      box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;max-height:45vh;overflow:auto;z-index:999999;background:#fff;border-top:2px solid #999;padding:10px 14px;font:13px/1.6 Consolas,"Microsoft YaHei",monospace;box-shadow:0 -2px 8px rgba(0,0,0,.15)';
+      box.innerHTML = '<b id="e2e-summary" style="color:#666">E2E 运行中…（虚拟滚动采集，约需 10-30 秒）</b><ol id="e2e-list" style="margin:6px 0 0;padding-left:22px"></ol>';
+      document.body.appendChild(box);
+      const summary = box.querySelector('#e2e-summary');
+      const list = box.querySelector('#e2e-list');
+      try {
+        await new Promise(r => window.addEventListener('load', r, { once: true }));
+        await new Promise(r => setTimeout(r, 50)); // 等页面脚本（虚拟渲染）就绪
+        const code = await (await fetch('/test/e2e-harness-aggrid.js?v=' + Date.now())).text();
+        const res = await (0, eval)(code);
+        const R = res && res.results;
+        if (!Array.isArray(R)) throw new Error((res && res.error) || 'harness 未返回结果');
+        list.innerHTML = R.map(r =>
+          '<li style="color:' + (r.pass ? '#0a7d32' : '#c62828') + ';white-space:pre-wrap;margin:2px 0">' +
+          (r.pass ? 'PASS ' : 'FAIL ') + esc(r.name) + (r.pass || !r.detail ? '' : '  【' + esc(r.detail) + '】') + '</li>').join('');
+        const fail = R.length - R.filter(r => r.pass).length;
+        summary.textContent = fail ? R.length + ' 项中 ' + fail + ' 项 FAIL' : R.length + ' 项全部 PASS';
+        summary.style.color = fail ? '#c62828' : '#0a7d32';
+        document.title = (fail ? '[FAIL ' + fail + '] ' : '[全部 PASS] ') + document.title;
+      } catch (e) {
+        summary.textContent = 'E2E 执行异常：' + e.message;
+        summary.style.color = '#c62828';
+        document.title = '[ERROR] ' + document.title;
+      }
+    })();
+  }
+</script>
+</body>
+</html>

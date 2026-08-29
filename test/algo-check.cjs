@@ -25,8 +25,13 @@ const {
   resolveRuleCol, colKeys, columnLayout, filterColumns, applyColumnSplits,
   toNumValue, formatColumns, applyColFormats, cellWidth, autoColWidths
 } = loadModule('split.js', 'split');
-const { pairSplitGroup, makeSheetName } = loadModule('table.js', 'table');
-const { pageKeyOf, tableKeyOf, sanitizeRecord, evictKeys } = loadModule('persist.js', 'persist');
+const { pairSplitGroup, makeSheetName, gridHeaderCellsOf, rowsSortedByRowIndex,
+  adapters: GRID_ADAPTERS, GRID_ROOT_SELECTOR } = loadModule('table.js', 'table');
+// persist 的 tableKeyOf 经 ns.table.gridHeaderCellsOf 分发（浏览器由注入序保证
+// table.js 先行；此处以 preNs 注入同一实现，离线等价）
+const { pageKeyOf, tableKeyOf, sanitizeRecord, evictKeys } = loadModule('persist.js', 'persist', {
+  table: { gridHeaderCellsOf: gridHeaderCellsOf }
+});
 const util = loadModule('util.js', 'util');
 const { csvCell, toCsv, headerKeys, rowObjects, toJson, mdCell, toMarkdown, toHtmlDocument } =
   loadModule('format.js', 'format', { util });
@@ -964,6 +969,72 @@ check('模块清单：service-worker 与 harness 注入顺序一致（依赖序�
   swModules, harnessModules);
 check('模块清单：注入顺序首尾正确（entry 先行守卫 / main 殿后建 UI）',
   [swModules[0], swModules[swModules.length - 1]], ['entry', 'main']);
+
+// 44. 网格适配器注册表（table.js v2.2：多组件 div 网格表格统一分发）
+check('注册表：四适配器齐备且命名稳定（增删组件须同步本用例）',
+  GRID_ADAPTERS.map(a => a.name),
+  ['el-table-v2', 'ag-grid', 'mui-data-grid', 'tabulator']);
+check('注册表：每适配器五钩子齐备（rootSel/isRoot/headerRowsOf/bodyRowsOf/scrollElsOf/headerCellsOf）',
+  GRID_ADAPTERS.map(a => [typeof a.rootSel, typeof a.isRoot, typeof a.headerRowsOf,
+    typeof a.bodyRowsOf, typeof a.scrollElsOf, typeof a.headerCellsOf]),
+  GRID_ADAPTERS.map(() => ['string', 'function', 'function', 'function', 'function', 'function']));
+check('注册表：rootSel 互不相同（命中分发按注册序，选择器重叠会互相遮蔽）',
+  new Set(GRID_ADAPTERS.map(a => a.rootSel)).size, GRID_ADAPTERS.length);
+check('注册表：GRID_ROOT_SELECTOR 由各 rootSel 组合（main.js hasTables 探测入口）',
+  GRID_ROOT_SELECTOR, GRID_ADAPTERS.map(a => a.rootSel).join(', '));
+check('注册表：rootSel 均为单类名选择器（closest/querySelectorAll 可用）',
+  GRID_ADAPTERS.every(a => /^\.[\w-]+$/.test(a.rootSel)), true);
+
+// 45. 行序排序纯函数（rowsSortedByRowIndex：AG Grid / MUI 行节点复用，DOM 序非视觉序）
+const rowStub = (idx) => ({
+  el: { getAttribute: (n) => (n === 'aria-rowindex' ? String(idx) : null) },
+  cells: [{ textContent: 'r' + idx }]
+});
+const rowStubNoIdx = (tag) => ({ el: { getAttribute: () => null }, cells: [{ textContent: tag }] });
+check('rowsSortedByRowIndex 全带 aria-rowindex：按数值升序（DOM 乱序修正）',
+  rowsSortedByRowIndex([rowStub(5), rowStub(2), rowStub(9), rowStub(1)])
+    .map(r => r.cells[0].textContent),
+  ['r1', 'r2', 'r5', 'r9']);
+check('rowsSortedByRowIndex 无 aria-rowindex：保持 DOM 序（el-table-v2/Tabulator）',
+  rowsSortedByRowIndex([rowStubNoIdx('a'), rowStubNoIdx('b'), rowStubNoIdx('c')])
+    .map(r => r.cells[0].textContent),
+  ['a', 'b', 'c']);
+check('rowsSortedByRowIndex 部分缺失：整体保持 DOM 序（防御，不半排序）',
+  rowsSortedByRowIndex([rowStub(5), rowStubNoIdx('x'), rowStub(1)])
+    .map(r => r.cells[0].textContent),
+  ['r5', 'x', 'r1']);
+check('rowsSortedByRowIndex 纯函数（入参不被原地重排）',
+  (() => { const input = [rowStub(3), rowStub(1)]; const snapshot = input.slice();
+    rowsSortedByRowIndex(input); return input === snapshot || input.every((r, i) => r === snapshot[i]); })(),
+  true);
+check('rowsSortedByRowIndex 数值比较非字典序（10 排在 9 后）',
+  rowsSortedByRowIndex([rowStub(10), rowStub(9), rowStub(2)])
+    .map(r => r.cells[0].textContent),
+  ['r2', 'r9', 'r10']);
+
+// 46. 表指纹 grid 分支（persist.js tableKeyOf：div 网格表格经 gridHeaderCellsOf 取表头）
+// 桩 root：querySelectorAll 返回表头格（gridHeaderCellsOf 逐适配器试探，首个非空即命中）
+const gridRootStub = (texts) => ({
+  tagName: 'DIV',
+  querySelectorAll: () => texts.map(t => ({ textContent: t })),
+  querySelector: () => null // grid 分支命中后不应回落 table 查找
+});
+check('tableKeyOf 网格根：适配器表头格归一化拼接（grid 分支）',
+  tableKeyOf(gridRootStub(['序号', '  商品  ', '本地\u00a0展示价'])),
+  '序号\u0001商品\u0001本地 展示价');
+check('tableKeyOf 网格根：无表头格返回 null（表头异步未渲染不参与持久化）',
+  tableKeyOf(gridRootStub([])),
+  null);
+check('tableKeyOf 非网格 div：回落容器内 table 表头（分体包装容器路径）',
+  tableKeyOf({
+    tagName: 'DIV',
+    querySelectorAll: () => [],
+    querySelector: (sel) => (sel === 'table' ? { rows: [{ cells: [{ textContent: 'A' }, { textContent: 'B' }] }] } : null)
+  }),
+  'A\u0001B');
+check('tableKeyOf 空根 / null 根防御',
+  [tableKeyOf({ tagName: 'DIV', querySelectorAll: () => [], querySelector: () => null }), tableKeyOf(null)],
+  [null, null]);
 
 console.log(fail === 0 ? '\n全部通过' : '\n' + fail + ' 个失败');
 process.exit(fail === 0 ? 0 : 1);

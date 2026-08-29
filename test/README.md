@@ -13,7 +13,15 @@
 | `e2e-harness-virtual.js` | E2E 注入回归（virtual-fixture.html，无扩展环境）：虚拟滚动采集 61 行、合法重复行保留、控件实时值（input/select JS 属性设值）、分体表+虚拟滚动组合 41 行、采集后面板快照与默认收起/展开预设 | 控制台输出 `__TEST_RESULT` 数组 33/33 pass |
 | `tablev2-fixture.html` | Element Plus el-table-v2 虚拟化表格（div 网格结构，无 table 元素）：500 行两例——纯主分区网格 + 固定列（left/main 双分区，滚动联动）、JS 渲染窗口模拟虚拟滚动（仅渲染可见行 ± 缓存）、表头 dynamic-header-row、控件列（input/select JS 属性设值）、行内操作按钮 | 悬浮整体高亮、一次点选自动滚动采集 501 行（500 数据 + 表头）、固定列按视觉列序拼接（固定列在前）、控件取实时值、重复行保留 |
 | `e2e-harness-tablev2.js` | E2E 注入回归（tablev2-fixture.html，无扩展环境）：网格表格识别与悬浮整体高亮、点击后自动滚动采集（500 行全量）、固定列双分区拼接列序、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 24/24 pass |
-| `algo-check.cjs` | 纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列格式/列宽、分体配对、持久化、格式序列化、通用工具、模块清单一致性——覆盖明细见下节 | 全部 PASS（154 项） |
+| `antdv-fixture.html` | Ant Design Vue 4.x Table（原生 table + ant-table 包装类，零组件特判）：普通表格（4 行含控件列）、`scroll.y` 分体结构（表头表 + 数据表，复刻 a-table 固定列 sticky cell + spacer 占位列）、JS 属性设值控件、普通 table 回归 | 悬浮整体高亮、一次点选，预期值见页内标注 |
+| `e2e-harness-antdv.js` | E2E 注入回归（antdv-fixture.html，无扩展环境）：分体配对命中（走既有 el-table 同构逻辑）、行数/列序（spacer 占位列不导出）、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 19/19 pass |
+| `aggrid-fixture.html` | AG Grid（v28+，ag-theme-balham）虚拟化表格：div + ARIA role 结构、单垂直滚动容器（固定列分区为其子级）、pinned 左固定列、行节点复用（aria-rowindex 重分配，DOM 序刻意倒置注入）、300 行含 3 条分散重复行、JS 属性设值控件、普通 table 回归 | 悬浮整体高亮、一次点选自动采集 301 行（含表头）、行序按 aria-rowindex 还原、固定列在前拼接、重复行保留 |
+| `e2e-harness-aggrid.js` | E2E 注入回归（aggrid-fixture.html，无扩展环境）：网格识别（表头/表体/固定列命中同一根）、自动滚动采集全量、行序排序（DOM 倒置修正）、固定列拼接列序、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 25/25 pass |
+| `mui-fixture.html` | MUI X DataGrid（v6/v7）虚拟化表格：div + ARIA role 结构、单滚动容器 virtualScroller、pinned 为同行 sticky cell（无独立分区）、行节点复用（aria-rowindex，DOM 序刻意倒置注入）、300 行含 3 条分散重复行、JS 属性设值控件、普通 table 回归 | 悬浮整体高亮、一次点选自动采集 301 行（含表头）、行序按 aria-rowindex 还原、重复行保留 |
+| `e2e-harness-mui.js` | E2E 注入回归（mui-fixture.html，无扩展环境）：网格识别、自动滚动采集全量、行序排序、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 24/24 pass |
+| `tabulator-fixture.html` | Tabulator（v6，vdom 渲染）虚拟化表格：div 结构、滚动容器 tableHolder、冻结列为同行 frozen cell、行追加序即视觉序（无节点复用）、300 行含 3 条分散重复行 + 无冻结列 150 行例、JS 属性设值控件、普通 table 回归 | 悬浮整体高亮、一次点选自动采集 301 行（含表头）、重复行保留 |
+| `e2e-harness-tabulator.js` | E2E 注入回归（tabulator-fixture.html，无扩展环境）：网格识别、自动滚动采集全量、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 23/23 pass |
+| `algo-check.cjs` | 纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列格式/列宽、分体配对、网格适配器、持久化、格式序列化、通用工具、模块清单一致性——覆盖明细见下节 | 全部 PASS（171 项） |
 
 ## algo-check 覆盖明细
 
@@ -25,6 +33,7 @@
 | 列格式（split.js） | toNumValue 千分位剥离/解析失败保原值、formatColumns 输出列号映射（拆分新列继承、筛选后对齐）、applyColFormats 表头不动/同引用短路、拆分+筛选+数字格式端到端 |
 | 自适应列宽（split.js） | cellWidth 半角/全角/谚文宽度与内嵌换行、autoColWidths 逐列最大宽度与 6~50 钳制、空表/空行边界 |
 | 分体配对（table.js `pairSplitGroup`） | 基础配对、gutter 列容忍（列数差 1）、间隙/对齐/宽度/列数阈值、轻微重叠容忍、完整表格零回归、颠倒不配对、多候选首个命中 |
+| 网格适配器（table.js v2.2） | 注册表完整性（四适配器齐备命名稳定、五钩子齐备、rootSel 互不相同且为单类名、GRID_ROOT_SELECTOR 组合）、rowsSortedByRowIndex 行序排序（全带 aria-rowindex 数值升序、无/部分缺失保持 DOM 序、纯函数不原地重排、数值比较非字典序）、tableKeyOf 网格分支（适配器表头格拼接、无表头格返回 null、非网格 div 回落内部 table） |
 | 持久化（persist.js） | pageKeyOf 忽略 query/hash、tableKeyOf 指纹（含 thead 无 tr 的 vxe-table 写法取 th 子元素而非数据行；v2.1 网格表格取 dynamic-header-row 表头格、优先于内部 table 回退）与空值、sanitizeRecord 损坏剔除自愈（含 formats 键值对）、evictKeys LRU 淘汰 |
 | 格式序列化（format.js） | csvCell RFC4180 转义、toCsv BOM/CRLF、headerKeys 列名兜底、toJson 行对象/表名嵌套、mdCell 转义与 toMarkdown 结构（含无表头生成列N）、toHtmlDocument 结构 |
 | 通用工具 | util.js sanitizeFilename/escapeHtml；table.js makeSheetName 四级兜底、非法字符、31 字符截断、重名后缀 |
@@ -34,11 +43,11 @@
 
 ```powershell
 # 一键回归（推荐，全链路自动判定）：语法检查 → algo-check → 起静态服务 →
-# headless Chromium 跑三个 E2E 页面（虚拟时间快进定时器，约 2 秒），控制台出结论、退出码即结果。
+# headless Chromium 跑七个 E2E 页面（虚拟时间快进定时器，约 4 秒），控制台出结论、退出码即结果。
 # 注意 run-all.ps1 须保持 UTF-8 带 BOM（PowerShell 5 中文兼容）
 .\test\run-all.ps1
 
-# 交互模式（旧行为）：浏览器打开三个 E2E 页面人工核对，回车停止服务
+# 交互模式（旧行为）：浏览器打开七个 E2E 页面人工核对，回车停止服务
 .\test\run-all.ps1 -Interactive
 
 # 分步执行：
@@ -59,28 +68,32 @@ npx serve .   # 仓库根目录起静态服务 → 访问 /test/auto-check.html�
 http://localhost:3000/test/fixture.html#e2e=1          → 页底「105 项全部 PASS」
 http://localhost:3000/test/virtual-fixture.html#e2e=1  → 页底「33 项全部 PASS」
 http://localhost:3000/test/tablev2-fixture.html#e2e=1  → 页底「24 项全部 PASS」
+http://localhost:3000/test/antdv-fixture.html#e2e=1    → 页底「19 项全部 PASS」
+http://localhost:3000/test/aggrid-fixture.html#e2e=1   → 页底「25 项全部 PASS」
+http://localhost:3000/test/mui-fixture.html#e2e=1      → 页底「24 项全部 PASS」
+http://localhost:3000/test/tabulator-fixture.html#e2e=1 → 页底「23 项全部 PASS」
 ```
 
 提速说明：
 
 - `run-all.ps1` 默认 headless Chromium + `--virtual-time-budget`（虚拟时间快进全部定时器：
-  toast 自动消失、虚拟采集 settle 等不再等真实时钟，后台标签页节流免疫），三页并行约 2 秒出结论，
+  toast 自动消失、虚拟采集 settle 等不再等真实时钟，后台标签页节流免疫），七页并行约 4 秒出结论，
   退出码 0/1 可直接作流水线门禁；找不到 Chrome/Edge 时自动降级交互模式
-- 三个 harness 内部：固定 sleep 改事件驱动 `waitFor`（面板打开等 mask、退出等 host 移除），
+- 七个 harness 内部：固定 sleep 改事件驱动 `waitFor`（面板打开等 mask、退出等 host 移除），
   模块代码缓存（11 个内容脚本仅首轮拉取），导出轮询 25ms——交互模式/控制台手动跑同样受益，
   虚拟滚动页人工核对约 10-30 秒（真实时钟采集）
 
 也可手动执行（同效果，结果在控制台 `__TEST_RESULT`，结构 `{total, passed, results}`）：
 
 ```js
-const c = await (await fetch('/test/e2e-harness.js?v=' + Date.now())).text();   // 虚拟表页换 e2e-harness-virtual.js，el-table-v2 页换 e2e-harness-tablev2.js
+const c = await (await fetch('/test/e2e-harness.js?v=' + Date.now())).text();   // 其余页换对应 harness：virtual / tablev2 / antdv / aggrid / mui / tabulator
 window.__TEST_RESULT = await (0, eval)(c);
 ```
 
 注意：
 
 - harness 自带并发守卫与轮次串行锁，重复执行须等上轮结束（或刷新页面后重来）
-- 三个 harness 均内置后台标签页适配（rAF 定时器替代、scrollTop 补发 scroll 事件），后台跑也可
+- 七个 harness 均内置后台标签页适配（rAF 定时器替代、scrollTop 补发 scroll 事件），后台跑也可
 - `window.__TEST_LOG` 为调试日志，失败排查用
 
 ## 浏览器回归步骤

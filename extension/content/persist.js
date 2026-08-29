@@ -67,19 +67,21 @@
 
   /** 表指纹：逻辑表格根（table 或分体包装容器）内部首个 table 的表头单元格
    *  文本归一化后以 \u0001 拼接；无 table / 无表头行返回 null（表头异步未渲染等，
-   *  不参与持久化）。分体结构（Element Plus / vxe-table）取容器内首个 table 即
-   *  表头表，表头不随滚动变化故指纹稳定；同页两表指纹相同（表头完全一致）共享
-   *  一份配置，属可接受降级。div 网格表格（el-table-v2）无 table 结构，直接取
-   *  表头格元素（分区间 DOM 序固定，指纹稳定即可） */
+   *  不参与持久化）。分体结构（Element Plus / vxe-table / Ant Design Vue）取容器
+   *  内首个 table 即表头表，表头不随滚动变化故指纹稳定；同页两表指纹相同（表头
+   *  完全一致）共享一份配置，属可接受降级。div 网格表格（el-table-v2 / AG Grid /
+   *  MUI X DataGrid / Tabulator）无 table 结构，经 ns.table.gridHeaderCellsOf
+   *  适配器分发取表头格（table.js 先注入；algo-check Node 环境以 preNs 注入，
+   *  缺失时回落内部 table 查找） */
   function tableKeyOf(root) {
     if (!root) return null;
     let cells = null;
     if (root.tagName === 'TABLE') {
       cells = headerCellsOf(root);
     } else {
-      if (typeof root.querySelectorAll === 'function') {
-        const gridCells = root.querySelectorAll('.el-table-v2__dynamic-header-row .el-table-v2__header-cell');
-        if (gridCells.length) cells = gridCells;
+      if (ns.table && typeof ns.table.gridHeaderCellsOf === 'function') {
+        const gridCells = ns.table.gridHeaderCellsOf(root);
+        if (gridCells && gridCells.length) cells = gridCells;
       }
       if (!cells && typeof root.querySelector === 'function') {
         const t = root.querySelector('table');

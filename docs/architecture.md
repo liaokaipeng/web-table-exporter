@@ -41,7 +41,7 @@
 | cell.js | controls, split | `openBatch()` 批量两阶段四通道取值 + 归一化 + 图片链接替换 |
 | table.js | cell | `getRows()` / `extractTable()` / `makeSheetName()` / `splitGroupOf()` / `pairSplitGroup()`（分体识别 + 纯函数配对，模块级零 DOM 引用，algo-check.cjs 离线回归）；表头行判定 = thead/tfoot 行 + tbody 全 th 行（extractTable 取前导连续段） |
 | virtual.js | table | `isVirtualTable()` / `collectVirtual()` / `overlapLen()` |
-| persist.js | entry | 拆分规则/列筛选/列格式持久化：`tableKeyOf()` 表指纹 + `getSaved()`/`save()` 恢复与落盘 + `ready()` 就绪兜底；页面键 = origin+pathname，存 `chrome.storage.local`（单页一条，LRU 上限 50 页）；纯函数可离线回归（详见 docs/persist-plan.md） |
+| persist.js | entry | 拆分规则/列筛选/列格式持久化：`tableKeyOf()` 表指纹 + `getSaved()`/`save()` 恢复与落盘 + `ready()` 就绪兜底；页面键 = origin+pathname，存 `chrome.storage.local`（单页一条，LRU 上限 50 页）；纯函数可离线回归 |
 | format.js | util | 导出格式序列化纯函数：`toCsv()`（RFC4180+BOM）/ `toJson()`（行对象）/ `toMarkdown()`（GFM 表格）/ `toHtmlDocument()`（完整文档）；algo-check.cjs 离线回归 |
 | panel.js | util, table, split, persist | 「列设置」面板（导出列筛选 + 拆分配置 + 列格式）；v2.0 重构：列行折叠式（拆分配置收进展开子行，模式/分隔符键入只局部刷新新列勾选区）、多表页签（带已配置状态点）、最终输出全列预览、校验错误就地标红 + 底部汇总、focus trap + role="dialog"；依赖经 `panel.init({ host, selected, snapshots, splitRules, colFilters, colFormats, isBusy, isAlive, updateBar, toast })` 注入，UI 层内部契约显式化；面板样式自持，按钮样式共用主 UI 的 `<style>`；保存时经 `ns.persist.save()` 落盘 |
 | main.js | 其余全部 | 主 UI / 事件 / 选中管理 / 导出 / 退出清理 / 启动装配；v2.0 新增：toast 反馈系统（结果性通知迁出 hint，成功/信息 2.5s 自动消失、错误常驻可关、同屏 3 条上限）、虚拟采集可中止（「停止采集」genToken 作废当前任务）、导出后保留选择（toast「退出」动作）、设计 token + 深色模式（prefers-color-scheme）+ 动效（prefers-reduced-motion） |
@@ -74,7 +74,7 @@
 | 列筛选用「排除集 + 输出列布局」 | 无记录 = 全列导出（零回归）；`columnLayout()` 与 `applyColumnSplits()` 共用短路条件与段数算法，过滤列号严格对齐 |
 | 列格式只存「数字」且以原列为基准 | `aoa_to_sheet` 对字符串一律写文本，文本即默认行为无需记录；拆分新列与原列同源，格式随原列继承（一处设置全链路生效）；`formatColumns()` 复用筛选保留判定，筛选后输出列号不错位；数值化剥千分位/空白、失败保原文本，Excel 里不丢内容 |
 | 自适应列宽用「视觉宽度估算 + 上下限钳制」 | 逐列取单元格最大视觉宽度（`isWideCode()` 判 CJK/全角/谚文按 2、半角按 1，内嵌换行取最长行），钳制 [6, 50]（`wch` 字符数）：下限防窄列挤成一条线，上限防超长内容撑爆版面；计满上限即截断返回（结果等价，万行大表免逐字符全量计数）；在列拆分/筛选/格式应用后的最终 aoa 上计算，列序天然对齐 |
-| 持久化用「页面键 + 表指纹」而非 DOM 引用 | DOM 元素无法序列化；表头文本与 colKeys 列标识同一哲学，表头变 → 指纹不匹配 → 安全降级默认配置（旧规则不误用）；会话内存 Map 仍为唯一真相，面板/导出链路零改动即可读到恢复值；chrome.storage.local 仅本地不上传，读写失败自动降级当次会话有效（详见 docs/persist-plan.md） |
+| 持久化用「页面键 + 表指纹」而非 DOM 引用 | DOM 元素无法序列化；表头文本与 colKeys 列标识同一哲学，表头变 → 指纹不匹配 → 安全降级默认配置（旧规则不误用）；会话内存 Map 仍为唯一真相，面板/导出链路零改动即可读到恢复值；chrome.storage.local 仅本地不上传，读写失败自动降级当次会话有效 |
 | 图片导出为链接（cell.js） | img 值从原元素读（`src` 解析后的绝对地址，srcset 场景兜底 `currentSrc`），按索引对齐替换进克隆——与控件同套路；替换先于控件值替换执行，防止嵌在命中控件内的 img 随控件整体替换丢失而串位；链接进入 merged/text/blocks 通道，导出、预览、列拆分全链路一致 |
 | 单元格取值用批量两阶段（cell.js `openBatch()`） | 逐格离屏挂载 = 每格 2-3 次强制回流（innerText 依赖渲染布局），万格表格上万次 reflow；写读分组集中执行（克隆先挂游离 holder → 一次挂载 → 两轮集中读 → 集中移除注入节点再集中读）把整表回流降为常数 ~3 次，行为与逐格实现完全一致（同克隆骨架同两轮读取） |
 | 面板段数计算按参数记忆化（panel.js `segCountOf`） | 面板每次勾选/键入都触发全列全行重扫，万行虚拟快照下交互卡顿；缓存键 = (列, 模式, 分隔符, 上限) 即全部输入（sample 面板生命周期内不变），无需失效机制 |
@@ -92,11 +92,7 @@
 
 ## 已知限制
 
-- 仅顶层文档表格，iframe 内表格不处理
-- 单元格导出纯文本，不保留颜色/字体样式；图片导出为链接（src 绝对地址），video/svg/iframe 导出为空
+用户向限制（合并单元格不还原、iframe 表格、指纹定位失效等）见 [product.md](product.md)「已知限制」，不在此重复。开发侧补充：
+
 - 文件名输入框默认值每次进入选择模式重填（仅拆分规则、列筛选与列格式持久化，见 persist.js）
-- 持久化按表指纹定位：表头变更后不恢复（回落默认）；同页两个表头完全一致的表格共享一份配置；同页多 tab 并发保存 last-write-wins（低频低危）
-- 含合并单元格的表格不支持列筛选（!merges 列号基于原始网格，过滤会错位；面板已禁用；列格式不涉及列重排，仍可用）；合并单元格仅在 xlsx 导出还原，csv/json/md/html 为平面数据
-- 数字列格式（数值化）全格式生效，但 csv/md/html 单元格为字符串形式（如 `"123"`），仅 json 保留数值类型（`123`）
-- 虚拟滚动 + 整行内容完全相同且相邻出现时，理论上可能少采（内容对齐的固有歧义；分散出现的重复行不受影响）
-- 分体表格合并依赖「纯表头表 + 纯数据表视觉纵向拼接」判定：同容器中两个视觉上无缝拼接、列数一致的独立表格（如空表头表格紧贴数据表格）会被视为一个表格；组件库的汇总行表（如 el-table show-summary 的 footer 表）不参与合并
+- 同页多 tab 并发保存 last-write-wins（低频低危，接受）

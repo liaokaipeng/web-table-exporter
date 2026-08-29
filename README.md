@@ -44,7 +44,7 @@ Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）：悬浮选择网页
 │   ├── algo-check.cjs          # 采集算法 + 列拆分/列筛选/持久化回归测试（Node 直接运行）
 │   ├── fixture.html            # 基础测试页（合并单元格/多表/控件取值/列拆分/列筛选）
 │   └── virtual-fixture.html    # 虚拟滚动测试页（60 行，含 input 列/列拆分回归）
-└── docs/                       # 文档（架构 / 产品 / 控件规则 / 持久化设计 / 归档规划）
+└── docs/                       # 文档（架构 / 产品 / 控件规则 / archive 归档方案）
 ```
 
 ## 开发与测试
@@ -68,6 +68,5 @@ npx -y serve .
 - [架构文档](docs/architecture.md)：模块划分、数据流、关键设计决策
 - [产品文档](docs/product.md)：功能清单、交互规范、已知限制
 - [控件值规则](docs/controls.md)：三层判定与覆盖矩阵
-- [持久化设计](docs/persist-plan.md)：拆分规则与列筛选的存储结构、定位键与降级策略
 - [测试与回归](test/README.md)：测试页覆盖矩阵、命令、浏览器回归步骤
-- [列拆分规划（已实施归档）](docs/archive/column-split-plan.md)：列拆分的模式、规则模型与边界情况
+- 历史方案（已实施归档，设计已并入架构/产品文档）：[列拆分](docs/archive/column-split-plan.md) · [持久化](docs/archive/persist-plan.md) · [UI/UX 优化](docs/archive/uiux-plan.md)

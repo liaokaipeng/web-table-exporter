@@ -2,7 +2,7 @@
 
 现状：`splitRules` / `colFilters` 为 main.js 内存 Map（DOM 元素作键），退出选择模式即清空。
 目标：用户配置过的拆分规则与列筛选跨会话保留，重选同表自动恢复。
-实现：`extension/content/persist.js`（本方案的设计依据）；浏览器回归步骤见 [test/README.md](../test/README.md)。
+实现：`extension/content/persist.js`（本方案的设计依据）；浏览器回归步骤见 [test/README.md](../../test/README.md)。
 
 ## 已确认决策
 

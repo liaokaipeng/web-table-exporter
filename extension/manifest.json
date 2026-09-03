@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Web Table Exporter",
   "description": "选择网页表格，一键导出 xlsx/csv/json/md/html。支持虚拟滚动全量采集，兼容 Element Plus / AG Grid 等组件表格。支持列设置：拆分/筛选/格式化导出列，规则按页面自动记忆。",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "action": {
     "default_title": "导出表格"
   },

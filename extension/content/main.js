@@ -9,6 +9,10 @@
  * v2.1：支持 div 网格表格（Element Plus el-table-v2 虚拟化表格）的识别与滚动采集
  * v2.2：网格表格识别经 ns.table 适配器注册表分发，扩展支持 AG Grid / MUI X
  * DataGrid / Tabulator（hitRoot 与 hasTables 走通用入口，组件无关）
+ * v2.4：选择模式点击放行——非表格点击不再拦截（翻页/筛选等页面交互可用），
+ * 仅拦截表格点选与链接导航（防误触跳转丢失选择会话）；toast 视觉强化
+ * （语义色图标徽标 + 底色 + 加粗）；反馈补全——被移除的已选表格 / 采集中
+ * 点击拦截 / 无表格页面进入均给 toast；导出迭代前快照表格列表（防并发剔除）
  */
 (() => {
   'use strict';
@@ -41,6 +45,7 @@
   let exporting = false;  // 导出文件生成/编码进行中（await 让出主线程期间的重入保护）
   let genToken = 0;       // 代际令牌：退出/重新采集时使旧采集任务失效
   let hasTables = true;   // 进入选择模式时页面是否存在表格（无表时默认提示切换）
+  let lastBlockHint = 0;  // 采集中点击提示的上次 toast 时间（2s 节流防刷屏）
 
   const selected = new Map();   // table -> 覆盖层元素（Map 保持选择顺序 = Sheet 顺序）
   const snapshots = new Map();   // table -> 虚拟滚动表格采集快照 { rows, ctrl, text, headerRows }
@@ -96,16 +101,22 @@
       '  .h2x-split.h2x-has-cfg::after{content:"";position:absolute;top:-4px;right:-4px;width:8px;height:8px;border-radius:50%;background:var(--c-info);box-shadow:0 0 0 2px var(--c-bg);}',  /* 已配置徽标点 */
       '  .h2x-actions{display:flex;gap:8px;flex:none;}',  /* 三按钮成组：极窄屏整组换行，不出现孤立按钮 */
       '  .h2x-toasts{position:fixed;top:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:1;pointer-events:none;font:13px/1.4 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}',
-      '  .h2x-toast{pointer-events:auto;display:flex;align-items:center;gap:10px;max-width:min(420px,86vw);padding:10px 12px 10px 14px;border-radius:var(--r);background:var(--c-bg);color:var(--c-text);box-shadow:0 4px 16px rgba(0,0,0,.25);animation:h2x-in .15s ease-out;border-left:3px solid var(--c-info);}',
-      '  .h2x-toast-success{border-left-color:var(--c-primary);}',
-      '  .h2x-toast-error{border-left-color:var(--c-danger);}',
+      '  .h2x-toast{pointer-events:auto;display:flex;align-items:center;gap:11px;max-width:min(460px,86vw);padding:11px 14px 11px 12px;border-radius:var(--r);background:var(--c-bg);color:var(--c-text);box-shadow:0 6px 24px rgba(0,0,0,.32);animation:h2x-in .18s ease-out;border-left:4px solid var(--c-info);font-weight:600;}',
+      '  .h2x-toast-ico{flex:none;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;background:var(--c-info);font:700 13px/22px -apple-system,"Segoe UI",sans-serif;text-align:center;}',
+      '  .h2x-toast-info{background:linear-gradient(0deg,rgba(25,118,210,.10),rgba(25,118,210,.10)),var(--c-bg);}',
+      '  .h2x-toast-success{border-left-color:var(--c-primary);background:linear-gradient(0deg,rgba(46,125,50,.10),rgba(46,125,50,.10)),var(--c-bg);}',
+      '  .h2x-toast-success .h2x-toast-ico{background:var(--c-primary);}',
+      '  .h2x-toast-warn{border-left-color:var(--c-warn);background:linear-gradient(0deg,rgba(141,110,0,.12),rgba(141,110,0,.12)),var(--c-bg);}',
+      '  .h2x-toast-warn .h2x-toast-ico{background:var(--c-warn);}',
+      '  .h2x-toast-error{border-left-color:var(--c-danger);background:linear-gradient(0deg,rgba(198,40,40,.10),rgba(198,40,40,.10)),var(--c-bg);}',
+      '  .h2x-toast-error .h2x-toast-ico{background:var(--c-danger);}',
       '  .h2x-toast-msg{flex:1;min-width:0;color:var(--c-text);}',
       '  .h2x-toast-btn{padding:3px 10px;border:1px solid var(--c-border);border-radius:var(--r-s);background:var(--c-bg);color:var(--c-text-2);cursor:pointer;font:12px/1.4 -apple-system,"Segoe UI",sans-serif;}',
       '  .h2x-toast-btn:hover{border-color:var(--c-primary);color:var(--c-primary);}',
       '  .h2x-toast-x{border:none;background:none;color:var(--c-text-3);cursor:pointer;font:16px/1 -apple-system,"Segoe UI",sans-serif;padding:0 2px;}',
       '  .h2x-toast-x:hover{color:var(--c-text);}',
       '  button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--c-info);outline-offset:1px;}',
-      '  @keyframes h2x-in{from{opacity:0;transform:translateY(-6px);}}',
+      '  @keyframes h2x-in{from{opacity:0;transform:translateY(-8px);}}',
       '  @media (prefers-reduced-motion: reduce){:host *{animation:none!important;transition:none!important;}}',
       '</style>',
       '<div class="h2x-hover" hidden></div>',
@@ -152,15 +163,23 @@
 
   /* ---------------- Toast 反馈系统（v2.0） ---------------- */
 
-  /** 结果性通知：成功/信息 2.5s 自动消失，错误常驻 + 关闭钮；同屏最多 3 条。
-   *  返回句柄 { update(msg), close() } 供进度型 toast 复用同一条。
+  /** 结果性通知：成功/信息 2.5s 自动消失（可经 duration 覆盖，如链接拦截提示 4s），
+   *  警示（warn）琥珀色，错误常驻 + 关闭钮；同屏最多 3 条。
+   *  v2.4 视觉强化：语义色圆形图标徽标 + 底色浅色渲染 + 文案加粗（远比纯白底
+   *  小字醒目）；返回句柄 { update(msg), close() } 供进度型 toast 复用同一条。
    *  hint 只保留引导与进行时文案（默认提示、采集进度、导出中），结果全部走 toast */
+  const TOAST_ICONS = { success: '✓', error: '✕', warn: '!', info: 'i' };
   function toast(msg, opts) {
     opts = opts || {};
     const type = opts.type || 'info';
     const box = document.createElement('div');
     box.className = 'h2x-toast h2x-toast-' + type;
     box.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    const ico = document.createElement('span');
+    ico.className = 'h2x-toast-ico';
+    ico.setAttribute('aria-hidden', 'true');
+    ico.textContent = TOAST_ICONS[type] || TOAST_ICONS.info;
+    box.appendChild(ico);
     const msgEl = document.createElement('span');
     msgEl.className = 'h2x-toast-msg';
     msgEl.textContent = msg;
@@ -234,17 +253,75 @@
     else { hoverTable = null; hoverBox.hidden = true; }
   }
 
+  /** v2.4：点击放行选择模式（原为全拦截）。三类点击区别对待：
+   *  1. 命中表格 → 选中/取消（拦截默认行为，防触发表格自身交互）
+   *  2. 命中链接 a[href] → 拦截导航（选表期间误触跳转会丢失整个选择会话），
+   *     toast 提示而非静默吞掉
+   *  3. 其余点击 → 放行给页面（翻页/筛选/切 Tab 等交互正常可用），
+   *     随后清理已被页面交互移除的选中表格 */
   function onClickCapture(e) {
     if (!active) return;
     // 工具栏自身的点击不拦截（按钮/输入框正常工作）
     if (e.composedPath().includes(host)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (collecting) return; // 采集滚动中不响应表格点击
-    if (e.target instanceof Element) {
-      const table = hitRoot(e.target);
-      if (table) toggleSelect(table);
+    if (collecting) { // 采集滚动中仍全拦截（防误操作打断采集），但给点击反馈（2s 节流）
+      e.preventDefault();
+      e.stopPropagation();
+      const now = Date.now();
+      if (now - lastBlockHint > 2000) {
+        lastBlockHint = now;
+        toast('正在采集滚动数据，可点「停止采集」中止', { type: 'info' });
+      }
+      return;
     }
+    const el = e.target instanceof Element ? e.target : null;
+    const table = el && hitRoot(el);
+    if (table) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSelect(table);
+      return;
+    }
+    const link = el && el.closest('a[href]');
+    if (link) {
+      e.preventDefault();
+      e.stopPropagation();
+      // 就地红框高亮被拦的链接（用户视线在点击处，右上角 toast 单独出现易被忽略）
+      flashLink(link);
+      toast('选择模式下链接已停用，Esc 退出后可跳转', { type: 'warn', duration: 4000 });
+      return;
+    }
+    pruneDetached(); // 放行的点击可能触发翻页/筛选替换 DOM，同步剔除断开的选中项
+  }
+
+  /** v2.4：剔除已断开 DOM 的选中表格（页面交互翻页/刷新后表格节点被替换）。
+   *  scroll/resize 的 onReposition 只在滚动时触发，点击放行后需主动兜底。
+   *  导出中跳过（doExport 迭代间隙的剔除会清掉未迭代表的拆分/筛选配置，
+   *  且导出表格列表已快照——见 doExport）；移除时 toast 告知（不然只有底部
+   *  计数变化，用户视线在页面中央根本看不到） */
+  function pruneDetached() {
+    if (exporting) return;
+    let removed = 0;
+    for (const table of [...selected.keys()]) {
+      if (!table.isConnected) { removeSelected(table); removed++; }
+    }
+    if (removed) {
+      toast('已选表格已被页面刷新移除' + (removed > 1 ? '（' + removed + ' 个）' : ''), { type: 'warn' });
+    }
+  }
+
+  /** v2.4：被拦截的链接就地红框闪烁 ~1s。内联样式经 !important 覆盖页面样式，
+   *  完事后还原元素原有内联 outline（页面元素未被污染；扩展退出不留痕） */
+  function flashLink(link) {
+    const prevOutline = link.style.getPropertyValue('outline');
+    const prevOffset = link.style.getPropertyValue('outline-offset');
+    link.style.setProperty('outline', '3px solid #c62828', 'important');
+    link.style.setProperty('outline-offset', '2px', 'important');
+    setTimeout(() => {
+      link.style.removeProperty('outline');
+      link.style.removeProperty('outline-offset');
+      if (prevOutline) link.style.setProperty('outline', prevOutline);
+      if (prevOffset) link.style.setProperty('outline-offset', prevOffset);
+    }, 1000);
   }
 
   function onKeyDown(e) {
@@ -272,6 +349,10 @@
       // 焦点在工具栏按钮上时，Enter 走按钮默认行为（触发 click）
       const focused = host.shadowRoot && host.shadowRoot.activeElement;
       if (focused && focused.tagName === 'BUTTON') return;
+      // v2.4：点击放行后页面元素可持有焦点（输入框/链接等）——此时 Enter
+      // 属于页面交互，不触发导出快捷键；焦点在 body/本扩展 UI 时保留
+      const ae = document.activeElement;
+      if (ae && ae !== document.body && ae !== document.documentElement && ae !== host) return;
       e.preventDefault();
       e.stopPropagation();
       doExport();
@@ -565,11 +646,15 @@
       if (collecting || !selected.size) return; // await 期间状态可能变化
       for (const table of selected.keys()) restoreFromPersist(table);
 
-      // 1. 逐表取数（列拆分/列筛选/列格式已在 buildAoa 应用），组装与 Sheet 名同源的表单元
+      // 1. 逐表取数（列拆分/列筛选/列格式已在 buildAoa 应用），组装与 Sheet 名同源的表单元。
+      //    v2.4：迭代前快照表格列表——逐表 yieldToMain 让出主线程期间，点击放行
+      //    触发的 pruneDetached 会改写 selected Map（迭代中途变更 + 配置被清），
+      //    快照后导出范围在开始一刻锁定（prune 在 exporting 期间被跳过）
+      const list = [...selected.keys()];
       const tables = [];
       const used = new Set();
       let i = 0;
-      for (const table of selected.keys()) {
+      for (const table of list) {
         if (!active) return; // yield 间隙用户可能已退出，放弃导出
         let aoa, headerRows, merges = null;
         if (snapshots.has(table)) {
@@ -651,6 +736,10 @@
   hasTables = document.querySelectorAll('table, ' + GRID_ROOT_SELECTOR).length > 0;
   syncExportBtn();
   resetHint();
+  if (!hasTables) {
+    // v2.4：无表格页面只在底部 hint 留小字不够醒目，补一条警示 toast
+    toast('页面未找到表格，无法选择导出', { type: 'warn', duration: 4000 });
+  }
   // 装配列设置面板依赖（host/Maps 为稳定引用；可变状态经 getter 读取）
   panel.init({
     host: host,

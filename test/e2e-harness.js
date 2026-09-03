@@ -243,8 +243,21 @@
     const actParent = h.exportBtn.parentElement;
     t('工具栏三按钮成组同父（换行整组下移，不孤立）', actParent === h.splitBtn.parentElement &&
       actParent === h.cancelBtn.parentElement && actParent.className === 'h2x-actions', actParent.className);
-    const notPrevented = document.querySelector('a').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-    t('选择模式下链接点击被拦截（preventDefault）', notPrevented === false);
+    // v2.4：非表格点击放行 + 断开表格自动剔除 + 链接拦截带 toast
+    const staff = document.querySelector('#staff');
+    const par = staff.parentElement, nxt = staff.nextSibling;
+    staff.remove(); // 模拟页面交互（翻页等）替换/移除已选表格
+    const passed = document.querySelector('p').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    t('选择模式下非表格点击放行（不 preventDefault）', passed === true);
+    t('被移除的已选表格经放行点击自动剔除（计数 2→1）', h.count.textContent === '1', h.count.textContent);
+    t('表格被移除时 toast 提醒（不再静默）', toastText(h).indexOf('已被页面刷新移除') >= 0, toastText(h));
+    par.insertBefore(staff, nxt); // 还原 fixture
+    const link = document.querySelector('a');
+    const notPrevented = link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    t('选择模式下链接点击被拦截（preventDefault + toast 提示）', notPrevented === false && toastText(h).indexOf('链接已停用') >= 0, toastText(h));
+    t('被拦链接就地红框高亮（flashLink）', /#c62828|rgb\(198, ?40, ?40\)/.test(link.style.outline), link.style.outline);
+    await sleep(1100); // 等 1s 闪烁结束
+    t('红框高亮 1s 后还原（页面不留痕）', link.style.outline === '', link.style.outline);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     t('Esc 退出选择模式（UI 移除）', !document.documentElement.contains(h.host));
   });

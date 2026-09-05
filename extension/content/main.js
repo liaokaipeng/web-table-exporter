@@ -24,6 +24,8 @@
  * （页数上限输入槽留空 = 全部页，取消/开始采集按钮，点开聚焦输入槽，Esc /
  * 点面板外 / 再点按钮收拢）；「开始采集」才触发 onCollectAllPages，采集中
  * 禁用主按钮并收拢面板（updateBar 同步）
+ * v2.5.3：分页采集限定单表——多选（≥2）时「采集全部页」按钮禁用，title
+ * 动态提示「多表选择时不支持分页采集」；目标表唯一，无歧义
  */
 (() => {
   'use strict';
@@ -587,13 +589,13 @@
     pageMenu.hidden ? openPageMenu() : closePageMenu();
   }
 
-  /** 「采集全部页」入口：取最后选中的表。组件分页器（el-pagination /
-   *  ant-pagination，pagination.js 适配器）识别到直接采集；识别不到进入
-   *  「指定翻页按钮」子模式兜底（用户点击下一页控件，跨页经定位器重解析）。
-   *  虚拟滚动表格不经此入口（点选时已自动滚动采集） */
+  /** 「采集全部页」入口：取唯一选中的表（v2.5.3 起多选时按钮禁用，此处恒为
+   *  单表）。组件分页器（el-pagination / ant-pagination，pagination.js 适配器）
+   *  识别到直接采集；识别不到进入「指定翻页按钮」子模式兜底（用户点击下一页
+   *  控件，跨页经定位器重解析）。虚拟滚动表格不经此入口（点选时已自动滚动采集） */
   function onCollectAllPages() {
     if (collecting || exporting || panel.isOpen() || specifying || !selected.size) return;
-    const table = [...selected.keys()].pop(); // 最后选中的表（与用户直觉一致）
+    const table = [...selected.keys()].pop(); // 唯一选中的表
     if (isVirtualTable(table)) {
       toast('虚拟滚动表格点选时已自动采集全部行', { type: 'info' });
       return;
@@ -679,9 +681,13 @@
     const busy = collecting || exporting || panel.isOpen() || specifying; // 面板/导出/子模式期间主工具栏同步禁用
     exportBtn.disabled = busy || selected.size === 0;
     splitBtn.disabled = busy || selected.size === 0;
-    const pageOff = busy || selected.size === 0; // 下拉主按钮禁用（采集中/面板/导出/子模式或未选中）
+    const pageOff = busy || selected.size !== 1; // v2.5.3 下拉主按钮禁用（采集中/面板/导出/子模式、未选中或多选——分页采集只支持单表）
     pageBtn.disabled = pageOff;
     pageBtn.setAttribute('aria-disabled', pageOff ? 'true' : 'false');
+    // 禁用原因随状态给出：多选时明确指向「只支持单表」，其余恢复功能说明
+    pageBtn.title = (selected.size > 1)
+      ? '多表选择时不支持分页采集：请先取消其他表格，仅保留要采集的一个'
+      : '自动翻页采集已选中表格：点开可设置页数上限，识别不到分页器时可指定翻页按钮';
     pagesInput.disabled = pageOff;
     if (pageOff) closePageMenu();
     // v2.0：已选表中存在拆分/筛选/格式配置 → 「列设置」按钮带徽标点

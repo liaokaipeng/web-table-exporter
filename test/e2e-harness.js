@@ -9,7 +9,7 @@
  * v2 加固：强制全新注入（预清 __html2xlsx/__h2x 与残留 host，entry 守卫永不误触发）、
  * 注入后隐藏 __html2xlsx（防外部脚本误退出本会话）、轮次串行锁、调试日志。
  * 提速（v2.2）：固定 sleep 改事件驱动 waitFor（exit/openPanel 均同步或微任务级），
- * 模块代码缓存（11 文件仅首轮拉取），导出轮询 25ms；配 run-all.ps1 headless
+ * 模块代码缓存（12 文件仅首轮拉取），导出轮询 25ms；配 run-all.ps1 headless
  * 虚拟时间模式整页约 1 秒跑完。
  */
 (async () => {
@@ -63,8 +63,8 @@
   log('XLSX 库已加载');
 
   /* ---- 注入与 UI 定位 ---- */
-  const FILES = ['entry', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'persist', 'format', 'panel', 'main'];
-  const modCache = Object.create(null); // 模块代码缓存：11 文件只拉取一次，17 轮免重复网络往返
+  const FILES = ['entry', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'pagination', 'persist', 'format', 'panel', 'main'];
+  const modCache = Object.create(null); // 模块代码缓存：12 文件只拉取一次，17 轮免重复网络往返
   function staleHosts() {
     return [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647');
   }
@@ -99,9 +99,9 @@
     const sr = host.shadowRoot;
     return {
       host: host, sr: sr,
-      exportBtn: sr.querySelector('.h2x-primary'),
+      exportBtn: sr.querySelector('.h2x-actions > .h2x-primary'),
       splitBtn: sr.querySelector('.h2x-split'),
-      cancelBtn: sr.querySelector('.h2x-ghost'),
+      cancelBtn: sr.querySelector('.h2x-actions > .h2x-ghost'),
       fmtSel: sr.querySelector('.h2x-ext'),
       count: sr.querySelector('.h2x-count b'),
       hint: sr.querySelector('.h2x-hint'),

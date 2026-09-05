@@ -50,8 +50,8 @@
     if (b) window.__exports.push({ name: this.download, blob: b });
   };
 
-  const FILES = ['entry', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'persist', 'format', 'panel', 'main'];
-  const modCache = Object.create(null); // 模块代码缓存：11 文件只拉取一次，多轮免重复网络往返
+  const FILES = ['entry', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'pagination', 'persist', 'format', 'panel', 'main'];
+  const modCache = Object.create(null); // 模块代码缓存：12 文件只拉取一次，多轮免重复网络往返
   async function inject() {
     // 防御性清理：若上一轮 UI/命名空间残留，先退出再注入（避免 entry 守卫误触发退出语义）
     // （exit 为同步清理，无需等待；残留兜底由 staleHosts 式强删完成——见 ui() 的 host 定位）
@@ -92,9 +92,9 @@
     const sr = host.shadowRoot;
     return {
       host: host, sr: sr,
-      exportBtn: sr.querySelector('.h2x-primary'),
+      exportBtn: sr.querySelector('.h2x-actions > .h2x-primary'),
       splitBtn: sr.querySelector('.h2x-split'),
-      cancelBtn: sr.querySelector('.h2x-ghost'),
+      cancelBtn: sr.querySelector('.h2x-actions > .h2x-ghost'),
       fmtSel: sr.querySelector('.h2x-ext'),
       count: sr.querySelector('.h2x-count b'),
       hint: sr.querySelector('.h2x-hint'),

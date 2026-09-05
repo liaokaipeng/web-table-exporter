@@ -50,7 +50,7 @@
     if (b) window.__exports.push({ name: this.download, blob: b });
   };
 
-  const FILES = ['entry', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'persist', 'format', 'panel', 'main'];
+  const FILES = ['entry', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'pagination', 'persist', 'format', 'panel', 'main'];
   const modCache = Object.create(null);
   async function inject() {
     if (window.__html2xlsx) { try { window.__html2xlsx.toggle(); } catch (e) { /* 忽略 */ } }
@@ -86,9 +86,9 @@
     const sr = host.shadowRoot;
     return {
       host: host, sr: sr,
-      exportBtn: sr.querySelector('.h2x-primary'),
+      exportBtn: sr.querySelector('.h2x-actions > .h2x-primary'),
       splitBtn: sr.querySelector('.h2x-split'),
-      cancelBtn: sr.querySelector('.h2x-ghost'),
+      cancelBtn: sr.querySelector('.h2x-actions > .h2x-ghost'),
       fmtSel: sr.querySelector('.h2x-ext'),
       count: sr.querySelector('.h2x-count b'),
       hint: sr.querySelector('.h2x-hint'),

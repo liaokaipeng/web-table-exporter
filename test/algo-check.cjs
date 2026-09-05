@@ -953,20 +953,26 @@ check('makeSheetName 空 caption 文本回落 aria-label / 纯空白回落序号
    makeSheetName(stubTable('   '), 0, new Set())],
   ['支付宝订单', '表格1']);
 
-// 43. 模块清单一致性（防新增模块漏同步：三份清单各自维护，任何一份缺文件即注入不全）
+// 43. 模块清单一致性（防新增模块漏同步：四份清单各自维护，任何一份缺文件即注入不全）
 const swSrc = fs.readFileSync(path.join(__dirname, '..', 'extension', 'background', 'service-worker.js'), 'utf8');
 const swModules = [...swSrc.matchAll(/'content\/(\w+)\.js'/g)].map(m => m[1]);
-const harnessSrc = fs.readFileSync(path.join(__dirname, 'e2e-harness.js'), 'utf8');
-const filesDecl = harnessSrc.match(/const FILES = \[([^\]]*)\]/);
-const harnessModules = filesDecl ? [...filesDecl[1].matchAll(/'(\w+)'/g)].map(m => m[1]) : [];
 const actualModules = fs.readdirSync(path.join(__dirname, '..', 'extension', 'content'))
   .filter(f => f.endsWith('.js')).map(f => f.replace(/\.js$/, ''));
 check('模块清单：service-worker 注入列表与实际文件一致',
   [...swModules].sort(), [...actualModules].sort());
-check('模块清单：e2e-harness FILES 与实际文件一致',
-  [...harnessModules].sort(), [...actualModules].sort());
-check('模块清单：service-worker 与 harness 注入顺序一致（依赖序）',
-  swModules, harnessModules);
+// v2.5.2 教训：六个分页面 harness 漏注入 pagination.js（E2E 全线报 ns.pagination undefined）——
+// 清单检查从主 harness 扩到全部七个，任一 FILES 与 service-worker 依赖序不一致即失败
+const harnessFiles = fs.readdirSync(__dirname).filter(f => /^e2e-harness(-\w+)?\.js$/.test(f));
+const harnessLists = harnessFiles.map(f => {
+  const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
+  const decl = src.match(/const FILES = \[([^\]]*)\]/);
+  return { name: f, modules: decl ? [...decl[1].matchAll(/'(\w+)'/g)].map(m => m[1]) : [] };
+});
+check('模块清单：e2e-harness 数量齐备（七个页面 harness）', harnessFiles.length, 7);
+for (const h of harnessLists) {
+  check('模块清单：' + h.name + ' FILES 与实际文件一致', [...h.modules].sort(), [...actualModules].sort());
+  check('模块清单：' + h.name + ' 与 service-worker 注入顺序一致（依赖序）', h.modules, swModules);
+}
 check('模块清单：注入顺序首尾正确（entry 先行守卫 / main 殿后建 UI）',
   [swModules[0], swModules[swModules.length - 1]], ['entry', 'main']);
 
@@ -1035,6 +1041,18 @@ check('tableKeyOf 非网格 div：回落容器内 table 表头（分体包装容
 check('tableKeyOf 空根 / null 根防御',
   [tableKeyOf({ tagName: 'DIV', querySelectorAll: () => [], querySelector: () => null }), tableKeyOf(null)],
   [null, null]);
+
+// 47. 分页适配器注册表（pagination.js v2.5：el-pagination / ant-pagination / vxe-pager）
+const { adapters: PAGER_ADAPTERS } = loadModule('pagination.js', 'pagination');
+check('分页适配器：三适配器齐备且命名稳定（增删组件须同步本用例）',
+  PAGER_ADAPTERS.map(a => a.name), ['el-pagination', 'ant-pagination', 'vxe-pager']);
+check('分页适配器：每适配器四要素齐备（rootSel/nextSel/prevSel/isDisabled）',
+  PAGER_ADAPTERS.map(a => [typeof a.rootSel, typeof a.nextSel, typeof a.prevSel, typeof a.isDisabled]),
+  PAGER_ADAPTERS.map(() => ['string', 'string', 'string', 'function']));
+check('分页适配器：rootSel 互不相同（findPagerRoot 按注册序分发，重叠会互相遮蔽）',
+  new Set(PAGER_ADAPTERS.map(a => a.rootSel)).size, PAGER_ADAPTERS.length);
+check('分页适配器：next/prev 均为单类名选择器（querySelector 可用）',
+  PAGER_ADAPTERS.every(a => /^\.[\w-]+$/.test(a.nextSel) && /^\.[\w-]+$/.test(a.prevSel)), true);
 
 console.log(fail === 0 ? '\n全部通过' : '\n' + fail + ' 个失败');
 process.exit(fail === 0 ? 0 : 1);

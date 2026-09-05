@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>分页表格测试页（自建分页器 · 手动指定兜底）</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 40px auto; max-width: 1000px; color: #333; }
+  h2 { border-left: 4px solid #2e7d32; padding-left: 10px; }
+  table { border-collapse: collapse; width: 100%; }
+  thead { background: #f0f4f8; }
+  th, td { border-bottom: 1px solid #e5e5e5; padding: 10px; font-size: 13px; text-align: left; }
+  .gray { color: #999; font-size: 12px; }
+  /* 自建分页器：类名与组件库无交集（识别不到组件分页器），下一页为 a 链接且无 disabled 态 */
+  .pager-bar { display: flex; align-items: center; gap: 12px; margin: 16px 0 40px; font-size: 13px; }
+  .pager-bar a { color: #1677ff; text-decoration: none; cursor: pointer; }
+  .pager-bar a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<h1>分页表格测试页（自建分页器 · 手动指定兜底）</h1>
+<p>普通 table + 自建分页器（类名与组件库无交集，扩展识别不到分页器），
+共 <b>3 页 × 5 行 = 15 行数据</b>；「下一页」为 a 链接，末页<b>无 disabled 态</b>（点击无效果）。
+<b>预期</b>：选中表格 → 点「采集全部页」→ 提示「未识别到分页器，请点击下一页按钮」进入子模式 →
+点击「下一页 »」→ 开始翻页采集；末页后连续翻页无新数据自动停止，
+toast「采集完成，共 16 行（含表头），自当前页开始采集，连续翻页无新数据，已停止」；
+首行「SKU-1」、末行「SKU-15」。<br>
+本页同时验证：子模式拦截所有点击（含链接，防误跳转）；Esc 取消子模式不丢选区；
+指定按钮为 a[href]，扩展的编程式点击豁免采集期拦截。</p>
+
+<h2>分页表格（自建分页器）</h2>
+<div class="table-with-pager">
+  <table id="pt">
+    <thead>
+      <tr><th width="50">序号</th><th>SKU</th><th>名称</th><th>数量</th></tr>
+    </thead>
+    <tbody id="ptbody"></tbody>
+  </table>
+  <div class="pager-bar">
+    <a href="javascript:void(0)" class="pg-next" id="nextBtn">下一页 »</a>
+    <span id="pgInfo">第 1 / 3 页</span>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var PAGES = 3, SIZE = 5, cur = 1;
+  var tbody = document.getElementById('ptbody');
+  var info = document.getElementById('pgInfo');
+  var nextBtn = document.getElementById('nextBtn');
+
+  function render() {
+    var html = '';
+    for (var i = 1; i <= SIZE; i++) {
+      var n = (cur - 1) * SIZE + i;
+      html += '<tr><td>' + n + '</td><td>SKU-' + n + '</td><td>自建分页商品 ' + n + '</td><td>' + (n * 3) + '</td></tr>';
+    }
+    tbody.innerHTML = html;
+    info.textContent = '第 ' + cur + ' / ' + PAGES + ' 页';
+  }
+
+  // 末页点击无效果（无 disabled 态）：验证「连续 2 页无新行」行为停止条件
+  nextBtn.addEventListener('click', function (e) {
+    e.preventDefault();
+    if (cur < PAGES) { cur++; render(); }
+  });
+  render();
+})();
+</script>
+</body>
+</html>

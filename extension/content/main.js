@@ -13,6 +13,17 @@
  * 仅拦截表格点选与链接导航（防误触跳转丢失选择会话）；toast 视觉强化
  * （语义色图标徽标 + 底色 + 加粗）；反馈补全——被移除的已选表格 / 采集中
  * 点击拦截 / 无表格页面进入均给 toast；导出迭代前快照表格列表（防并发剔除）
+ * v2.5：分页表格自动翻页采集——「采集全部页」入口（工具栏按钮，取最后选中
+ * 的表）：组件分页器（el-pagination / ant-pagination）自动识别直接采集，
+ * 识别不到进入「指定翻页按钮」子模式兜底；翻页按钮的编程式点击豁免采集期
+ * 拦截（分页器常为 a[href]）；翻页中表格被重建时选中迁移到新根
+ * v2.5.1：工具栏「采集全部页」按钮与页数输入框合并为单一复合组件「采集
+ * N/全部 页」——整组点击即采集（页数槽留给输入，Enter 同效），留空 = 全部页；
+ * 页数槽为可见输入框样式（描边 + 同色淡底）提示可编辑
+ * v2.5.2：重构为下拉展开式——主按钮「采集全部页 ▾」点开分页采集设置面板
+ * （页数上限输入槽留空 = 全部页，取消/开始采集按钮，点开聚焦输入槽，Esc /
+ * 点面板外 / 再点按钮收拢）；「开始采集」才触发 onCollectAllPages，采集中
+ * 禁用主按钮并收拢面板（updateBar 同步）
  */
 (() => {
   'use strict';
@@ -21,6 +32,7 @@
   const { timestamp, sanitizeFilename } = ns.util;
   const { extractTable, makeSheetName, splitGroupOf, gridRootOf, GRID_ROOT_SELECTOR } = ns.table;
   const { isVirtualTable, collectVirtual } = ns.virtual;
+  const { detectPager, manualPager, collectPaged, isPagingClick } = ns.pagination;
   const { applyColumnSplits, columnLayout, filterColumns, colKeys, formatColumns, applyColFormats, autoColWidths } = ns.split;
   const { toCsv, toJson, toMarkdown, toHtmlDocument } = ns.format;
   const panel = ns.panel;
@@ -37,12 +49,13 @@
 
   let active = true;
   let host = null;
-  let hoverBox = null, countEl = null, nameInput = null, exportBtn = null, cancelBtn = null, hintEl = null, splitBtn = null, fmtSel = null;
+  let hoverBox = null, countEl = null, nameInput = null, exportBtn = null, cancelBtn = null, hintEl = null, splitBtn = null, fmtSel = null, pageWrap = null, pageBtn = null, pageMenu = null, pagesInput = null, pageGoBtn = null, pageCancelBtn = null;
   let toastRoot = null;
   let hoverTable = null;
   let rafId = 0;
-  let collecting = false; // 虚拟表格滚动采集中
+  let collecting = false; // 虚拟表格滚动采集中 / 分页表格翻页采集中
   let exporting = false;  // 导出文件生成/编码进行中（await 让出主线程期间的重入保护）
+  let specifying = false; // v2.5：「指定翻页按钮」子模式（分页器识别不到的兜底）
   let genToken = 0;       // 代际令牌：退出/重新采集时使旧采集任务失效
   let hasTables = true;   // 进入选择模式时页面是否存在表格（无表时默认提示切换）
   let lastBlockHint = 0;  // 采集中点击提示的上次 toast 时间（2s 节流防刷屏）
@@ -99,7 +112,27 @@
       '  .h2x-split{background:var(--c-bg);color:var(--c-primary);border:1px solid var(--c-primary);position:relative;}',
       '  .h2x-split:disabled{background:var(--c-bg-3);color:var(--c-disable-fg);border-color:var(--c-border);cursor:not-allowed;filter:none;}',
       '  .h2x-split.h2x-has-cfg::after{content:"";position:absolute;top:-4px;right:-4px;width:8px;height:8px;border-radius:50%;background:var(--c-info);box-shadow:0 0 0 2px var(--c-bg);}',  /* 已配置徽标点 */
-      '  .h2x-actions{display:flex;gap:8px;flex:none;}',  /* 三按钮成组：极窄屏整组换行，不出现孤立按钮 */
+      '  .h2x-actions{display:flex;gap:8px;flex:none;}',  /* 按钮组：极窄屏整组换行，不出现孤立按钮 */
+      '  .h2x-pagewrap{position:relative;flex:none;}',
+      '  .h2x-pagebtn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:var(--c-bg);color:var(--c-info);border:1px solid var(--c-info);border-radius:var(--r-s);cursor:pointer;font:13px/1.2 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;white-space:nowrap;}',  /* v2.5.2 采集全部页按钮：分页采集下拉入口（信息蓝描边，与列设置的绿区分） */
+      '  .h2x-pagebtn:hover:not(:disabled){filter:brightness(1.06);}',
+      '  .h2x-pagebtn:active:not(:disabled){filter:brightness(.94);}',
+      '  .h2x-pagebtn:disabled{background:var(--c-bg-3);color:var(--c-disable-fg);border-color:var(--c-border);cursor:not-allowed;filter:none;}',
+      '  .h2x-pagebtn .h2x-care{flex:none;font-style:normal;font-size:10px;line-height:1;opacity:.85;transition:transform .15s;}',  /* 下拉箭头随展开旋转 */
+      '  .h2x-pagewrap.h2x-open .h2x-care{transform:rotate(180deg);}',
+      '  .h2x-pagemenu{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);width:288px;box-sizing:border-box;padding:12px;background:var(--c-bg);border:1px solid var(--c-border-2);border-radius:10px;box-shadow:0 10px 32px rgba(0,0,0,.22);z-index:2;text-align:left;}',  /* 下拉面板：上移弹层，深色/浅色随 token */
+      '  .h2x-pagemenu[hidden]{display:none;}',
+      '  .h2x-pagemenu-title{font-size:13px;font-weight:700;color:var(--c-text);}',
+      '  .h2x-pagemenu-sub{font-size:12px;color:var(--c-text-3);margin:4px 0 12px;line-height:1.5;}',
+      '  .h2x-pagemenu-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;}',
+      '  .h2x-pagemenu-row label{font-size:12px;color:var(--c-text-2);flex:none;}',
+      '  .h2x-pages{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 -apple-system,"Segoe UI",sans-serif;color:var(--c-text);background:var(--c-input);outline:none;box-sizing:border-box;}',
+      '  .h2x-pages:focus{border-color:var(--c-info);}',
+      '  .h2x-pages::-webkit-outer-spin-button,.h2x-pages::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}',
+      '  .h2x-pages::placeholder{color:var(--c-text-3);}',
+      '  .h2x-pageunit{font-size:12px;color:var(--c-text-2);flex:none;width:14px;text-align:center;}',
+      '  .h2x-pagemenu-actions{display:flex;gap:8px;justify-content:flex-end;}',
+      '  .h2x-pagemenu-actions .h2x-btn{font-size:12px;padding:5px 12px;}',
       '  .h2x-toasts{position:fixed;top:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:1;pointer-events:none;font:13px/1.4 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}',
       '  .h2x-toast{pointer-events:auto;display:flex;align-items:center;gap:11px;max-width:min(460px,86vw);padding:11px 14px 11px 12px;border-radius:var(--r);background:var(--c-bg);color:var(--c-text);box-shadow:0 6px 24px rgba(0,0,0,.32);animation:h2x-in .18s ease-out;border-left:4px solid var(--c-info);font-weight:600;}',
       '  .h2x-toast-ico{flex:none;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;background:var(--c-info);font:700 13px/22px -apple-system,"Segoe UI",sans-serif;text-align:center;}',
@@ -129,6 +162,22 @@
       '</select>',
       '  <div class="h2x-actions">',
       '    <button class="h2x-btn h2x-split" disabled>列设置</button>',
+      '    <div class="h2x-pagewrap">',
+      '      <button type="button" class="h2x-btn h2x-pagebtn" aria-haspopup="dialog" aria-expanded="false" disabled title="自动翻页采集已选中表格：点开可设置页数上限，识别不到分页器时可指定翻页按钮">采集全部页<i class="h2x-care" aria-hidden="true">▾</i></button>',
+      '      <div class="h2x-pagemenu" role="dialog" aria-label="分页采集设置" hidden>',
+      '        <div class="h2x-pagemenu-title">分页采集</div>',
+      '        <div class="h2x-pagemenu-sub">留空则采集全部页；识别不到分页器时会提示手动指定「下一页」按钮</div>',
+      '        <div class="h2x-pagemenu-row">',
+      '          <label for="h2x-pages">页数上限</label>',
+      '          <input class="h2x-pages" id="h2x-pages" type="number" min="1" step="1" placeholder="全部" title="只采集前 N 页，留空 = 全部页" aria-label="采集页数上限（留空为全部页）" />',
+      '          <span class="h2x-pageunit">页</span>',
+      '        </div>',
+      '        <div class="h2x-pagemenu-actions">',
+      '          <button type="button" class="h2x-btn h2x-ghost h2x-pagecancel">取消</button>',
+      '          <button type="button" class="h2x-btn h2x-primary h2x-pagego">开始采集</button>',
+      '        </div>',
+      '      </div>',
+      '    </div>',
       '    <button class="h2x-btn h2x-primary" disabled></button>',
       '    <button class="h2x-btn h2x-ghost">取消 (Esc)</button>',
       '  </div>',
@@ -140,15 +189,28 @@
     countEl = root.querySelector('.h2x-count b');
     nameInput = root.querySelector('.h2x-name');
     fmtSel = root.querySelector('.h2x-ext');
-    exportBtn = root.querySelector('.h2x-primary');
-    cancelBtn = root.querySelector('.h2x-ghost');
+    // v2.5.2 修复：下拉面板内「开始采集/取消」也带 h2x-primary/h2x-ghost 类且 DOM 在前，
+    // 裸类名查询会错绑到面板按钮（导出文案与点击监听跑到对话框里、真按钮空白死掉）——限定工具栏直系子级
+    exportBtn = root.querySelector('.h2x-actions > .h2x-primary');
+    cancelBtn = root.querySelector('.h2x-actions > .h2x-ghost');
     hintEl = root.querySelector('.h2x-hint');
     splitBtn = root.querySelector('.h2x-split');
+    pageWrap = root.querySelector('.h2x-pagewrap');
+    pageBtn = root.querySelector('.h2x-pagebtn');
+    pageMenu = root.querySelector('.h2x-pagemenu');
+    pagesInput = root.querySelector('.h2x-pages');
+    pageGoBtn = root.querySelector('.h2x-pagego');
+    pageCancelBtn = root.querySelector('.h2x-pagecancel');
     toastRoot = root.querySelector('.h2x-toasts');
     exportBtn.addEventListener('click', doExport);
     // v2.0：采集中「取消」变「停止采集」（只作废当前任务，不退出选择模式）
     cancelBtn.addEventListener('click', () => { collecting ? stopCollect() : exit(); });
     splitBtn.addEventListener('click', openPanel);
+    // v2.5.2：下拉展开——点按钮开合设置面板；「开始采集」/槽内 Enter 触发采集
+    pageBtn.addEventListener('click', togglePageMenu);
+    pageGoBtn.addEventListener('click', () => { closePageMenu(); onCollectAllPages(); });
+    pageCancelBtn.addEventListener('click', closePageMenu);
+    pagesInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); closePageMenu(); onCollectAllPages(); } });
     // 格式切换：导出按钮文案同步（文件名扩展名在导出时按格式追加）
     fmtSel.addEventListener('change', syncExportBtn);
 
@@ -248,6 +310,11 @@
 
   function onMouseOver(e) {
     if (!active || collecting || !(e.target instanceof Element)) return;
+    if (specifying) { // v2.5 子模式：高亮任意元素（翻页按钮不一定是表格，也不在表格内）
+      if (e.composedPath().includes(host)) { hoverBox.hidden = true; return; } // 工具栏自身不高亮
+      positionBox(hoverBox, e.target);
+      return;
+    }
     const table = hitRoot(e.target);
     if (table) { hoverTable = table; positionBox(hoverBox, table); }
     else { hoverTable = null; hoverBox.hidden = true; }
@@ -263,7 +330,10 @@
     if (!active) return;
     // 工具栏自身的点击不拦截（按钮/输入框正常工作）
     if (e.composedPath().includes(host)) return;
-    if (collecting) { // 采集滚动中仍全拦截（防误操作打断采集），但给点击反馈（2s 节流）
+    if (!pageMenu.hidden) closePageMenu(); // v2.5.2 点击页面处收拢下拉面板
+    if (collecting) {
+      if (isPagingClick(e)) return; // v2.5：翻页按钮的编程式点击放行（分页器常为 a[href]，拦截则翻页永不发生）
+      // 采集滚动/翻页中仍全拦截（防误操作打断采集），但给点击反馈（2s 节流）
       e.preventDefault();
       e.stopPropagation();
       const now = Date.now();
@@ -271,6 +341,18 @@
         lastBlockHint = now;
         toast('正在采集滚动数据，可点「停止采集」中止', { type: 'info' });
       }
+      return;
+    }
+    if (specifying) { // v2.5 子模式：拦截所有点击（含链接，防误跳转），记录目标后开始翻页采集
+      e.preventDefault();
+      e.stopPropagation();
+      const el = e.target instanceof Element ? e.target : null;
+      // 就近取可点击元素（按钮/链接/角色按钮），取不到用目标本身
+      const btn = el && (el.closest('button, a, [role="button"]') || el);
+      exitSpecify();
+      const table = [...selected.keys()].pop();
+      if (btn && table && table.isConnected) startPagedCollect(table, manualPager(btn));
+      else if (btn) toast('已选表格已不在页面上，请重新选择后再采集', { type: 'warn' });
       return;
     }
     const el = e.target instanceof Element ? e.target : null;
@@ -341,14 +423,28 @@
       }
       return;
     }
+    if (specifying) { // v2.5 子模式：Esc 只退出子模式（不退出选择模式），其余按键不触发快捷键
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        exitSpecify();
+      }
+      return;
+    }
     if (e.key === 'Escape') {
+      if (!pageMenu.hidden) { // v2.5.2 下拉优先：点开未采时 Esc 只收拢面板
+        e.preventDefault();
+        e.stopPropagation();
+        closePageMenu();
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       exit();
     } else if (e.key === 'Enter' && !e.isComposing && !collecting && !exporting) {
-      // 焦点在工具栏按钮上时，Enter 走按钮默认行为（触发 click）
+      // 焦点在工具栏按钮/输入框/下拉上时，Enter 走默认行为（按钮 click / 输入框采集），不触发导出
       const focused = host.shadowRoot && host.shadowRoot.activeElement;
-      if (focused && focused.tagName === 'BUTTON') return;
+      if (focused && (focused.tagName === 'BUTTON' || focused.tagName === 'INPUT' || focused.tagName === 'SELECT')) return;
       // v2.4：点击放行后页面元素可持有焦点（输入框/链接等）——此时 Enter
       // 属于页面交互，不触发导出快捷键；焦点在 body/本扩展 UI 时保留
       const ae = document.activeElement;
@@ -367,7 +463,9 @@
       else { hoverTable = null; hoverBox.hidden = true; }
       for (const [table, box] of selected) {
         if (table.isConnected) positionBox(box, table);
-        else removeSelected(table);
+        // v2.5：翻页采集期间表格可能被页面整段重建（暂时失联），采集结束后
+        // 由 startPagedCollect 迁移选中到新根，此处不提前剔除
+        else if (!collecting) removeSelected(table);
       }
     });
   }
@@ -459,11 +557,116 @@
   }
 
   /** v2.0：停止当前虚拟采集——genToken 作废进行中任务（collectVirtual 回 null、
-   *  快照不写入、表格不选中）；不退出选择模式，按钮与提示随后由 finally 恢复 */
+   *  快照不写入、表格不选中）；不退出选择模式，按钮与提示随后由 finally 恢复。
+   *  v2.5 起同样作用于分页翻页采集（collectPaged 同款令牌检查点） */
   function stopCollect() {
     genToken++;
     toast('已停止采集', { type: 'info' });
     resetHint();
+  }
+
+  /* ---------------- 分页表格全页采集（v2.5） ---------------- */
+
+  /** v2.5.2 下拉面板开合：主按钮「采集全部页」展开设置层（页数上限 + 确认），
+   *  点开即聚焦页数槽（选中已有值），再点按钮/外部/ Esc 收起。面板打开只改
+   *  UI 状态，不进入选择模式；「开始采集」才触发 onCollectAllPages */
+  function openPageMenu() {
+    if (pageBtn.disabled) return;
+    pageMenu.hidden = false;
+    pageWrap.classList.add('h2x-open');
+    pageBtn.setAttribute('aria-expanded', 'true');
+    pagesInput.focus();
+    pagesInput.select();
+  }
+  function closePageMenu() {
+    pageMenu.hidden = true;
+    pageWrap.classList.remove('h2x-open');
+    pageBtn.setAttribute('aria-expanded', 'false');
+  }
+  function togglePageMenu() {
+    pageMenu.hidden ? openPageMenu() : closePageMenu();
+  }
+
+  /** 「采集全部页」入口：取最后选中的表。组件分页器（el-pagination /
+   *  ant-pagination，pagination.js 适配器）识别到直接采集；识别不到进入
+   *  「指定翻页按钮」子模式兜底（用户点击下一页控件，跨页经定位器重解析）。
+   *  虚拟滚动表格不经此入口（点选时已自动滚动采集） */
+  function onCollectAllPages() {
+    if (collecting || exporting || panel.isOpen() || specifying || !selected.size) return;
+    const table = [...selected.keys()].pop(); // 最后选中的表（与用户直觉一致）
+    if (isVirtualTable(table)) {
+      toast('虚拟滚动表格点选时已自动采集全部行', { type: 'info' });
+      return;
+    }
+    const pager = detectPager(table);
+    if (pager) { startPagedCollect(table, pager); return; }
+    enterSpecify();
+  }
+
+  /** 「指定翻页按钮」子模式：悬浮高亮任意元素（不限表格），点击记录为目标
+   *  按钮后开始全页采集；Esc 取消，不破坏已有选区。交互骨架与选择模式同构 */
+  function enterSpecify() {
+    specifying = true;
+    hoverTable = null;
+    hoverBox.hidden = true;
+    setHint('未识别到分页器，请点击「下一页」按钮（Esc 取消）', '#1976d2');
+    updateBar();
+  }
+
+  function exitSpecify() {
+    if (!specifying) return;
+    specifying = false;
+    hoverBox.hidden = true;
+    resetHint();
+    updateBar();
+  }
+
+  /** 分页全页采集（对齐虚拟采集交互：进度 hint、「停止采集」可中止、完成快照
+   *  入 snapshots 供导出与列设置取样）。页数输入框非空时只采集指定页数（留空
+   *  全部页）；「停止采集」保留已采集的页写入快照（退出选择模式才整体丢弃）。
+   *  翻页中表格根被页面重建时，选中与配置迁移到新根（removeSelected +
+   *  addSelected，persist 记录按指纹自动恢复） */
+  async function startPagedCollect(table, pager) {
+    if (collecting) return;
+    collecting = true;
+    const gen = ++genToken;
+    hoverBox.hidden = true;
+    exportBtn.disabled = true;
+    splitBtn.disabled = true;
+    closePageMenu(); // v2.5.2 采集中收拢下拉并禁用主按钮（updateBar 同步）
+    pageBtn.disabled = true;
+    cancelBtn.textContent = '停止采集'; // 复用虚拟采集的中止交互
+    setHint('分页采集翻页中…', '#1976d2');
+    // 页数上限：输入框留空/非法值 = 0 = 采集全部页
+    const n = parseInt(pagesInput.value, 10);
+    const maxPages = (Number.isFinite(n) && n >= 1) ? n : 0;
+    try {
+      const res = await collectPaged(
+        table, pager,
+        (page, n) => { if (gen === genToken) setHint('分页采集翻页中… 第 ' + page + ' 页，已采集 ' + n + ' 行', '#1976d2'); },
+        () => !active || gen !== genToken,
+        maxPages
+      );
+      if (!active) return; // 已退出选择模式：丢弃
+      // gen !== genToken = 「停止采集」：collectPaged 返回已采集页的部分结果，照常写入快照
+      if (res) {
+        const key = (res.root && res.root.isConnected) ? res.root : table;
+        if (key !== table && selected.has(table)) removeSelected(table); // 表格被重建：迁移选中
+        snapshots.set(key, res.snap); // 重采覆盖旧快照
+        if (!selected.has(key)) addSelected(key);
+        toast('采集完成，共 ' + res.snap.rows.length + ' 行（含表头）' +
+          (res.note ? '，' + res.note : ''), { type: res.note ? 'info' : 'success' });
+      }
+      resetHint();
+    } catch (err) {
+      console.error('[HTML2XLSX] 分页采集失败：', err);
+      toast('采集失败：' + (err && err.message ? err.message : err), { type: 'error' });
+      resetHint();
+    } finally {
+      collecting = false;
+      cancelBtn.textContent = '取消 (Esc)';
+      updateBar();
+    }
   }
 
   function updateBar() {
@@ -473,9 +676,14 @@
       box.firstChild.textContent = String(++i);
     }
     countEl.textContent = String(selected.size);
-    const busy = collecting || exporting || panel.isOpen(); // 面板/导出中主工具栏同步禁用
+    const busy = collecting || exporting || panel.isOpen() || specifying; // 面板/导出/子模式期间主工具栏同步禁用
     exportBtn.disabled = busy || selected.size === 0;
     splitBtn.disabled = busy || selected.size === 0;
+    const pageOff = busy || selected.size === 0; // 下拉主按钮禁用（采集中/面板/导出/子模式或未选中）
+    pageBtn.disabled = pageOff;
+    pageBtn.setAttribute('aria-disabled', pageOff ? 'true' : 'false');
+    pagesInput.disabled = pageOff;
+    if (pageOff) closePageMenu();
     // v2.0：已选表中存在拆分/筛选/格式配置 → 「列设置」按钮带徽标点
     let cfg = false;
     for (const tb of selected.keys()) {
@@ -710,6 +918,7 @@
     if (!active) return;
     active = false;
     genToken++; // 使进行中的采集任务失效
+    specifying = false;
     document.removeEventListener('mouseover', onMouseOver, true);
     document.removeEventListener('click', onClickCapture, true);
     document.removeEventListener('keydown', onKeyDown, true);
@@ -735,6 +944,7 @@
   // v2.1 起 div 网格表格一并计入（v2.2 经 ns.table.GRID_ROOT_SELECTOR 覆盖全部适配组件）
   hasTables = document.querySelectorAll('table, ' + GRID_ROOT_SELECTOR).length > 0;
   syncExportBtn();
+  updateBar(); // 初始按钮态走同一状态机（未选表时列设置/采集全部页/导出一并禁用）
   resetHint();
   if (!hasTables) {
     // v2.4：无表格页面只在底部 hint 留小字不够醒目，补一条警示 toast

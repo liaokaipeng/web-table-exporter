@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>分页表格测试页（el-pagination 结构）</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 40px auto; max-width: 1000px; color: #333; }
+  h2 { border-left: 4px solid #2e7d32; padding-left: 10px; }
+  table { border-collapse: collapse; width: 100%; }
+  thead { background: #f0f4f8; }
+  th, td { border-bottom: 1px solid #e5e5e5; padding: 10px; font-size: 13px; text-align: left; }
+  td input { width: 80px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 4px; }
+  .gray { color: #999; font-size: 12px; }
+  /* 复刻 Element Plus el-pagination 结构与类名（disabled 态：.disabled 类 + disabled 属性） */
+  .el-pagination { display: flex; align-items: center; gap: 4px; margin: 16px 0 40px; font-size: 13px; color: #606266; }
+  .el-pagination button { width: 30px; height: 30px; border: none; background: #f0f2f5; border-radius: 4px; cursor: pointer; color: #606266; }
+  .el-pagination button.disabled { color: #c0c4cc; cursor: not-allowed; background: none; }
+  .el-pager { display: flex; list-style: none; margin: 0; padding: 0; gap: 4px; }
+  .el-pager li { min-width: 30px; height: 30px; line-height: 30px; text-align: center; background: #f0f2f5; border-radius: 4px; cursor: pointer; }
+  .el-pager li.active { color: #fff; background: #409eff; }
+</style>
+</head>
+<body>
+<h1>分页表格测试页（el-pagination 结构）</h1>
+<p>普通 table + 复刻 Element Plus el-pagination 类名结构（button.btn-prev / ul.el-pager &gt; li.number / button.btn-next），
+共 <b>5 页 × 8 行 = 40 行数据</b>，翻页仅重建 tbody（表格根不重建）。
+<b>预期</b>：选中表格 → 点「采集全部页」→ 自动识别 el-pagination 直接翻页采集，
+toast「采集完成，共 41 行（含表头）」；首行数据「商品 P1-1」、末行「商品 P5-8」；
+一口价列为 input（JS 属性设值），导出应为实时值（如 2249）而非空。<br>
+<b>起点归一</b>：先手动翻到第 3 页再点「采集全部页」，应先回退到第 1 页再采集（仍 41 行），完成后页面回到第 1 页。<br>
+<b>回归</b>：第 2 页起表头不变（指纹一致），采集不中止；「停止采集」可中止（已采页不写入）；
+采集完成后「列设置」可取样（虚拟快照同构）；再次点选表格复用快照不重采。</p>
+
+<h2>分页表格（el-pagination）</h2>
+<div class="table-with-pager">
+  <table id="pt">
+    <thead>
+      <tr><th width="50">序号</th><th>商品标题</th><th>一口价</th><th>库存</th><th>状态</th></tr>
+    </thead>
+    <tbody id="ptbody"></tbody>
+  </table>
+  <div class="el-pagination" id="pager">
+    <button class="btn-prev" type="button">&lt;</button>
+    <ul class="el-pager" id="pagerList"></ul>
+    <button class="btn-next" type="button">&gt;</button>
+  </div>
+</div>
+
+<h2>普通无分页表格（回归：不应出现「采集全部页」误触发）</h2>
+<table id="plain">
+  <thead><tr><th>列A</th><th>列B</th></tr></thead>
+  <tbody><tr><td>a1</td><td>b1</td></tr><tr><td>a2</td><td>b2</td></tr></tbody>
+</table>
+<p class="gray">此表无分页器：点「采集全部页」会进入「指定翻页按钮」子模式（Esc 可取消），
+属于预期兜底行为而非误报。</p>
+
+<script>
+(function () {
+  'use strict';
+  var PAGES = 5, SIZE = 8, cur = 1;
+  var tbody = document.getElementById('ptbody');
+  var pager = document.getElementById('pager');
+  var list = document.getElementById('pagerList');
+  var prevBtn = pager.querySelector('.btn-prev');
+  var nextBtn = pager.querySelector('.btn-next');
+
+  function rowData(p, i) { // 第 p 页第 i 行（1 起算）
+    var n = (p - 1) * SIZE + i;
+    return {
+      idx: String(n),
+      title: '商品 P' + p + '-' + i,
+      price: 2000 + n * 7,   // 一口价（input 实时值，JS 属性设值模拟 Vue）
+      stock: String(100 - i),
+      status: i % 3 === 0 ? '在售' : (i % 3 === 1 ? '下架' : '草稿')
+    };
+  }
+
+  function render() {
+    var html = '';
+    for (var i = 1; i <= SIZE; i++) {
+      var d = rowData(cur, i);
+      html += '<tr><td>' + d.idx + '</td><td>' + d.title + '</td>' +
+        '<td><input type="text" value="' + d.price + '"></td>' +
+        '<td>' + d.stock + '</td><td>' + d.status + '</td></tr>';
+    }
+    tbody.innerHTML = html;
+    // 分页器状态（复刻 el-pagination：disabled 类 + disabled 属性双写）
+    prevBtn.disabled = cur === 1;
+    prevBtn.classList.toggle('disabled', cur === 1);
+    nextBtn.disabled = cur === PAGES;
+    nextBtn.classList.toggle('disabled', cur === PAGES);
+    var lis = '';
+    for (var p = 1; p <= PAGES; p++) {
+      lis += '<li class="number' + (p === cur ? ' active' : '') + '">' + p + '</li>';
+    }
+    list.innerHTML = lis;
+  }
+
+  prevBtn.addEventListener('click', function () { if (cur > 1) { cur--; render(); } });
+  nextBtn.addEventListener('click', function () { if (cur < PAGES) { cur++; render(); } });
+  list.addEventListener('click', function (e) {
+    var t = e.target;
+    if (t.tagName === 'LI') { cur = Number(t.textContent) || cur; render(); }
+  });
+  render();
+})();
+</script>
+</body>
+</html>

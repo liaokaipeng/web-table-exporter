@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>分页表格测试页（ant-pagination 结构）</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 40px auto; max-width: 1000px; color: #333; }
+  h2 { border-left: 4px solid #2e7d32; padding-left: 10px; }
+  table { border-collapse: collapse; width: 100%; }
+  thead { background: #f0f4f8; }
+  th, td { border-bottom: 1px solid #e5e5e5; padding: 10px; font-size: 13px; text-align: left; }
+  .gray { color: #999; font-size: 12px; }
+  /* 复刻 Ant Design ant-pagination 结构与类名（li > a，禁用态 aria-disabled + .ant-pagination-disabled） */
+  .ant-pagination { display: flex; list-style: none; margin: 16px 0 40px; padding: 0; gap: 8px; font-size: 13px; color: rgba(0,0,0,.88); }
+  .ant-pagination li { min-width: 32px; height: 32px; line-height: 32px; text-align: center; border: 1px solid #d9d9d9; border-radius: 6px; cursor: pointer; background: #fff; }
+  .ant-pagination li a { color: inherit; text-decoration: none; display: block; }
+  .ant-pagination li.ant-pagination-item-active { border-color: #1677ff; color: #1677ff; }
+  .ant-pagination li.ant-pagination-disabled { color: rgba(0,0,0,.25); cursor: not-allowed; background: #f5f5f5; }
+</style>
+</head>
+<body>
+<h1>分页表格测试页（ant-pagination 结构）</h1>
+<p>普通 table + 复刻 Ant Design ant-pagination 类名结构（li.ant-pagination-prev / li.ant-pagination-item /
+li.ant-pagination-next，页码为 a 链接），共 <b>4 页 × 6 行 = 24 行数据</b>。
+<b>预期</b>：选中表格 → 点「采集全部页」→ 自动识别 ant-pagination 翻页采集，
+toast「采集完成，共 25 行（含表头）」；首行「订单 A-1」、末行「订单 D-6」；完成后页面回到第 1 页。<br>
+本页同时验证：翻页按钮为链接结构（li &gt; a），扩展的编程式点击须豁免采集期拦截（否则翻页永不发生）；
+选择模式下手动点击页码可正常翻页（v2.4 点击放行）。</p>
+
+<h2>分页表格（ant-pagination）</h2>
+<div class="table-with-pager">
+  <table id="pt">
+    <thead>
+      <tr><th width="50">序号</th><th>订单号</th><th>买家</th><th>金额</th><th>状态</th></tr>
+    </thead>
+    <tbody id="ptbody"></tbody>
+  </table>
+  <ul class="ant-pagination" id="pager">
+    <li class="ant-pagination-prev" title="上一页"><a class="ant-pagination-item-link">‹</a></li>
+    <!-- 页码 li 由 JS 渲染 -->
+    <li class="ant-pagination-next" title="下一页"><a class="ant-pagination-item-link">›</a></li>
+  </ul>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var PAGES = 4, SIZE = 6, cur = 1;
+  var LETTERS = ['A', 'B', 'C', 'D'];
+  var tbody = document.getElementById('ptbody');
+  var pager = document.getElementById('pager');
+  var prevLi = pager.querySelector('.ant-pagination-prev');
+  var nextLi = pager.querySelector('.ant-pagination-next');
+
+  function render() {
+    var html = '';
+    for (var i = 1; i <= SIZE; i++) {
+      var n = (cur - 1) * SIZE + i;
+      html += '<tr><td>' + n + '</td><td>订单 ' + LETTERS[cur - 1] + '-' + i + '</td>' +
+        '<td>买家' + n + '</td><td>' + (n * 12.5).toFixed(2) + '</td>' +
+        '<td>' + (i % 2 ? '已付款' : '待付款') + '</td></tr>';
+    }
+    tbody.innerHTML = html;
+    // 页码项每次重建（active 项 ant-pagination-item-active 随翻页移动）
+    pager.querySelectorAll('.ant-pagination-item').forEach(function (li) { li.remove(); });
+    var items = '';
+    for (var p = 1; p <= PAGES; p++) {
+      items += '<li class="ant-pagination-item' + (p === cur ? ' ant-pagination-item-active' : '') + '" title="' + p + '"><a>' + p + '</a></li>';
+    }
+    nextLi.insertAdjacentHTML('beforebegin', items);
+    // 禁用态（复刻 antd：aria-disabled + .ant-pagination-disabled）
+    [['prev', prevLi, cur === 1], ['next', nextLi, cur === PAGES]].forEach(function (it) {
+      it[1].classList.toggle('ant-pagination-disabled', it[2]);
+      if (it[2]) it[1].setAttribute('aria-disabled', 'true');
+      else it[1].removeAttribute('aria-disabled');
+    });
+  }
+
+  prevLi.addEventListener('click', function (e) { e.preventDefault(); if (cur > 1) { cur--; render(); } });
+  nextLi.addEventListener('click', function (e) { e.preventDefault(); if (cur < PAGES) { cur++; render(); } });
+  pager.addEventListener('click', function (e) {
+    var t = e.target.closest('.ant-pagination-item');
+    if (t) { e.preventDefault(); cur = Number(t.title) || cur; render(); }
+  });
+  render();
+})();
+</script>
+</body>
+</html>

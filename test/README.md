@@ -21,7 +21,10 @@
 | `e2e-harness-mui.js` | E2E 注入回归（mui-fixture.html，无扩展环境）：网格识别、自动滚动采集全量、行序排序、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 24/24 pass |
 | `tabulator-fixture.html` | Tabulator（v6，vdom 渲染）虚拟化表格：div 结构、滚动容器 tableHolder、冻结列为同行 frozen cell、行追加序即视觉序（无节点复用）、300 行含 3 条分散重复行 + 无冻结列 150 行例、JS 属性设值控件、普通 table 回归 | 悬浮整体高亮、一次点选自动采集 301 行（含表头）、重复行保留 |
 | `e2e-harness-tabulator.js` | E2E 注入回归（tabulator-fixture.html，无扩展环境）：网格识别、自动滚动采集全量、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 23/23 pass |
-| `algo-check.cjs` | 纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列格式/列宽、分体配对、网格适配器、持久化、格式序列化、通用工具、模块清单一致性——覆盖明细见下节 | 全部 PASS（171 项） |
+| `pagination-el-fixture.html` | 分页表格（复刻 el-pagination 类名结构：button.btn-prev / ul.el-pager / button.btn-next，disabled 态类 + 属性双写）：5 页 × 8 行、翻页仅重建 tbody、input 控件列（JS 设值）、普通无分页表回归 | 选中表 → 点「采集全部页」展开设置 → 点「开始采集」（页数上限留空 = 全部页）自动识别直接采集：toast 41 行（含表头）、首行「商品 P1-1」末行「商品 P5-8」、一口价列取 input 实时值；先翻到第 3 页再采集应先回第一页采全量、完成回到第 1 页；面板页数上限填 2 → 只采前 2 页（toast 17 行 +「已采集指定 2 页」，输入框 Enter 同效）；采集中「停止采集」→ 保留已采集的页（toast「已停止采集，保留已采集的 N 页」）且导出即已采部分；采集后「列设置」可取样 |
+| `pagination-ant-fixture.html` | 分页表格（复刻 ant-pagination 类名结构：li.ant-pagination-prev/item/next，页码为 a 链接，禁用态 aria-disabled + .ant-pagination-disabled）：4 页 × 6 行 | 选中表 → 点「采集全部页」展开设置 → 点「开始采集」（留空 = 全部页）自动采集 25 行（含表头）、首行「订单 A-1」末行「订单 D-6」、完成回到第 1 页；验证翻页按钮为链接结构时编程式点击豁免采集期拦截；选择模式下手动点页码可翻页（v2.4 点击放行） |
+| `pagination-manual-fixture.html` | 分页表格（自建分页器，类名与组件库无交集，「下一页」为 a 链接且末页无 disabled 态）：3 页 × 5 行 | 选中表 → 点「采集全部页」展开设置 → 点「开始采集」进入「指定翻页按钮」子模式（hint 提示 + 悬浮高亮任意元素）→ 点击「下一页 »」后采集：toast 16 行（含表头）+「自当前页开始采集，连续翻页无新数据，已停止」；验证子模式拦截所有点击（含链接）、Esc 取消不丢选区、行为停止条件（连续 2 页无新行） |
+| `algo-check.cjs` | 纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具、模块清单一致性——覆盖明细见下节 | 全部 PASS（188 项） |
 
 ## algo-check 覆盖明细
 
@@ -34,10 +37,11 @@
 | 自适应列宽（split.js） | cellWidth 半角/全角/谚文宽度与内嵌换行、autoColWidths 逐列最大宽度与 6~50 钳制、空表/空行边界 |
 | 分体配对（table.js `pairSplitGroup`） | 基础配对、gutter 列容忍（列数差 1）、间隙/对齐/宽度/列数阈值、轻微重叠容忍、完整表格零回归、颠倒不配对、多候选首个命中 |
 | 网格适配器（table.js v2.2） | 注册表完整性（四适配器齐备命名稳定、五钩子齐备、rootSel 互不相同且为单类名、GRID_ROOT_SELECTOR 组合）、rowsSortedByRowIndex 行序排序（全带 aria-rowindex 数值升序、无/部分缺失保持 DOM 序、纯函数不原地重排、数值比较非字典序）、tableKeyOf 网格分支（适配器表头格拼接、无表头格返回 null、非网格 div 回落内部 table） |
+| 分页适配器（pagination.js v2.5） | 注册表完整性（三适配器齐备命名稳定、四要素齐备、rootSel 互不相同、next/prev 均为单类名选择器）；采集引擎的页级重叠合并复用 virtual.js overlapLen 既有用例 |
 | 持久化（persist.js） | pageKeyOf 忽略 query/hash、tableKeyOf 指纹（含 thead 无 tr 的 vxe-table 写法取 th 子元素而非数据行；v2.1 网格表格取 dynamic-header-row 表头格、优先于内部 table 回退）与空值、sanitizeRecord 损坏剔除自愈（含 formats 键值对）、evictKeys LRU 淘汰 |
 | 格式序列化（format.js） | csvCell RFC4180 转义、toCsv BOM/CRLF、headerKeys 列名兜底、toJson 行对象/表名嵌套、mdCell 转义与 toMarkdown 结构（含无表头生成列N）、toHtmlDocument 结构 |
 | 通用工具 | util.js sanitizeFilename/escapeHtml；table.js makeSheetName 四级兜底、非法字符、31 字符截断、重名后缀 |
-| 模块清单一致性 | service-worker 注入列表 / e2e-harness FILES / extension/content 实际文件三方对齐 + 依赖序（防新增模块漏同步） |
+| 模块清单一致性 | service-worker 注入列表 / 七个 e2e-harness 各自的 FILES / extension/content 实际文件对齐 + 依赖序（防新增模块漏同步；v2.5.2 曾因六个分页面 harness 漏注入 pagination.js 致 E2E 全线失败，检查随之扩全） |
 
 ## 命令
 
@@ -83,7 +87,7 @@ http://localhost:3000/test/tabulator-fixture.html#e2e=1 → 页底「23 项全�
   toast 自动消失、虚拟采集 settle 等不再等真实时钟，后台标签页节流免疫），七页并行约 4 秒出结论，
   退出码 0/1 可直接作流水线门禁；找不到 Chrome/Edge 时自动降级交互模式
 - 七个 harness 内部：固定 sleep 改事件驱动 `waitFor`（面板打开等 mask、退出等 host 移除），
-  模块代码缓存（11 个内容脚本仅首轮拉取），导出轮询 25ms——交互模式/控制台手动跑同样受益，
+  模块代码缓存（12 个内容脚本仅首轮拉取），导出轮询 25ms——交互模式/控制台手动跑同样受益，
   虚拟滚动页人工核对约 10-30 秒（真实时钟采集）
 
 也可手动执行（同效果，结果在控制台 `__TEST_RESULT`，结构 `{total, passed, results}`）：
@@ -103,8 +107,9 @@ window.__TEST_RESULT = await (0, eval)(c);
 
 1. `chrome://extensions` 刷新扩展（目录变更后需重新加载 `extension/` 目录）
 2. 刷新目标测试页
-3. 选择表格导出，对照页内预期值
-4. 持久化回归（v1.7）：
+3. 初始按钮态：进入选择模式未选表时，「列设置」「采集全部页」「导出」一致禁用（仅「取消」可点）；选中任一表后三者解禁
+4. 选择表格导出，对照页内预期值
+5. 持久化回归（v1.7）：
    - 保存恢复：列设置保存（含拆分规则、列筛选与列格式）→ 刷新页面 → 重进选择模式选同表 → 工具栏提示「已恢复上次的列设置」，面板显示已保存配置，导出生效
    - 取消选择不清存储：选中已保存配置的表 → 点击取消选中 → 再选中 → 配置自动恢复
    - 重置路径：面板全不拆 + 全列导出 + 全列文本格式 → 保存 → 刷新重选 → 回落智能预填默认（无恢复提示）

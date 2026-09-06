@@ -5,6 +5,7 @@
 ## 核心亮点
 
 - **虚拟滚动全量采集**：vxe-table、el-table-v2、AG Grid 等只渲染可见行的表格，点击后自动滚动采集全部数据并去重，无需手动翻页
+- **分页表格自动翻页采集**：el-pagination / ant-pagination / vxe-pager 分页器自动识别，点「采集全部页」逐页翻页采集（页数上限留空 = 全部页）；自建分页器点击一次「下一页」按钮即可，跨页自动跟随
 - **主流组件适配**：Element Plus、AG Grid、MUI X DataGrid、Tabulator、Ant Design Vue 等组件表格直接识别；适配器注册表架构，新增组件只加适配器
 - **表单控件取值**：单元格内的输入框、下拉框、开关等按当前值导出
 - **列规则按页面记忆**：拆分/筛选/格式设置仅存本机，重进同页面自动恢复
@@ -18,9 +19,10 @@
    - **拆分**：按控件值 / 换行 / 分隔符把一列拆成多列（智能预填 + 前 3 行实时预览）
    - **筛选**：逐列勾选导出，拆分新列同样可筛
    - **格式**：标记数字列，导出为数值可求和
-4. 工具栏修改文件名、切换格式（默认 xlsx），点「导出」或按 `Enter`
+4. （可选）分页表格：点「采集全部页 ▾」展开设置，填页数上限（留空 = 全部页）后点「开始采集」，自动回第一页逐页翻页采集（仅支持单表；识别不到分页器时按提示点击一次「下一页」按钮）
+5. 工具栏修改文件名、切换格式（默认 xlsx），点「导出」或按 `Enter`
 
-虚拟滚动表格点击后自动滚动采集，工具栏实时显示进度，采完还原滚动位置。深色模式跟随系统。
+虚拟滚动表格点击后自动滚动采集、分页表格自动翻页采集，工具栏实时显示进度，采完还原滚动位置/回到起始页。选择模式下页面交互照常可用（翻页、筛选、切 Tab 不拦截）。深色模式跟随系统。
 
 **适用场景**：后台管理系统数据导出、电商订单表格整理、报表搬运、数据核对。
 
@@ -44,6 +46,7 @@
 │   │   ├── cell.js             #   单元格四通道取值
 │   │   ├── table.js            #   行获取 / 合并单元格展开 / 网格适配器注册表 / Sheet 命名
 │   │   ├── virtual.js          #   虚拟滚动表格采集
+│   │   ├── pagination.js       #   分页表格自动翻页采集（方案见 docs/pagination-plan.md）
 │   │   ├── persist.js          #   拆分规则/列筛选/列格式持久化（chrome.storage）
 │   │   ├── format.js           #   csv/json/md/html 导出格式序列化纯函数
 │   │   ├── panel.js            #   列设置面板（列筛选 + 拆分配置 + 列格式）
@@ -53,15 +56,16 @@
 ├── test/                       # 测试材料（不随插件分发）
 │   ├── algo-check.cjs          # 采集算法 + 列拆分/列筛选/持久化回归测试（Node 直接运行）
 │   ├── fixture.html            # 基础测试页（合并单元格/多表/控件取值/列拆分/列筛选）
-│   └── virtual-fixture.html    # 虚拟滚动测试页（60 行，含 input 列/列拆分回归）
+│   ├── virtual-fixture.html    # 虚拟滚动测试页（60 行，含 input 列/列拆分回归）
+│   └── pagination-*-fixture.html  # 分页采集测试页（el / ant / 自建手动指定）
 ├── release/                    # Chrome Web Store 上架材料（商店文案/截图/打包脚本）
-└── docs/                       # 文档（架构 / 产品 / 控件规则 / archive 归档方案）
+└── docs/                       # 文档（架构 / 产品 / 控件规则 / 分页采集方案 / archive 归档方案）
 ```
 
 ## 开发与测试
 
 ```powershell
-# 语法检查（内容脚本 11 文件 + 后台脚本）
+# 语法检查（内容脚本 12 文件 + 后台脚本）
 Get-ChildItem extension/content/*.js | ForEach-Object { node --check $_.FullName }
 node --check extension/background/service-worker.js
 
@@ -82,5 +86,6 @@ npx -y serve .
 - [架构文档](docs/architecture.md)：模块划分、数据流、关键设计决策
 - [产品文档](docs/product.md)：功能清单、交互规范、已知限制
 - [控件值规则](docs/controls.md)：三层判定与覆盖矩阵
+- [分页采集方案](docs/pagination-plan.md)：分页器识别、采集引擎与交互设计
 - [测试与回归](test/README.md)：测试页覆盖矩阵、命令、浏览器回归步骤
 - 历史方案（已实施归档，设计已并入架构/产品文档）：[列拆分](docs/archive/column-split-plan.md) · [持久化](docs/archive/persist-plan.md) · [UI/UX 优化](docs/archive/uiux-plan.md)

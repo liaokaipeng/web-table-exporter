@@ -15,7 +15,7 @@ Web Table Exporter：导出表格
 **简短说明**（≤132 字符）
 
 ```
-网页表格导出，免费开源、不收集任何数据。支持虚拟滚动长表自动全量采集，兼容主流组件表格，支持列拆分/筛选等，格式规则按页面自动记忆。
+网页表格导出，免费开源、不收集任何数据。支持虚拟滚动与分页表格自动全量采集，兼容主流组件表格，支持列拆分/筛选等，格式规则按页面自动记忆。
 ```
 
 **详细说明**
@@ -23,7 +23,7 @@ Web Table Exporter：导出表格
 ```
 把网页表格一键导出为 Excel、CSV 等文件，无需复制粘贴。完全免费、代码开源，不收集任何数据。
 
-虚拟滚动的长表格自动滚动采集全部数据；Element Plus、AG Grid 等主流组件表格开箱即识别；独特的「列设置」让导出结果开箱即用，规则按页面自动记忆。
+虚拟滚动、分页加载的长表格自动全量采集；主流前端组件库的表格开箱即识别；独特的「列设置」让导出结果开箱即用，规则按页面自动记忆。
 
 【使用方式】
 1. 点击浏览器工具栏的扩展图标，进入选择模式
@@ -40,8 +40,9 @@ Web Table Exporter：导出表格
 xlsx（多表多 Sheet）、csv、json、md、html，工具栏下拉切换
 
 【核心能力】
-· 虚拟滚动全量采集：vxe-table、el-table-v2、AG Grid 等只渲染可见行的表格，自动滚动采集全部数据并去重
-· 组件表格适配：Element Plus、AG Grid、MUI X DataGrid、Tabulator、Ant Design Vue 等
+· 虚拟滚动全量采集：只渲染可见行的长表格，自动滚动采集全部数据并去重
+· 分页表格全量采集：分页加载的表格自动逐页翻页采集全部数据，可设页数上限
+· 组件表格适配：主流前端组件库的表格开箱即识别，无需配置
 · 分体表格合并：表头与表体分离渲染的组件表格自动识别为一张逻辑表
 · 表单控件取值：单元格内的输入框、下拉框、开关等按当前值导出
 · 图片链接导出：单元格内的图片以链接导出，Excel 中可直接打开
@@ -79,7 +80,7 @@ Export web tables. Free & open source, no data collected. Virtual-scrolling grid
 ```
 Turn web page tables into Excel, CSV and more with one click — no more copy-paste. Completely free, open source, and collects no data.
 
-Virtual-scrolling grids are auto-scrolled to capture every row; mainstream component tables (Element Plus, AG Grid, and more) are recognized out of the box; unique column settings shape each export exactly the way you need, with rules remembered per page.
+Virtual-scrolling and paginated tables are collected in full automatically; tables rendered by mainstream component libraries are recognized out of the box; unique column settings shape each export exactly the way you need, with rules remembered per page.
 
 HOW TO USE
 1. Click the extension icon to enter selection mode
@@ -96,8 +97,9 @@ EXPORT FORMATS
 xlsx (one sheet per table), csv, json, md, html — switch via the toolbar dropdown
 
 KEY FEATURES
-· Full capture of virtual-scrolling tables: grids that only render visible rows (vxe-table, el-table-v2, AG Grid, etc.) are auto-scrolled to collect every row with deduplication
-· Component support: Element Plus, AG Grid, MUI X DataGrid, Tabulator, Ant Design Vue and more
+· Full capture of virtual-scrolling tables: grids that only render visible rows are auto-scrolled to collect every row with deduplication
+· Full capture of paginated tables: paginated tables are auto-paged through to collect every row, with an optional page limit
+· Component support: tables rendered by mainstream component libraries are recognized out of the box
 · Split-header tables: components rendering header and body as separate tables are merged into one logical table
 · Form control values: inputs, selects and switches inside cells are exported with their current values
 · Image links: images inside cells are exported as links you can open directly in Excel

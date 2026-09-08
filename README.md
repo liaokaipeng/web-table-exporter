@@ -1,36 +1,57 @@
 # Web Table Exporter
 
-网页表格一键导出为 xlsx / csv / json / md / html 的 Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）。悬浮选择、点击导出，无需复制粘贴。v2.3 前名为「HTML2XLSX 表格导出」。
+网页表格一键导出为 xlsx / csv / json / md / html 的 Chrome/Edge 扩展（Manifest V3，原生 JS，零构建）。悬浮选择、点击导出，无需复制粘贴。
+
+![Web Table Exporter](release/screenshots/promo-master.jpg)
 
 ## 核心亮点
 
 - **虚拟滚动全量采集**：vxe-table、el-table-v2、AG Grid 等只渲染可见行的表格，点击后自动滚动采集全部数据并去重，无需手动翻页
-- **分页表格自动翻页采集**：el-pagination / ant-pagination / vxe-pager 分页器自动识别，点「采集全部页」逐页翻页采集（页数上限留空 = 全部页）；自建分页器点击一次「下一页」按钮即可，跨页自动跟随
+- **分页表格自动翻页采集**：el-pagination / ant-pagination / vxe-pager 自动识别，点「采集全部页」逐页翻页；自建分页器点击一次「下一页」即可，跨页自动跟随
 - **主流组件适配**：Element Plus、AG Grid、MUI X DataGrid、Tabulator、Ant Design Vue 等组件表格直接识别；适配器注册表架构，新增组件只加适配器
 - **表单控件取值**：单元格内的输入框、下拉框、开关等按当前值导出
 - **列规则按页面记忆**：拆分/筛选/格式设置仅存本机，重进同页面自动恢复
 - **隐私友好**：不收集任何数据，权限最小化（activeTab / scripting / downloads / storage）
 
+## 安装
+
+| 方式 | 适用人群 | 特点 |
+| --- | --- | --- |
+| **商店安装** | Chrome 用户 | 一键安装、自动更新、无需开发者模式 |
+| **开发者模式加载** | 其它浏览器 / 开发者 | 直接加载本项目源码，改动即生效，但需手动更新 |
+
+### 商店安装（推荐）
+
+只有 Chrome 能通过商店安装。从 [Chrome 应用商店](https://chromewebstore.google.com/detail/web-table-exporter%EF%BC%9A%E5%AF%BC%E5%87%BA%E8%A1%A8%E6%A0%BC/mcmhdpnenfjbopbdkkhfhjbndnndnamo) 点击「添加至 Chrome」，安装后浏览器自动更新。
+
+### 开发者模式加载
+
+Edge、Firefox 等其它浏览器同样可用，仅需将 `chrome://extensions` 换成对应地址（如 Edge 的 `edge://extensions`）：
+
+1. `chrome://extensions` → 开启「开发者模式」→ 「加载已解压的扩展程序」→ 选 `extension/` 目录
+2. 更新：`git pull` 后回 `chrome://extensions` 点「刷新」
+3. （可选）本地 HTML 文件使用：扩展详情 → 打开「允许访问文件网址」
+
 ## 使用
 
 1. 点击扩展图标进入选择模式（再次点击图标或按 `Esc` 退出）
 2. 鼠标悬浮高亮表格，点击选中（可多选）
+
+![选择模式：悬浮高亮并点选表格](release/screenshots/1-select.png)
+
 3. （可选）「列设置」配置：
    - **拆分**：按控件值 / 换行 / 分隔符把一列拆成多列（智能预填 + 前 3 行实时预览）
    - **筛选**：逐列勾选导出，拆分新列同样可筛
    - **格式**：标记数字列，导出为数值可求和
+
+   ![列设置面板](release/screenshots/2-panel.png)
+
 4. （可选）分页表格：点「采集全部页 ▾」展开设置，填页数上限（留空 = 全部页）后点「开始采集」，自动回第一页逐页翻页采集（仅支持单表；识别不到分页器时按提示点击一次「下一页」按钮）
 5. 工具栏修改文件名、切换格式（默认 xlsx），点「导出」或按 `Enter`
 
-虚拟滚动表格点击后自动滚动采集、分页表格自动翻页采集，工具栏实时显示进度，采完还原滚动位置/回到起始页。选择模式下页面交互照常可用（翻页、筛选、切 Tab 不拦截）。深色模式跟随系统。
+工具栏实时显示采集进度，采完自动还原滚动位置/回到起始页；选择模式下页面交互照常可用（翻页、筛选、切 Tab 不拦截），深色模式跟随系统。
 
 **适用场景**：后台管理系统数据导出、电商订单表格整理、报表搬运、数据核对。
-
-## 安装
-
-1. 打开 `chrome://extensions` → 开启「开发者模式」
-2. 「加载已解压的扩展程序」→ 选择本项目的 `extension/` 目录
-3. （可选）如需在本地 HTML 文件上使用：扩展详情 → 打开「允许访问文件网址」
 
 ## 目录结构
 
@@ -53,11 +74,16 @@
 │   │   └── main.js             #   主 UI / 事件 / 导出
 │   ├── lib/xlsx.full.min.js    # SheetJS 0.20.3（Apache-2.0）
 │   └── icons/                  # 图标 16/32/48/128（test/gen-icon.ps1 生成）
-├── test/                       # 测试材料（不随插件分发）
-│   ├── algo-check.cjs          # 采集算法 + 列拆分/列筛选/持久化回归测试（Node 直接运行）
-│   ├── fixture.html            # 基础测试页（合并单元格/多表/控件取值/列拆分/列筛选）
-│   ├── virtual-fixture.html    # 虚拟滚动测试页（60 行，含 input 列/列拆分回归）
-│   └── pagination-*-fixture.html  # 分页采集测试页（el / ant / 自建手动指定）
+├── test/                       # 测试材料（不随插件分发，覆盖矩阵见 test/README.md）
+│   ├── algo-check.cjs          # 纯函数离线回归（采集/拆分/筛选/格式/分页/持久化，Node 直接运行）
+│   ├── fixture.html            # 基础测试页（合并单元格/控件取值/列拆分/列筛选/列格式）
+│   ├── virtual-fixture.html    # 虚拟滚动测试页（60 行，含 input 列）
+│   ├── {tablev2,antdv,aggrid,mui,tabulator}-fixture.html  # 五类组件表格 fixture
+│   ├── pagination-{el,ant,manual}-fixture.html  # 分页采集测试页（el / ant / 自建手动指定）
+│   ├── auto-check.html         # DOM 层自动化回归（页内自判 PASS/FAIL）
+│   ├── e2e-harness*.js         # 七页 E2E 注入回归（无扩展环境）
+│   ├── run-all.ps1             # 一键回归（语法 + 算法 + 七页 E2E 并行）
+│   └── gen-icon.ps1            # 重新生成扩展图标（四尺寸）
 ├── release/                    # Chrome Web Store 上架材料（商店文案/截图/打包脚本）
 └── docs/                       # 文档（架构 / 产品 / 控件规则 / 分页采集方案 / archive 归档方案）
 ```

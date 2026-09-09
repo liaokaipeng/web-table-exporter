@@ -115,3 +115,7 @@ npx -y serve .
 - [分页采集方案](docs/pagination-plan.md)：分页器识别、采集引擎与交互设计
 - [测试与回归](test/README.md)：测试页覆盖矩阵、命令、浏览器回归步骤
 - 历史方案（已实施归档，设计已并入架构/产品文档）：[列拆分](docs/archive/column-split-plan.md) · [持久化](docs/archive/persist-plan.md) · [UI/UX 优化](docs/archive/uiux-plan.md)
+
+## 许可证
+
+本项目以 [GPL-3.0](LICENSE) 开源发布（详见 LICENSE 全文）。其中内嵌的 SheetJS（[lib/xlsx.full.min.js](extension/lib/xlsx.full.min.js)）属第三方库，以 Apache-2.0 独立授权。

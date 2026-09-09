@@ -76,7 +76,9 @@
 <script>
 /* 截图驱动：注入真实内容脚本并按 ?shot= 场景驱动到目标状态，置 window.__SHOT_READY */
 (async () => {
-  const shot = new URLSearchParams(location.search).get('shot') || 'select';
+  const q = new URLSearchParams(location.search);
+  const shot = q.get('shot') || 'select';
+  const lang = q.get('lang') || 'zh'; // 'zh' | 'en'：英文界面截图
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const waitFor = async (cond, timeout) => {
     const t0 = Date.now();
@@ -84,8 +86,11 @@
     return !!cond();
   };
 
-  /* chrome 桩：storage 内存实现；sendMessage 抛错走 blob 回退（导出成功路径） */
+  /* chrome 桩：storage 内存实现；sendMessage 抛错走 blob 回退（导出成功路径）。
+     lang=en 时补 chrome.i18n（getUILanguage=getMessage 读扩展 en 词表）→ 界面渲染英文；
+     同时持久化偏好 h2x.uiLang='en'，init 会置手动英文，双路径都稳定出英文 */
   const memStore = {};
+  let enCatalog = null; // lang=en 时装载 _locales/en/messages.json
   window.chrome = {
     storage: { local: {
       get: async (k) => {
@@ -99,11 +104,38 @@
     } },
     runtime: { sendMessage: () => { throw new Error('截图环境：走 blob 回退'); } }
   };
+  if (lang === 'en') {
+    memStore['h2x.uiLang'] = 'en'; // 持久化为手动英文（main.js init 生效）
+    enCatalog = await (await fetch('/extension/_locales/en/messages.json')).json();
+    // chrome.i18n 桩：占位符按 placeholders.content 的 $1/$2 序号替换（与 chrome.i18n 语义一致）
+    window.chrome.i18n = {
+      getUILanguage: () => 'en-US',
+      getMessage: (key, subs) => {
+        const e = (enCatalog || {})[key];
+        if (!e || typeof e.message !== 'string') return '';
+        let msg = e.message;
+        const arr = (subs && subs.length) ? subs.map(String) : null;
+        if (arr && e.placeholders) {
+          const byNum = {};
+          for (const name of Object.keys(e.placeholders)) {
+            const m = /^\$(\d+)$/.exec(e.placeholders[name].content || '');
+            if (m) byNum[m[1]] = name;
+          }
+          arr.forEach((s, i) => {
+            const name = byNum[String(i + 1)];
+            if (name) msg = msg.split('$' + name + '$').join(s);
+          });
+        }
+        return msg;
+      }
+    };
+  }
   HTMLAnchorElement.prototype.click = function () { /* 拦截下载，不真实落盘 */ };
   window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
 
-  /* 注入内容脚本（依赖序，与 service-worker 一致） */
-  const FILES = ['entry', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'persist', 'format', 'panel', 'main'];
+  /* 注入内容脚本（依赖序，与 service-worker 一致）：entry → i18n → util → controls
+     → split → cell → table → virtual → pagination → persist → format → panel → main */
+  const FILES = ['entry', 'i18n', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'pagination', 'persist', 'format', 'panel', 'main'];
   window.__html2xlsx = null;
   try { delete window.__h2x; } catch (e) { window.__h2x = undefined; }
   for (const f of FILES) {
@@ -147,7 +179,7 @@
   } else if (shot === 'export') {
     click(cell);
     await sleep(120);
-    click($('.h2x-primary'));         // 导出 Excel → blob 回退 → 成功 toast
+    click($('.h2x-actions > .h2x-primary')); // 导出 Excel → blob 回退 → 成功 toast（限定工具栏直系子级，防错绑分页面板按钮）
     await waitFor(() => $('.h2x-toast-success'));
     await sleep(120);
     window.__SHOT_READY = true;

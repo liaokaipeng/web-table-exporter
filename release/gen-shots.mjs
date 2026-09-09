@@ -74,10 +74,11 @@ async function waitForReady(call, timeout = 15000) {
 
 /* ---------- 主流程 ---------- */
 const shots = [
-  { name: '1-select',       shot: 'select', dark: false, desc: '选择表格' },
-  { name: '2-panel',        shot: 'panel',  dark: false, desc: '列设置面板（拆分+预览）' },
-  { name: '3-export',       shot: 'export', dark: false, desc: '导出成功' },
-  { name: '4-panel-dark',   shot: 'panel',  dark: true,  desc: '列设置面板（深色模式）' }
+  { name: '1-select',      shot: 'select', dark: false, lang: 'zh', desc: '选择表格（中文）' },
+  { name: '2-panel',       shot: 'panel',  dark: false, lang: 'zh', desc: '列设置面板（中文）' },
+  { name: '3-panel-dark',  shot: 'panel',  dark: true,  lang: 'zh', desc: '列设置面板·深色（中文）' },
+  { name: '1-select-en',   shot: 'select', dark: false, lang: 'en', desc: '选择表格（英文）' },
+  { name: '2-panel-en',    shot: 'panel',  dark: false, lang: 'en', desc: '列设置面板（英文）' }
 ];
 
 async function main() {
@@ -113,7 +114,7 @@ async function main() {
     const browser = cdp(bws);
 
     for (const s of shots) {
-      const url = `http://127.0.0.1:${PORT}/release/shot-page.html?shot=${s.shot}`;
+      const url = `http://127.0.0.1:${PORT}/release/shot-page.html?shot=${s.shot}&lang=${s.lang}`;
       const { targetId } = await browser('Target.createTarget', { url: 'about:blank' });
       const { sessionId } = await browser('Target.attachToTarget', { targetId, flatten: true });
       // flatten 会话：消息经 browser 通道转发，需带 sessionId

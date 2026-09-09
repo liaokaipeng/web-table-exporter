@@ -72,7 +72,7 @@ chrome.storage.local.
 
 - [ ] 开发者账号已注册（$5 一次性费用）
 - [ ] zip 已上传（运行 `.\release\pack.ps1` 生成）
-- [ ] 商店素材：截图 1–5 张（1280×800），见 `release/screenshots/`
+- [ ] 商店素材：截图 1–5 张（1280×800，中文 + `*-en.png` 英文版），见 `release/screenshots/`
 - [ ] 宣传图 440×280（可选）
 - [ ] 商品详情双语已填写（见 `store-listing.md`）
 - [ ] 隐私声明已按上文勾选

@@ -89,7 +89,7 @@ Edge、Firefox 等其它浏览器同样可用，仅需将 `chrome://extensions` 
 │   ├── run-all.ps1             # 一键回归（语法 + 算法 + 七页 E2E 并行）
 │   └── gen-icon.ps1            # 重新生成扩展图标（四尺寸）
 ├── release/                    # Chrome Web Store 上架材料（商店文案/截图/打包脚本）
-└── docs/                       # 文档（架构 / 产品 / 控件规则 / 分页采集方案 / archive 归档方案）
+└── docs/                       # 文档（架构 / 产品 / 控件规则 / 分页采集方案 / GitHub 远程操作 / archive 归档方案）
 ```
 
 ## 开发与测试
@@ -117,6 +117,7 @@ npx -y serve .
 - [产品文档](docs/product.md)：功能清单、交互规范、已知限制
 - [控件值规则](docs/controls.md)：三层判定与覆盖矩阵
 - [分页采集方案](docs/pagination-plan.md)：分页器识别、采集引擎与交互设计
+- [GitHub 远程操作](docs/github-remote.md)：推送 / Tag / Release 代发与凭据约定
 - [测试与回归](test/README.md)：测试页覆盖矩阵、命令、浏览器回归步骤
 - 历史方案（已实施归档，设计已并入架构/产品文档）：[列拆分](docs/archive/column-split-plan.md) · [持久化](docs/archive/persist-plan.md) · [UI/UX 优化](docs/archive/uiux-plan.md)
 

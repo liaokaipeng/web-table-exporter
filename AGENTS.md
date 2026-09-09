@@ -24,6 +24,10 @@ node test/algo-check.cjs
 
 改代码后的浏览器回归：`chrome://extensions` 刷新扩展 → 刷新目标页 → 按 [test/README.md](test/README.md) 用两个 fixture 页对照页内预期值验证。控件取值规则见 [docs/controls.md](docs/controls.md)。
 
+## 远程 GitHub 操作
+
+推送、打 Tag、GitHub Release 代发等全部远程操作（含凭据获取与 API 坑）集中在 [docs/github-remote.md](docs/github-remote.md)，不在此重复。
+
 ## 坑（已踩过，勿再踩）
 
 - 单元格取文本：离屏容器不能加 `visibility:hidden`（innerText 会排除不可见文本）；input 值必须从原元素读（cloneNode 丢属性设值）。详见 architecture.md 设计决策表

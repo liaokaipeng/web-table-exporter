@@ -24,7 +24,7 @@
 | `pagination-el-fixture.html` | 分页表格（复刻 el-pagination 类名结构：button.btn-prev / ul.el-pager / button.btn-next，disabled 态类 + 属性双写）：5 页 × 8 行、翻页仅重建 tbody、input 控件列（JS 设值）、普通无分页表回归 | 选中表 → 点「采集全部页」展开设置 → 点「开始采集」（页数上限留空 = 全部页）自动识别直接采集：toast 41 行（含表头）、首行「商品 P1-1」末行「商品 P5-8」、一口价列取 input 实时值；先翻到第 3 页再采集应先回第一页采全量、完成回到第 1 页；面板页数上限填 2 → 只采前 2 页（toast 17 行 +「已采集指定 2 页」，输入框 Enter 同效）；采集中「停止采集」→ 保留已采集的页（toast「已停止采集，保留已采集的 N 页」）且导出即已采部分；采集后「列设置」可取样；单表限定（v2.5.3）：再选中普通无分页表 → 「采集全部页」按钮变禁用、悬浮提示「多表选择时不支持分页采集」，取消普通表后按钮恢复可用 |
 | `pagination-ant-fixture.html` | 分页表格（复刻 ant-pagination 类名结构：li.ant-pagination-prev/item/next，页码为 a 链接，禁用态 aria-disabled + .ant-pagination-disabled）：4 页 × 6 行 | 选中表 → 点「采集全部页」展开设置 → 点「开始采集」（留空 = 全部页）自动采集 25 行（含表头）、首行「订单 A-1」末行「订单 D-6」、完成回到第 1 页；验证翻页按钮为链接结构时编程式点击豁免采集期拦截；选择模式下手动点页码可翻页（v2.4 点击放行） |
 | `pagination-manual-fixture.html` | 分页表格（自建分页器，类名与组件库无交集，「下一页」为 a 链接且末页无 disabled 态）：3 页 × 5 行 | 选中表 → 点「采集全部页」展开设置 → 点「开始采集」进入「指定翻页按钮」子模式（hint 提示 + 悬浮高亮任意元素）→ 点击「下一页 »」后采集：toast 16 行（含表头）+「自当前页开始采集，连续翻页无新数据，已停止」；验证子模式拦截所有点击（含链接）、Esc 取消不丢选区、行为停止条件（连续 2 页无新行） |
-| `algo-check.cjs` | 纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具、模块清单一致性——覆盖明细见下节 | 全部 PASS（188 项） |
+| `algo-check.cjs` | 纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具、模块清单一致性、国际化词条一致性——覆盖明细见下节 | 全部 PASS（193 项） |
 
 ## algo-check 覆盖明细
 
@@ -42,6 +42,7 @@
 | 格式序列化（format.js） | csvCell RFC4180 转义、toCsv BOM/CRLF、headerKeys 列名兜底、toJson 行对象/表名嵌套、mdCell 转义与 toMarkdown 结构（含无表头生成列N）、toHtmlDocument 结构 |
 | 通用工具 | util.js sanitizeFilename/escapeHtml；table.js makeSheetName 四级兜底、非法字符、31 字符截断、重名后缀 |
 | 模块清单一致性 | service-worker 注入列表 / 七个 e2e-harness 各自的 FILES / extension/content 实际文件对齐 + 依赖序（防新增模块漏同步；v2.5.2 曾因六个分页面 harness 漏注入 pagination.js 致 E2E 全线失败，检查随之扩全） |
+| 国际化词条一致性（v2.6） | 内容脚本与 manifest 引用的全部 `t()`/`__MSG_` 词条 ⊆ `_locales/en`（新增硬编码中文 UI 文案即失败）；manifest `__MSG_` 词条 ⊆ `_locales/zh_CN`（default_locale 静态引用，缺则商店/界面显示 key 名）；占位符词条消息含声明的全部 `$XXX$`；以 en 语言包桩 `chrome.i18n` 驱动 headerKeys/makeSheetName 验证 `$1` 注入（回归：`t()` 曾以箭头函数 `arguments` 取参致 subs 恒空、占位符不替换） |
 
 ## 命令
 
@@ -87,7 +88,7 @@ http://localhost:3000/test/tabulator-fixture.html#e2e=1 → 页底「23 项全�
   toast 自动消失、虚拟采集 settle 等不再等真实时钟，后台标签页节流免疫），七页并行约 4 秒出结论，
   退出码 0/1 可直接作流水线门禁；找不到 Chrome/Edge 时自动降级交互模式
 - 七个 harness 内部：固定 sleep 改事件驱动 `waitFor`（面板打开等 mask、退出等 host 移除），
-  模块代码缓存（12 个内容脚本仅首轮拉取），导出轮询 25ms——交互模式/控制台手动跑同样受益，
+  模块代码缓存（13 个内容脚本仅首轮拉取），导出轮询 25ms——交互模式/控制台手动跑同样受益，
   虚拟滚动页人工核对约 10-30 秒（真实时钟采集）
 
 也可手动执行（同效果，结果在控制台 `__TEST_RESULT`，结构 `{total, passed, results}`）：
@@ -102,6 +103,8 @@ window.__TEST_RESULT = await (0, eval)(c);
 - harness 自带并发守卫与轮次串行锁，重复执行须等上轮结束（或刷新页面后重来）
 - 七个 harness 均内置后台标签页适配（rAF 定时器替代、scrollTop 补发 scroll 事件），后台跑也可
 - `window.__TEST_LOG` 为调试日志，失败排查用
+- 国际化（v2.6）：页面桩 chrome 不含 `chrome.i18n`，内容脚本 `t()` 回落代码内中文，断言预期值不变；需验证英文界面时按 `_locales/en/messages.json` 给桩实现 `getMessage` 即可（词条 key 一致性已由 algo-check 保证）
+- 语言开关（v2.6.1）：E2E 桩无 chrome.runtime，手动英文词表不可达——点「EN」会回落中文、行为不崩溃（预期；真机英文界面验证走下方浏览器回归步骤 6）；切换偏好写入桩 storage 的 `h2x.uiLang`，同页多轮注入间生效
 
 ## 浏览器回归步骤
 
@@ -115,5 +118,10 @@ window.__TEST_RESULT = await (0, eval)(c);
    - 重置路径：面板全不拆 + 全列导出 + 全列文本格式 → 保存 → 刷新重选 → 回落智能预填默认（无恢复提示）
    - 表头变更不恢复：保存配置后用 DevTools 改该表任一 th 文本（勿刷新，改动只在本轮 DOM）→ 取消选中再选中 → 不恢复（指纹不匹配，无恢复提示）
    - 虚拟表同流程：virtual-fixture.html 采集完成后保存配置，验证重进后采集完成即恢复
+6. 语言开关回归（v2.6.1，需 Chrome 界面语言与想验证语言不同才能看出差别）：
+   - 进入选择模式 → 工具栏最右点「EN」：按钮/提示/分页面板等界面文案立即变英文，`aria-pressed` 移到 EN；导出一次对照英文兜底名（无 caption 表格 Sheet 名 = Table N）
+   - 退出选择模式重进（刷新页面亦可）：仍是英文（偏好已记住）；再点「EN」（当前语言）恢复跟随浏览器语言
+   - 面板/采集中开关禁用：选中表格打开列设置面板时语言开关灰置，关面板后恢复可点
+   - 中文环境验证：浏览器语言为中文时默认即中文界面，开关高亮落在「中文」，点「EN」切英文后点「EN」回跟随浏览器（回中文）
 
 控件取值规则见 [docs/controls.md](../docs/controls.md)；真实页面回归：点三咪折扣活动编辑页（长列表 + 一口价 input 列）。

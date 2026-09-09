@@ -8,6 +8,19 @@
   'use strict';
   const ns = window.__h2x;
 
+  // i18n 取词（各内容脚本同构，见 architecture.md「国际化」节）：优先经 ns.i18n
+  // （i18n.js 手动中英文统一入口）；词条缺失或无 chrome.i18n 环境（algo-check.cjs
+  // 伪 window）→ 回落代码内中文，Node 回归断言零改动。就地定义：本文件被整文件
+  // 独立加载，不依赖其他模块（本文件既有的 t 形参均不调用取词，遮蔽无害）
+  const t = (key, fb, ...subs) => {
+    if (ns.i18n) return ns.i18n.t(key, fb, subs); // v2.6.1 手动语言开关优先
+    if (typeof chrome !== 'undefined' && chrome.i18n && chrome.i18n.getMessage) {
+      const m = chrome.i18n.getMessage(key, subs.length ? subs.map(String) : undefined);
+      if (m) return m;
+    }
+    return fb;
+  };
+
   /* ---------- 组件库分体表格：表头/表体被渲染成两个独立 <table>（如 Element Plus el-table） ---------- */
 
   /** thead 行数（兼容 thead 直接嵌 th 无 tr 的写法） */
@@ -484,7 +497,7 @@ function gridHeaderCellsOf(root) {
     const raw = (caption ? caption.innerText : '') ||
       table.getAttribute('aria-label') || table.id || '';
     let base = raw.replace(/[:\\/?*[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 31);
-    if (!base) base = '表格' + (index + 1);
+    if (!base) base = t('tableN', '表格' + (index + 1), index + 1);
     let name = base, n = 2;
     while (used.has(name)) name = base.slice(0, 28) + '(' + n++ + ')';
     used.add(name);

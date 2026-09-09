@@ -7,6 +7,19 @@
   'use strict';
   const ns = window.__h2x;
 
+  // i18n 取词（各内容脚本同构，见 architecture.md「国际化」节）：优先经 ns.i18n
+  // （i18n.js 手动中英文统一入口）；词条缺失或无 chrome.i18n 环境（algo-check.cjs
+  // 伪 window）→ 回落代码内中文，Node 回归断言零改动。就地定义：本文件被整文件
+  // 独立加载，不得引用其他模块（含 ns.util）
+  const t = (key, fb, ...subs) => {
+    if (ns.i18n) return ns.i18n.t(key, fb, subs); // v2.6.1 手动语言开关优先
+    if (typeof chrome !== 'undefined' && chrome.i18n && chrome.i18n.getMessage) {
+      const m = chrome.i18n.getMessage(key, subs.length ? subs.map(String) : undefined);
+      if (m) return m;
+    }
+    return fb;
+  };
+
   /** 分隔符拆值：各段去首尾空白；limit（≥2）生效时超限段连同分隔符并入末段 */
   function splitByDelimiter(value, pattern, limit) {
     const s = value == null ? '' : String(value);
@@ -71,8 +84,8 @@
    *  多控件「原名_控件1..N」各成一列（如店小秘秒杀价格/库存双输入格）+「原名_文本」 */
   function ctrlColNames(base, n) {
     const names = [];
-    for (let k = 1; k <= n; k++) names.push(n === 1 ? base + '_控件' : base + '_控件' + k);
-    names.push(base + '_文本');
+    for (let k = 1; k <= n; k++) names.push(n === 1 ? base + t('ctrlSuffix', '_控件') : base + t('ctrlSuffixN', '_控件' + k, k));
+    names.push(base + t('textSuffix', '_文本'));
     return names;
   }
 
@@ -324,7 +337,7 @@
         // control：每个控件值各成一列（同格多控件不合并，如店小秘秒杀价格/库存
         // 双输入格）+ 末尾文本列；ctrl 通道为按位控件值数组，短行补空对齐。
         // ctrl/text 通道按原始索引读取（不随插入重排）
-        const base = baseName(idx) || ('列' + (idx + 1)); // 空表头名按列序号兜底
+        const base = baseName(idx) || t('colN', '列' + (idx + 1), idx + 1); // 空表头名按列序号兜底
         const nCtrl = ctrlCountOf(aoa, ctrl, idx, headerRows);
         for (let r = 0; r < aoa.length; r++) {
           let cells;

@@ -63,8 +63,8 @@
   log('XLSX 库已加载');
 
   /* ---- 注入与 UI 定位 ---- */
-  const FILES = ['entry', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'pagination', 'persist', 'format', 'panel', 'main'];
-  const modCache = Object.create(null); // 模块代码缓存：12 文件只拉取一次，17 轮免重复网络往返
+  const FILES = ['entry', 'i18n', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'pagination', 'persist', 'format', 'panel', 'main'];
+  const modCache = Object.create(null); // 模块代码缓存：13 文件只拉取一次，17 轮免重复网络往返
   function staleHosts() {
     return [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647');
   }

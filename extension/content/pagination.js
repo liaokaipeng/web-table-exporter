@@ -11,6 +11,18 @@
   'use strict';
   const ns = window.__h2x;
 
+  // i18n 取词（各内容脚本同构，见 architecture.md「国际化」节）：优先经 ns.i18n
+  // （i18n.js 手动中英文统一入口）；词条缺失或无 chrome.i18n 环境（Node 回归 /
+  // E2E 桩未注入）→ 回落代码内中文
+  const t = (key, fb, ...subs) => {
+    if (ns.i18n) return ns.i18n.t(key, fb, subs); // v2.6.1 手动语言开关优先
+    if (typeof chrome !== 'undefined' && chrome.i18n && chrome.i18n.getMessage) {
+      const m = chrome.i18n.getMessage(key, subs.length ? subs.map(String) : undefined);
+      if (m) return m;
+    }
+    return fb;
+  };
+
   /* ---------- 分页适配器（第一层：组件特征类，识别即精确到「下一页」按钮） ---------- */
 
   const PAGER_ADAPTERS = [
@@ -177,7 +189,7 @@
         }
       }
     } else if (!pv0) {
-      note = '自当前页开始采集'; // 自定义分页器无规范回退按钮
+      note = t('noteStartFromCurrent', '自当前页开始采集'); // 自定义分页器无规范回退按钮
     }
 
     const first = ns.table.extractTable(root);
@@ -218,7 +230,7 @@
           headerRows: headers.length
         },
         root: root,
-        note: extra ? (note ? note + '，' + extra : extra) : note
+        note: extra ? (note ? note + t('noteSep', '，') + extra : extra) : note
       };
     };
 
@@ -228,36 +240,36 @@
     let noNew = 0;
     let limitHit = false; // 达到 maxPages 页数上限（区别于自然到末页）
     for (let i = 0; i < 500; i++) { // 页数硬上限防死循环（循环加载/异常页面）
-      if (isCancelled()) return result('已停止采集，保留已采集的 ' + page + ' 页');
+      if (isCancelled()) return result(t('noteStopped', '已停止采集，保留已采集的 ' + page + ' 页', page));
       if (maxPages > 0 && page >= maxPages) { limitHit = true; break; } // 达到页数上限
       if (!root.isConnected) { // 翻页触发整表重建：按指纹重解析
         const nr = resolveRoot(key0);
-        if (!nr) return result('翻页后表格失联，已保留已采集的 ' + page + ' 页');
+        if (!nr) return result(t('noteTableLost', '翻页后表格失联，已保留已采集的 ' + page + ' 页', page));
         root = nr;
       }
       const next = pager.next(root);
       if (!next || pager.isDisabled(next)) break; // 末页（按钮禁用/消失）
       clickPaging(next);
       await settle(350); // 等页面渲染新页
-      if (isCancelled()) return result('已停止采集，保留已采集的 ' + page + ' 页');
+      if (isCancelled()) return result(t('noteStopped', '已停止采集，保留已采集的 ' + page + ' 页', page));
       if (!root.isConnected) {
         const nr = resolveRoot(key0);
-        if (!nr) return result('翻页后表格失联，已保留已采集的 ' + page + ' 页');
+        if (!nr) return result(t('noteTableLost', '翻页后表格失联，已保留已采集的 ' + page + ' 页', page));
         root = nr;
       }
       if (ns.persist.tableKeyOf(root) !== key0) {
-        return result('翻页后表头变化，已保留已采集的 ' + page + ' 页');
+        return result(t('noteHeaderChanged', '翻页后表头变化，已保留已采集的 ' + page + ' 页', page));
       }
       let added = takePage(ns.table.extractTable(root));
       if (added === 0) { // 渲染慢：补等一次再采（同 collectVirtual）
         await settle(500);
-        if (isCancelled()) return result('已停止采集，保留已采集的 ' + page + ' 页');
+        if (isCancelled()) return result(t('noteStopped', '已停止采集，保留已采集的 ' + page + ' 页', page));
         added = takePage(ns.table.extractTable(root));
       }
       page++;
       if (added === 0) {
         // 用户指定的按钮常无规范 disabled 态：连续 2 页无新行 = 到底
-        if (++noNew >= 2) return result('连续翻页无新数据，已停止');
+        if (++noNew >= 2) return result(t('noteNoNew', '连续翻页无新数据，已停止'));
       } else {
         noNew = 0;
       }
@@ -272,16 +284,17 @@
         if (!pv || pager.isDisabled(pv)) break;
         clickPaging(pv);
         await settle(200);
-        if (isCancelled()) return result('已停止采集，保留已采集的 ' + page + ' 页');
+        if (isCancelled()) return result(t('noteStopped', '已停止采集，保留已采集的 ' + page + ' 页', page));
         if (!root.isConnected) {
           const nr = resolveRoot(key0);
           if (nr) root = nr; else break;
         }
       }
     } else if (page > 1) {
-      note = note ? note + '，页面停留在末页' : '页面停留在末页';
+      note = note ? note + t('noteSep', '，') + t('noteStayLast', '页面停留在末页')
+        : t('noteStayLast', '页面停留在末页');
     }
-    return result(limitHit ? '已采集指定 ' + maxPages + ' 页' : '');
+    return result(limitHit ? t('noteMaxPages', '已采集指定 ' + maxPages + ' 页', maxPages) : '');
   }
 
   ns.pagination = {

@@ -1054,5 +1054,107 @@ check('分页适配器：rootSel 互不相同（findPagerRoot 按注册序分发
 check('分页适配器：next/prev 均为单类名选择器（querySelector 可用）',
   PAGER_ADAPTERS.every(a => /^\.[\w-]+$/.test(a.nextSel) && /^\.[\w-]+$/.test(a.prevSel)), true);
 
-console.log(fail === 0 ? '\n全部通过' : '\n' + fail + ' 个失败');
-process.exit(fail === 0 ? 0 : 1);
+/* ================= 国际化词条一致性（i18n，v2.6） ================= */
+
+// 代码引用词条：manifest __MSG_* 占位 + 各内容脚本 t('key', ...) 调用。
+// 单向断言（代码 ⊆ 语言包）：缺词条时运行时回落代码内中文，en 界面会露中文，
+// 属漏翻需在此暴露；语言包多余词条（备扩展）不在此拦
+const i18nManifestSrc = fs.readFileSync(path.join(__dirname, '..', 'extension', 'manifest.json'), 'utf8');
+const i18nManifestKeys = [...i18nManifestSrc.matchAll(/__MSG_(\w+)__/g)].map(m => m[1]);
+const i18nContentSrc = fs.readdirSync(path.join(__dirname, '..', 'extension', 'content'))
+  .filter(f => f.endsWith('.js'))
+  .map(f => fs.readFileSync(path.join(__dirname, '..', 'extension', 'content', f), 'utf8'))
+  .join('\n');
+const i18nCodeKeys = [];
+for (const m of i18nContentSrc.matchAll(/\bt\('([A-Za-z]\w*)'/g)) {
+  if (!i18nCodeKeys.includes(m[1])) i18nCodeKeys.push(m[1]);
+}
+const i18nEn = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', '_locales', 'en', 'messages.json'), 'utf8'));
+const i18nZh = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extension', '_locales', 'zh_CN', 'messages.json'), 'utf8'));
+check('i18n：内容脚本与清单引用的全部词条在 en 语言包齐备（漏翻即失败）',
+  [...new Set([...i18nManifestKeys, ...i18nCodeKeys])].filter(k => !(k in i18nEn)), []);
+check('i18n：manifest __MSG_ 词条在 zh_CN 齐备（default_locale 静态引用，缺则显示 key 名）',
+  i18nManifestKeys.filter(k => !(k in i18nZh)), []);
+// 占位符词条：message 必须含 placeholders 声明的全部 $XXX$（sub 注入依赖占位符替换）
+const i18nPhBad = Object.entries(i18nEn)
+  .filter(([, v]) => v && v.placeholders)
+  .filter(([, v]) => Object.keys(v.placeholders).some(p => v.message.indexOf('$' + p + '$') < 0))
+  .map(([k]) => k);
+check('i18n：占位符词条的 en 消息含对应 $XXX$', i18nPhBad, []);
+
+// 占位符注入路径（t() 回归）：t() 曾用 arguments 取第 3+ 参，箭头函数无自身
+// arguments → subs 恒空、占位符不替换（英文界面显示字面 $N$）。以 en 语言包桩
+// chrome.i18n 驱动公共函数验证 $1 替换，无 chrome.i18n 环境的回落分支不受影响
+const i18nFmt = loadModule('format.js', 'format', { util }); // 复用 format 模块取 headerKeys
+const i18nRealChrome = global.chrome;
+global.chrome = {
+  i18n: {
+    getMessage: (key, subs) => {
+      const e = i18nEn[key];
+      if (!e) return '';
+      let msg = e.message;
+      const names = e.placeholders ? Object.keys(e.placeholders) : []; // 占位符序 = content $1/$2 序
+      (subs || []).forEach((s, i) => {
+        const name = names[i];
+        if (name) msg = msg.split('$' + name + '$').join(String(s));
+      });
+      return msg;
+    }
+  }
+};
+try {
+  check('i18n stub：无表头列名兜底按 $1 注入（en → Column N）',
+    i18nFmt.headerKeys([['a', null], [1, 2]], 1), ['a', 'Column 2']);
+  check('i18n stub：Sheet 名序号兜底按 $1 注入（en → Table N）',
+    makeSheetName(stubTable(null), 0, new Set()), 'Table 1');
+} finally {
+  if (i18nRealChrome === undefined) delete global.chrome; else global.chrome = i18nRealChrome;
+}
+
+/* ================= 手动语言开关（v2.6.1，i18n.js 模块） ================= */
+// ns.i18n 离线回归：auto 跟随桩浏览器语言、手动 zh 回落代码内中文、手动 en 按
+// en 词表取词（含占位符按 $N$ 注入）；chrome.runtime/storage 桩齐备时优先手动。
+// 手动 en 词表走桩 runtime.sendMessage 回传（与真实后台代理同协议）。
+(async () => {
+  const i18nNs = loadModule('i18n.js', 'i18n', {});
+  const i18nEnCatalog = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'extension', '_locales', 'en', 'messages.json'), 'utf8'));
+  const i18nRealChrome2 = global.chrome;
+  // storage 齐备（setLang 落盘走真实异步路径）、runtime 回传 en 词表、浏览器 UI 语言英文；
+  // chrome.i18n.getMessage 按 en 词表取词（与 auto 路径一致，en 浏览器真实行为）
+  global.chrome = {
+    storage: { local: { get: async () => ({}), set: async () => {}, remove: async () => {} } },
+    runtime: { sendMessage: (msg, cb) => cb({ ok: true, messages: i18nEnCatalog }) },
+    i18n: {
+      getUILanguage: () => 'en-US',
+      getMessage: (key, subs) => {
+        const e = i18nEnCatalog[key];
+        if (!e) return '';
+        let msg = e.message;
+        const names = e.placeholders ? Object.keys(e.placeholders) : [];
+        (subs || []).forEach((s, i) => { const name = names[i]; if (name) msg = msg.split('$' + name + '$').join(String(s)); });
+        return msg;
+      }
+    }
+  };
+  try {
+    check('i18n 模块：auto 跟随浏览器语言（桩 en）', i18nNs.langOf(), 'en');
+    await i18nNs.setLang('en');
+    check('i18n 模块：手动 en 词表取词 + 占位符 $N$ 注入',
+      [i18nNs.langOf(),
+       i18nNs.t('btnColSettings', '列设置'),
+       i18nNs.t('selectedCount', '已选 <b>0</b> 个', ['7']),
+       i18nNs.t('hintSelect', '点击选择表格（可多选）'),
+       i18nNs.t('missingKey', '中文兜底')],
+      ['en', 'Columns', 'Selected <b>7</b>', 'Click to select tables (multi-select allowed)', '中文兜底']);
+    await i18nNs.setLang('zh');
+    check('i18n 模块：手动 zh 回落代码内中文（含 en 浏览器下强制中文）',
+      [i18nNs.langOf(), i18nNs.t('btnColSettings', '列设置')], ['zh', '列设置']);
+    await i18nNs.setLang('auto');
+    check('i18n 模块：auto 恢复跟随浏览器语言', [i18nNs.langOf(), i18nNs.t('btnColSettings', '列设置')], ['en', 'Columns']);
+  } finally {
+    if (i18nRealChrome2 === undefined) delete global.chrome; else global.chrome = i18nRealChrome2;
+  }
+  console.log(fail === 0 ? '\n全部通过' : '\n' + fail + ' 个失败');
+  process.exit(fail === 0 ? 0 : 1);
+})();

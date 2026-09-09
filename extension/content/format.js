@@ -10,6 +10,19 @@
   const ns = window.__h2x;
   const { escapeHtml } = ns.util;
 
+  // i18n 取词（各内容脚本同构，见 architecture.md「国际化」节）：优先经 ns.i18n
+  // （i18n.js 手动中英文统一入口）；词条缺失或无 chrome.i18n 环境（algo-check.cjs
+  // 伪 window）→ 回落代码内中文，Node 回归断言零改动。就地定义：本文件被整文件
+  // 独立加载
+  const t = (key, fb, ...subs) => {
+    if (ns.i18n) return ns.i18n.t(key, fb, subs); // v2.6.1 手动语言开关优先
+    if (typeof chrome !== 'undefined' && chrome.i18n && chrome.i18n.getMessage) {
+      const m = chrome.i18n.getMessage(key, subs.length ? subs.map(String) : undefined);
+      if (m) return m;
+    }
+    return fb;
+  };
+
   /* ---------------- CSV（RFC 4180 + BOM，Excel 可直接识别 UTF-8） ---------------- */
 
   /** 单元格转义：含逗号/引号/换行时双引号包裹，内部引号翻倍 */
@@ -36,7 +49,7 @@
     const keys = [];
     for (let c = 0; c < maxCols; c++) {
       let name = String(headRow[c] == null ? '' : headRow[c]).trim();
-      if (!name) name = '列' + (c + 1);
+      if (!name) name = t('colN', '列' + (c + 1), c + 1);
       const n = (seen.get(name) || 0) + 1;
       seen.set(name, n);
       keys.push(n > 1 ? name + '(' + n + ')' : name);
@@ -124,7 +137,7 @@
       '<html>',
       '<head>',
       '<meta charset="utf-8">',
-      '<title>' + escapeHtml(title || '导出表格') + '</title>',
+      '<title>' + escapeHtml(title || t('htmlDefaultTitle', '导出表格')) + '</title>',
       '<style>body{font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;color:#333;margin:24px;}h2{font-size:18px;margin:24px 0 8px;}table{border-collapse:collapse;}th,td{border:1px solid #ccc;padding:6px 12px;}th{background:#f5f7fa;}</style>',
       '</head>',
       '<body>',

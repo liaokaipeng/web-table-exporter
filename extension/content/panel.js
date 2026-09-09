@@ -19,6 +19,19 @@
   const { extractTable, makeSheetName } = ns.table;
   const { splitSegments, splitColName, colKeys, ctrlCountOf, ctrlColNames, toNumValue } = ns.split;
 
+  // i18n 取词（各内容脚本同构，见 architecture.md「国际化」节）：优先经 ns.i18n
+  // （i18n.js 手动中英文统一入口）；词条缺失或无 chrome.i18n 环境（Node 回归 /
+  // E2E 桩未注入）→ 回落代码内中文，测试断言零改动。
+  // 就地定义：renderTabs 既有循环变量 t 不调用取词，遮蔽无害
+  const t = (key, fb, ...subs) => {
+    if (ns.i18n) return ns.i18n.t(key, fb, subs); // v2.6.1 手动语言开关优先
+    if (typeof chrome !== 'undefined' && chrome.i18n && chrome.i18n.getMessage) {
+      const m = chrome.i18n.getMessage(key, subs.length ? subs.map(String) : undefined);
+      if (m) return m;
+    }
+    return fb;
+  };
+
   let deps = null; // 主 UI 注入的依赖接口（init 后可用）
 
   // 分隔符探测候选（优先级从高到低；空格最模糊放最后）
@@ -160,12 +173,12 @@
     const raw = (entry.cols[c] && entry.cols[c].name) || '';
     const n = segCountOf(entry, c, d);
     if (d.mode === 'control') {
-      const base = raw || ('列' + (c + 1));
+      const base = raw || t('colN', '列' + (c + 1), c + 1);
       return entry.sample.headerRows ? ctrlColNames(base, n - 1)
-        : Array.from({ length: n }, (_, k) => '段' + (k + 1));
+        : Array.from({ length: n }, (_, k) => t('segN', '段' + (k + 1), k + 1));
     }
     return Array.from({ length: n }, (_, k) =>
-      (entry.sample.headerRows ? splitColName(raw, k) : '段' + (k + 1)));
+      (entry.sample.headerRows ? splitColName(raw, k) : t('segN', '段' + (k + 1), k + 1)));
   }
 
   // 当前面板表格是否含合并单元格（拆分禁用判定，渲染/交互/预览共用）
@@ -179,10 +192,13 @@
 
   /** 拆分按钮 title：智能预填建议（探测依据 buildPanelCols 的 delim/multiBlock/hasCtrl） */
   function splitHint(col) {
-    if (col.multiBlock) return '建议：按换行拆分（该列多为多行文本）';
-    if (col.hasCtrl) return '建议：控件值拆分（该列含表单控件）';
-    if (col.delim) return '建议：按「' + (col.delim === ' ' ? '空格' : col.delim) + '」分隔符拆分';
-    return '拆分为多列（控件值 / 换行 / 分隔符）';
+    if (col.multiBlock) return t('hintSplitBlock', '建议：按换行拆分（该列多为多行文本）');
+    if (col.hasCtrl) return t('hintSplitCtrl', '建议：控件值拆分（该列含表单控件）');
+    if (col.delim) {
+      const disp = col.delim === ' ' ? t('spaceWord', '空格') : col.delim;
+      return t('hintSplitDelim', '建议：按「' + disp + '」分隔符拆分', disp);
+    }
+    return t('hintSplitDefault', '拆分为多列（控件值 / 换行 / 分隔符）');
   }
 
   function openSplitPanel() {
@@ -205,7 +221,7 @@
     panelMask.className = 'h2x-mask';
     panelMask.setAttribute('role', 'dialog');
     panelMask.setAttribute('aria-modal', 'true');
-    panelMask.setAttribute('aria-label', '列设置');
+    panelMask.setAttribute('aria-label', t('panelTitle', '列设置'));
     panelMask.innerHTML = [
       // 面板专属样式随面板自持；颜色/圆角复用主 UI :host 设计 token（同一
       // shadowRoot 共享，深色模式经 main.js 的 prefers 覆写自动生效）；
@@ -276,17 +292,17 @@
       '</style>',
       '<div class="h2x-panel">',
       '  <div class="h2x-panel-top">',
-      '    <h3>列设置</h3>',
-      '    <button type="button" class="h2x-px" aria-label="关闭" title="关闭面板">×</button>',
+      '    <h3>' + t('panelTitle', '列设置') + '</h3>',
+      '    <button type="button" class="h2x-px" aria-label="' + t('closeAria', '关闭') + '" title="' + t('closePanelTitle', '关闭面板') + '">×</button>',
       '  </div>',
       '  <div class="h2x-tabs" role="tablist"></div>',
       '  <div class="h2x-note" hidden></div>',
       '  <div class="h2x-cols"></div>',
-      '  <div class="h2x-pv"><div class="h2x-pv-title">导出预览（绿色为拆分新列，划线列为不导出）</div><div class="h2x-pv-body"></div><div class="h2x-pv-note"></div></div>',
+      '  <div class="h2x-pv"><div class="h2x-pv-title">' + t('previewTitle', '导出预览（绿色为拆分新列，划线列为不导出）') + '</div><div class="h2x-pv-body"></div><div class="h2x-pv-note"></div></div>',
       '  <div class="h2x-panel-foot">',
       '    <span class="h2x-err"></span>',
-      '    <button class="h2x-btn h2x-primary h2x-save">保存</button>',
-      '    <button class="h2x-btn h2x-ghost h2x-pcancel">取消 (Esc)</button>',
+      '    <button class="h2x-btn h2x-primary h2x-save">' + t('btnSave', '保存') + '</button>',
+      '    <button class="h2x-btn h2x-ghost h2x-pcancel">' + t('btnCancel', '取消 (Esc)') + '</button>',
       '  </div>',
       '</div>'
     ].join('');
@@ -355,7 +371,7 @@
     const hasMerges = panelHasMerges();
     const note = panelMask.querySelector('.h2x-note');
     note.hidden = !hasMerges;
-    if (hasMerges) note.textContent = '该表格含合并单元格，拆分与列筛选不可用（列格式仍可设置）';
+    if (hasMerges) note.textContent = t('noteMerges', '该表格含合并单元格，拆分与列筛选不可用（列格式仍可设置）');
     renderColList();
     renderPreview();
   }
@@ -382,7 +398,7 @@
 
   /** 拆分新列勾选区 HTML（段名与导出列名一致） */
   function subColsHtmlOf(entry, c, d) {
-    let html = '<span class="h2x-sub-label">新列：</span>';
+    let html = '<span class="h2x-sub-label">' + t('newColsLabel', '新列：') + '</span>';
     segNames(entry, c, d).forEach((name, k) => {
       const on = !d.skipSegs.has(k + 1);
       html += '<label' + (on ? '' : ' class="noexp"') + '><input type="checkbox" class="h2x-ck-s" data-k="' +
@@ -395,14 +411,14 @@
    *  （随段数变化局部刷新，见 syncSubCols——键入时焦点在配置区输入框上不丢） */
   function subHtmlOf(entry, c, d) {
     return '<div class="h2x-sub" data-c="' + c + '"><div class="h2x-sub-cfg">' +
-      '<label>模式 <select class="h2x-mode">' +
-      '<option value="control"' + (d.mode === 'control' ? ' selected' : '') + '>控件值拆分</option>' +
-      '<option value="block"' + (d.mode === 'block' ? ' selected' : '') + '>按换行拆分</option>' +
-      '<option value="delimiter"' + (d.mode === 'delimiter' ? ' selected' : '') + '>分隔符拆分</option>' +
+      '<label>' + t('modeLabel', '模式') + ' <select class="h2x-mode">' +
+      '<option value="control"' + (d.mode === 'control' ? ' selected' : '') + '>' + t('modeControl', '控件值拆分') + '</option>' +
+      '<option value="block"' + (d.mode === 'block' ? ' selected' : '') + '>' + t('modeBlock', '按换行拆分') + '</option>' +
+      '<option value="delimiter"' + (d.mode === 'delimiter' ? ' selected' : '') + '>' + t('modeDelimiter', '分隔符拆分') + '</option>' +
       '</select></label>' +
-      '<label>分隔符 <input type="text" class="h2x-pattern" placeholder="如 、 ' + SPACE_MARK + '=空格" value="' +
+      '<label>' + t('delimLabel', '分隔符') + ' <input type="text" class="h2x-pattern" placeholder="' + t('delimPh', '如 、 ' + SPACE_MARK + '=空格') + '" value="' +
       escapeHtml(d.pattern === ' ' ? SPACE_MARK : d.pattern) + '"' + (lockPattern(d) ? ' disabled' : '') + '></label>' +
-      '<label>段数上限 <input type="text" class="h2x-limit" placeholder="不限" inputmode="numeric" value="' +
+      '<label>' + t('limitLabel', '段数上限') + ' <input type="text" class="h2x-limit" placeholder="' + t('limitPh', '不限') + '" inputmode="numeric" value="' +
       escapeHtml(d.limit) + '"' + (lockLimit(d) ? ' disabled' : '') + '></label>' +
       '</div><div class="h2x-sub-cols">' + subColsHtmlOf(entry, c, d) + '</div></div>';
   }
@@ -448,27 +464,27 @@
     const entry = panelDrafts.get(panelTable);
     const draft = entry.draft;
     const hasMerges = panelHasMerges();
-    let html = '<div class="h2x-tools"><span>导出列 <b class="h2x-exp-n"></b></span>' +
-      '<button type="button" class="h2x-mini h2x-all"' + (hasMerges ? ' disabled' : '') + '>全选</button>' +
-      '<button type="button" class="h2x-mini h2x-none"' + (hasMerges ? ' disabled' : '') + '>全不选</button></div>';
-    html += '<div class="h2x-col-head"><span class="h2x-h1">导出</span><span class="h2x-h2">列</span>' +
-      '<span class="h2x-h3">格式</span><span class="h2x-h4">拆分</span></div>';
+    let html = '<div class="h2x-tools"><span>' + t('colsExportLabel', '导出列') + ' <b class="h2x-exp-n"></b></span>' +
+      '<button type="button" class="h2x-mini h2x-all"' + (hasMerges ? ' disabled' : '') + '>' + t('selectAll', '全选') + '</button>' +
+      '<button type="button" class="h2x-mini h2x-none"' + (hasMerges ? ' disabled' : '') + '>' + t('selectNone', '全不选') + '</button></div>';
+    html += '<div class="h2x-col-head"><span class="h2x-h1">' + t('headExport', '导出') + '</span><span class="h2x-h2">' + t('headColumn', '列') + '</span>' +
+      '<span class="h2x-h3">' + t('headFormat', '格式') + '</span><span class="h2x-h4">' + t('headSplit', '拆分') + '</span></div>';
     panelCols.forEach((col, c) => {
       const d = draft[c];
       if (!d) return;
-      const name = col.name || ('列' + (c + 1));
-      const sbtnTitle = hasMerges ? '含合并单元格的表格不可拆分'
-        : (d.checked ? '收起并取消该列拆分' : splitHint(col));
+      const name = col.name || t('colN', '列' + (c + 1), c + 1);
+      const sbtnTitle = hasMerges ? t('noSplitMerges', '含合并单元格的表格不可拆分')
+        : (d.checked ? t('collapseSplitTitle', '收起并取消该列拆分') : splitHint(col));
       html += '<div class="h2x-col' + (d.export ? '' : ' noexp') + '" data-c="' + c + '">' +
         '<label class="h2x-ckw"><input type="checkbox" class="h2x-ck-x"' + (d.export ? ' checked' : '') + (hasMerges ? ' disabled' : '') + '></label>' +
-        '<span class="h2x-cname" title="' + escapeHtml(name) + '">' + escapeHtml(name) + (col.hasCtrl ? '<i class="h2x-tag">控件</i>' : '') + (col.multiBlock ? '<i class="h2x-tag">多行</i>' : '') + '</span>' +
-        '<select class="h2x-fmt" title="数字格式：数值化后写入 Excel（含千分位逗号会先剥离，无法解析保持原文本）；作用于该列及其拆分新列">' +
-        '<option value="text"' + (d.fmt !== 'number' ? ' selected' : '') + '>文本</option>' +
-        '<option value="number"' + (d.fmt === 'number' ? ' selected' : '') + '>数字</option>' +
+        '<span class="h2x-cname" title="' + escapeHtml(name) + '">' + escapeHtml(name) + (col.hasCtrl ? '<i class="h2x-tag">' + t('tagCtrl', '控件') + '</i>' : '') + (col.multiBlock ? '<i class="h2x-tag">' + t('tagMultiLine', '多行') + '</i>' : '') + '</span>' +
+        '<select class="h2x-fmt" title="' + escapeHtml(t('fmtNumberTitle', '数字格式：数值化后写入 Excel（含千分位逗号会先剥离，无法解析保持原文本）；作用于该列及其拆分新列')) + '">' +
+        '<option value="text"' + (d.fmt !== 'number' ? ' selected' : '') + '>' + t('fmtText', '文本') + '</option>' +
+        '<option value="number"' + (d.fmt === 'number' ? ' selected' : '') + '>' + t('fmtNumber', '数字') + '</option>' +
         '</select>' +
         '<button type="button" class="h2x-sbtn' + (d.checked ? ' h2x-on' : '') + '"' +
         (hasMerges ? ' disabled' : '') + ' title="' + escapeHtml(sbtnTitle) + '">' +
-        (d.checked ? '收起拆分' : '＋ 拆分') + '</button>' +
+        (d.checked ? t('btnCollapseSplit', '收起拆分') : t('btnExpandSplit', '＋ 拆分')) + '</button>' +
         '</div>';
       if (d.checked && !hasMerges) html += subHtmlOf(entry, c, d);
     });
@@ -553,9 +569,9 @@
       if (!hit) return;
       const { row, c, d } = hit;
       d.checked = !d.checked;
-      sbtn.textContent = d.checked ? '收起拆分' : '＋ 拆分';
+      sbtn.textContent = d.checked ? t('btnCollapseSplit', '收起拆分') : t('btnExpandSplit', '＋ 拆分');
       sbtn.classList.toggle('h2x-on', d.checked);
-      sbtn.title = d.checked ? '收起并取消该列拆分' : splitHint(panelCols[c]);
+      sbtn.title = d.checked ? t('collapseSplitTitle', '收起并取消该列拆分') : splitHint(panelCols[c]);
       syncSubRow(panelDrafts.get(panelTable), c, d, row);
       if (d.checked) {
         // 展开后子行可能超出列区视口（38vh 滚动容器），滚入可见
@@ -598,7 +614,7 @@
     const headerRows = sample.headerRows || 0;
     note.textContent = '';
     if (panelHasMerges()) {
-      body.innerHTML = '<span class="h2x-pv-empty">该表格含合并单元格，不可拆分与筛选（列格式仍生效）</span>';
+      body.innerHTML = '<span class="h2x-pv-empty">' + t('previewMerges', '该表格含合并单元格，不可拆分与筛选（列格式仍生效）') + '</span>';
       return;
     }
     const entry = panelDrafts.get(panelTable);
@@ -613,7 +629,7 @@
     draft.forEach((d, c) => {
       if (!d) return;
       const raw = (panelCols[c] && panelCols[c].name) || '';
-      const name = raw || ('列' + (c + 1));
+      const name = raw || t('colN', '列' + (c + 1), c + 1);
       html += '<th' + (d.export ? '' : ' class="drop"') + '>' + escapeHtml(name) + '</th>';
       if (!d.checked) return;
       segNames(entry, c, d).forEach((segName, k) => {
@@ -659,8 +675,8 @@
     }
     html += '</tbody></table>';
     body.innerHTML = html;
-    note.textContent = dataRows > 3 ? '共 ' + dataRows + ' 行数据，预览前 3 行'
-      : (dataRows > 0 ? '共 ' + dataRows + ' 行数据' : '无数据行');
+    note.textContent = dataRows > 3 ? t('previewRows3', '共 ' + dataRows + ' 行数据，预览前 3 行', dataRows)
+      : (dataRows > 0 ? t('previewRows', '共 ' + dataRows + ' 行数据', dataRows) : t('previewNoRows', '无数据行'));
   }
 
   /** 清除全部就地错误标红 */
@@ -697,7 +713,7 @@
         const n = d.checked ? segCountOf(entry, c, d) : 0;
         for (let k = 1; k <= n; k++) if (!d.skipSegs.has(k)) kept++;
       });
-      if (kept === 0 && !keptErr) keptErr = '表格' + ti + '：至少保留一个导出列';
+      if (kept === 0 && !keptErr) keptErr = t('errKeepOne', '表格' + ti + '：至少保留一个导出列', ti);
     }
     if (errors.length || keptErr) {
       // v2.0 就地错误：切到首个错误所在表（跨表错误也看得见），标红对应
@@ -714,7 +730,7 @@
         if (row) row.scrollIntoView({ block: 'center' });
       }
       errEl.textContent = errors.length
-        ? errors.length + ' 项配置有误（已标红，修正后重试）'
+        ? t('errCount', errors.length + ' 项配置有误（已标红，修正后重试）', errors.length)
         : keptErr;
       return;
     }
@@ -744,7 +760,7 @@
       ns.persist.save(table, rules, excluded, formats); // 持久化：均空时删除记录（即重置路径）
     }
     closeSplitPanel();
-    deps.toast('列设置已保存并记住，导出时生效', { type: 'success' });
+    deps.toast(t('toastSaved', '列设置已保存并记住，导出时生效'), { type: 'success' });
   }
 
   function closeSplitPanel() {

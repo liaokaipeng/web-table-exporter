@@ -11,6 +11,7 @@
 - **主流组件适配**：Element Plus、AG Grid、MUI X DataGrid、Tabulator、Ant Design Vue 等组件表格直接识别；适配器注册表架构，新增组件只加适配器
 - **表单控件取值**：单元格内的输入框、下拉框、开关等按当前值导出
 - **列规则按页面记忆**：拆分/筛选/格式设置仅存本机，重进同页面自动恢复
+- **中英双语界面**：界面文案与导出内容（控件「是/否」、Sheet 兜底名等）随浏览器语言自动切换；工具栏「中文 | EN」可手动指定并记住选择
 - **隐私友好**：不收集任何数据，权限最小化（activeTab / scripting / downloads / storage）
 
 ## 安装
@@ -48,6 +49,7 @@ Edge、Firefox 等其它浏览器同样可用，仅需将 `chrome://extensions` 
 
 4. （可选）分页表格：点「采集全部页 ▾」展开设置，填页数上限（留空 = 全部页）后点「开始采集」，自动回第一页逐页翻页采集（仅支持单表；识别不到分页器时按提示点击一次「下一页」按钮）
 5. 工具栏修改文件名、切换格式（默认 xlsx），点「导出」或按 `Enter`
+6. 想换界面语言：工具栏最右侧「中文 | EN」点选即可即时切换并记住（默认跟随浏览器语言；再点当前语言恢复跟随）
 
 工具栏实时显示采集进度，采完自动还原滚动位置/回到起始页；选择模式下页面交互照常可用（翻页、筛选、切 Tab 不拦截），深色模式跟随系统。
 
@@ -57,10 +59,12 @@ Edge、Firefox 等其它浏览器同样可用，仅需将 `chrome://extensions` 
 
 ```
 ├── extension/                  # 插件本体（chrome://extensions 加载此目录）
-│   ├── manifest.json           # MV3 配置（activeTab / scripting / downloads / storage）
-│   ├── background/service-worker.js  # 图标点击注入 + 后台下载
+│   ├── manifest.json           # MV3 配置（activeTab / scripting / downloads / storage + default_locale 国际化）
+│   ├── _locales/               # 国际化语言包（en 英文全量 / zh_CN 中文，见 docs/architecture.md）
+│   ├── background/service-worker.js  # 图标点击注入 + 后台下载 + 语言词表
 │   ├── content/                # 内容脚本（按依赖序注入，零构建无模块系统）
 │   │   ├── entry.js            #   注入守卫 + window.__h2x 命名空间
+│   │   ├── i18n.js             #   界面语言（手动中英文开关 + 各模块 t() 统一取词入口）
 │   │   ├── util.js             #   工具函数
 │   │   ├── controls.js         #   控件值三层判定（详见 docs/controls.md）
 │   │   ├── split.js            #   列拆分 + 列筛选 + 列格式纯函数（测试整文件加载）
@@ -91,7 +95,7 @@ Edge、Firefox 等其它浏览器同样可用，仅需将 `chrome://extensions` 
 ## 开发与测试
 
 ```powershell
-# 语法检查（内容脚本 12 文件 + 后台脚本）
+# 语法检查（内容脚本 13 文件 + 后台脚本）
 Get-ChildItem extension/content/*.js | ForEach-Object { node --check $_.FullName }
 node --check extension/background/service-worker.js
 

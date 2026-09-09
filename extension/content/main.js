@@ -26,6 +26,9 @@
  * 禁用主按钮并收拢面板（updateBar 同步）
  * v2.5.3：分页采集限定单表——多选（≥2）时「采集全部页」按钮禁用，title
  * 动态提示「多表选择时不支持分页采集」；目标表唯一，无歧义
+ * v2.6.1：工具栏「中文 | EN」语言开关——手动指定界面语言（偏好持久化，默认
+ * 跟随浏览器）；切换后静态文案就地重取词（提示/按钮/下拉/分页面板），进行时与
+ * 导出内容文案均经 t() 动态取词同源生效
  */
 (() => {
   'use strict';
@@ -40,6 +43,19 @@
   const panel = ns.panel;
   const persist = ns.persist;
 
+  // i18n 取词（各内容脚本同构，见 architecture.md「国际化」节）：优先经 ns.i18n
+  // （i18n.js 手动中英文统一入口）；词条缺失或无 chrome.i18n 环境（Node 回归 /
+  // E2E 桩未注入）→ 回落代码内中文，测试断言零改动。就地定义：hitRoot/onMouseOver
+  // 等既有局部变量 t 均不调用取词，遮蔽无害
+  const t = (key, fb, ...subs) => {
+    if (ns.i18n) return ns.i18n.t(key, fb, subs); // v2.6.1 手动语言开关优先
+    if (typeof chrome !== 'undefined' && chrome.i18n && chrome.i18n.getMessage) {
+      const m = chrome.i18n.getMessage(key, subs.length ? subs.map(String) : undefined);
+      if (m) return m;
+    }
+    return fb;
+  };
+
   // 导出格式注册表：label 为按钮文案、ext 为文件扩展名、mime 为下载 MIME
   const FORMATS = {
     xlsx: { label: 'Excel', ext: 'xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
@@ -51,7 +67,9 @@
 
   let active = true;
   let host = null;
-  let hoverBox = null, countEl = null, nameInput = null, exportBtn = null, cancelBtn = null, hintEl = null, splitBtn = null, fmtSel = null, pageWrap = null, pageBtn = null, pageMenu = null, pagesInput = null, pageGoBtn = null, pageCancelBtn = null;
+  let hoverBox = null, countEl = null, countWrap = null, nameInput = null, exportBtn = null, cancelBtn = null, hintEl = null, splitBtn = null, fmtSel = null, pageWrap = null, pageBtn = null, pageMenu = null, pagesInput = null, pageGoBtn = null, pageCancelBtn = null;
+  let langZhBtn = null, langEnBtn = null; // v2.6.1 工具栏语言开关（中文 | EN）
+  let menuTitleEl = null, menuSubEl = null, pageLimitLabelEl = null, pageUnitEl = null; // 分页面板静态文案节点（语言切换就地重取词）
   let toastRoot = null;
   let hoverTable = null;
   let rafId = 0;
@@ -96,7 +114,7 @@
       '  .h2x-badge{position:absolute;top:-12px;left:-12px;min-width:22px;height:22px;padding:0 6px;box-sizing:border-box;border-radius:11px;background:#2e7d32;color:#fff;font:700 12px/22px -apple-system,"Segoe UI",sans-serif;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.35);}',
       '  .h2x-sel.h2x-flip-x .h2x-badge{left:auto;right:-12px;}',   /* 表格贴左边缘：徽标翻内侧 */
       '  .h2x-sel.h2x-flip-y .h2x-badge{top:auto;bottom:-12px;}',   /* 表格贴上边缘：徽标翻内侧 */
-      '  .h2x-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);pointer-events:auto;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px 10px;max-width:96vw;box-sizing:border-box;padding:10px 14px;background:var(--c-bg);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.25);font:13px/1.4 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--c-text);}',
+      '  .h2x-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);pointer-events:auto;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;width:max-content;max-width:96vw;box-sizing:border-box;padding:10px 14px;background:var(--c-bg);border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.25);gap:8px 10px;font:13px/1.4 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--c-text);}',  /* v2.6.1 消除英文折行两侧空白：width:max-content 让单行内容恰可放下（中文一行外观零变化），只有超出 max-width 才折行；折行后各行剩余空间经 space-between 分布到行内间隙、两端贴边，替代默认 auto 宽度收缩成多条窄行 + center 空洞 */
       '  .h2x-hint{color:var(--c-text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',  /* 空间不足先截断提示文案，按钮不被迫换行 */
       '  .h2x-count{flex:none;white-space:nowrap;}',
       '  .h2x-count b{color:var(--c-primary);}',
@@ -122,7 +140,7 @@
       '  .h2x-pagebtn:disabled{background:var(--c-bg-3);color:var(--c-disable-fg);border-color:var(--c-border);cursor:not-allowed;filter:none;}',
       '  .h2x-pagebtn .h2x-care{flex:none;font-style:normal;font-size:10px;line-height:1;opacity:.85;transition:transform .15s;}',  /* 下拉箭头随展开旋转 */
       '  .h2x-pagewrap.h2x-open .h2x-care{transform:rotate(180deg);}',
-      '  .h2x-pagemenu{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);width:288px;box-sizing:border-box;padding:12px;background:var(--c-bg);border:1px solid var(--c-border-2);border-radius:10px;box-shadow:0 10px 32px rgba(0,0,0,.22);z-index:2;text-align:left;}',  /* 下拉面板：上移弹层，深色/浅色随 token */
+      '  .h2x-pagemenu{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);width:346px;max-width:calc(100vw - 24px);box-sizing:border-box;padding:12px;background:var(--c-bg);border:1px solid var(--c-border-2);border-radius:10px;box-shadow:0 10px 32px rgba(0,0,0,.22);z-index:2;text-align:left;}',  /* 下拉面板：上移弹层，深色/浅色随 token；v2.6 加宽至 346px（英文文案更长防文字溢出）+ 窄屏上限 */
       '  .h2x-pagemenu[hidden]{display:none;}',
       '  .h2x-pagemenu-title{font-size:13px;font-weight:700;color:var(--c-text);}',
       '  .h2x-pagemenu-sub{font-size:12px;color:var(--c-text-3);margin:4px 0 12px;line-height:1.5;}',
@@ -132,9 +150,14 @@
       '  .h2x-pages:focus{border-color:var(--c-info);}',
       '  .h2x-pages::-webkit-outer-spin-button,.h2x-pages::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}',
       '  .h2x-pages::placeholder{color:var(--c-text-3);}',
-      '  .h2x-pageunit{font-size:12px;color:var(--c-text-2);flex:none;width:14px;text-align:center;}',
+      '  .h2x-pageunit{font-size:12px;color:var(--c-text-2);flex:none;white-space:nowrap;}',  /* 页数单位按内容自适应宽（中文「页」短、英文 pages 长，固定宽会溢出） */
       '  .h2x-pagemenu-actions{display:flex;gap:8px;justify-content:flex-end;}',
       '  .h2x-pagemenu-actions .h2x-btn{font-size:12px;padding:5px 12px;}',
+      '  .h2x-lang{flex:none;display:inline-flex;align-items:center;gap:1px;padding:2px;border:1px solid var(--c-border);border-radius:var(--r-s);background:var(--c-bg-3);}',  /* v2.6.1 语言分段开关：紧凑胶囊，中文/EN 各自独立按钮 */
+      '  .h2x-langbtn{border:none;background:transparent;color:var(--c-text-2);font:12px/1 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;padding:4px 9px;border-radius:4px;cursor:pointer;}',
+      '  .h2x-langbtn:hover:not(:disabled){color:var(--c-text);}',
+      '  .h2x-langbtn[aria-pressed="true"]{background:var(--c-primary);color:#fff;}',
+      '  .h2x-langbtn:disabled{opacity:.5;cursor:not-allowed;}',
       '  .h2x-toasts{position:fixed;top:16px;right:16px;display:flex;flex-direction:column;gap:8px;z-index:1;pointer-events:none;font:13px/1.4 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}',
       '  .h2x-toast{pointer-events:auto;display:flex;align-items:center;gap:11px;max-width:min(460px,86vw);padding:11px 14px 11px 12px;border-radius:var(--r);background:var(--c-bg);color:var(--c-text);box-shadow:0 6px 24px rgba(0,0,0,.32);animation:h2x-in .18s ease-out;border-left:4px solid var(--c-info);font-weight:600;}',
       '  .h2x-toast-ico{flex:none;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;background:var(--c-info);font:700 13px/22px -apple-system,"Segoe UI",sans-serif;text-align:center;}',
@@ -157,37 +180,44 @@
       '<div class="h2x-hover" hidden></div>',
       '<div class="h2x-bar">',
       '  <span class="h2x-hint"></span>',
-      '  <span class="h2x-count">已选 <b>0</b> 个</span>',
+      '  <span class="h2x-count">' + t('selectedCount', '已选 <b>0</b> 个', '0') + '</span>',
       '  <input class="h2x-name" type="text" spellcheck="false" />',
-      '  <select class="h2x-ext" title="导出格式">' +
+      '  <select class="h2x-ext" title="' + t('exportFormatTitle', '导出格式') + '">' +
       Object.keys(FORMATS).map(k => '<option value="' + k + '">' + FORMATS[k].label + ' (.' + FORMATS[k].ext + ')</option>').join('') +
       '</select>',
       '  <div class="h2x-actions">',
-      '    <button class="h2x-btn h2x-split" disabled>列设置</button>',
+      '    <button class="h2x-btn h2x-split" disabled>' + t('btnColSettings', '列设置') + '</button>',
       '    <div class="h2x-pagewrap">',
-      '      <button type="button" class="h2x-btn h2x-pagebtn" aria-haspopup="dialog" aria-expanded="false" disabled title="自动翻页采集已选中表格：点开可设置页数上限，识别不到分页器时可指定翻页按钮">采集全部页<i class="h2x-care" aria-hidden="true">▾</i></button>',
-      '      <div class="h2x-pagemenu" role="dialog" aria-label="分页采集设置" hidden>',
-      '        <div class="h2x-pagemenu-title">分页采集</div>',
-      '        <div class="h2x-pagemenu-sub">留空则采集全部页；识别不到分页器时会提示手动指定「下一页」按钮</div>',
+      '      <button type="button" class="h2x-btn h2x-pagebtn" aria-haspopup="dialog" aria-expanded="false" disabled title="' + t('pageBtnTitleDefault', '自动翻页采集已选中表格：点开可设置页数上限，识别不到分页器时可指定翻页按钮') + '">' + t('btnCollectAll', '采集全部页') + '<i class="h2x-care" aria-hidden="true">▾</i></button>',
+      '      <div class="h2x-pagemenu" role="dialog" aria-label="' + t('pageMenuAria', '分页采集设置') + '" hidden>',
+      '        <div class="h2x-pagemenu-title">' + t('pageMenuTitle', '分页采集') + '</div>',
+      '        <div class="h2x-pagemenu-sub">' + t('pageMenuSub', '留空则采集全部页；识别不到分页器时会提示手动指定「下一页」按钮') + '</div>',
       '        <div class="h2x-pagemenu-row">',
-      '          <label for="h2x-pages">页数上限</label>',
-      '          <input class="h2x-pages" id="h2x-pages" type="number" min="1" step="1" placeholder="全部" title="只采集前 N 页，留空 = 全部页" aria-label="采集页数上限（留空为全部页）" />',
-      '          <span class="h2x-pageunit">页</span>',
+      '          <label for="h2x-pages">' + t('pageLimitLabel', '页数上限') + '</label>',
+      '          <input class="h2x-pages" id="h2x-pages" type="number" min="1" step="1" placeholder="' + t('pageLimitPh', '全部') + '" title="' + t('pageLimitTitle', '只采集前 N 页，留空 = 全部页') + '" aria-label="' + t('pageLimitAria', '采集页数上限（留空为全部页）') + '" />',
+      '          <span class="h2x-pageunit">' + t('pageUnit', '页') + '</span>',
       '        </div>',
       '        <div class="h2x-pagemenu-actions">',
-      '          <button type="button" class="h2x-btn h2x-ghost h2x-pagecancel">取消</button>',
-      '          <button type="button" class="h2x-btn h2x-primary h2x-pagego">开始采集</button>',
+      '          <button type="button" class="h2x-btn h2x-ghost h2x-pagecancel">' + t('btnCancelShort', '取消') + '</button>',
+      '          <button type="button" class="h2x-btn h2x-primary h2x-pagego">' + t('btnStart', '开始采集') + '</button>',
       '        </div>',
       '      </div>',
       '    </div>',
       '    <button class="h2x-btn h2x-primary" disabled></button>',
-      '    <button class="h2x-btn h2x-ghost">取消 (Esc)</button>',
+      '    <button class="h2x-btn h2x-ghost">' + t('btnCancel', '取消 (Esc)') + '</button>',
+      '  </div>',
+      // v2.6.1 语言分段开关：按钮文案即语言自称（中文/EN），刻意双语恒定、不随
+      // 界面语言取词——任何语言下都能自指其名；aria-pressed 标注当前生效语言
+      '  <div class="h2x-lang" role="group" aria-label="界面语言 / Language">' +
+      '    <button type="button" class="h2x-langbtn h2x-langzh" aria-pressed="false">中文</button>' +
+      '    <button type="button" class="h2x-langbtn h2x-langen" aria-pressed="false">EN</button>' +
       '  </div>',
       '</div>',
       '<div class="h2x-toasts"></div>'
     ].join('');
 
     hoverBox = root.querySelector('.h2x-hover');
+    countWrap = root.querySelector('.h2x-count');
     countEl = root.querySelector('.h2x-count b');
     nameInput = root.querySelector('.h2x-name');
     fmtSel = root.querySelector('.h2x-ext');
@@ -203,11 +233,20 @@
     pagesInput = root.querySelector('.h2x-pages');
     pageGoBtn = root.querySelector('.h2x-pagego');
     pageCancelBtn = root.querySelector('.h2x-pagecancel');
+    menuTitleEl = root.querySelector('.h2x-pagemenu-title');
+    menuSubEl = root.querySelector('.h2x-pagemenu-sub');
+    pageLimitLabelEl = root.querySelector('.h2x-pagemenu-row label');
+    pageUnitEl = root.querySelector('.h2x-pageunit');
+    langZhBtn = root.querySelector('.h2x-langzh');
+    langEnBtn = root.querySelector('.h2x-langen');
     toastRoot = root.querySelector('.h2x-toasts');
     exportBtn.addEventListener('click', doExport);
     // v2.0：采集中「取消」变「停止采集」（只作废当前任务，不退出选择模式）
     cancelBtn.addEventListener('click', () => { collecting ? stopCollect() : exit(); });
     splitBtn.addEventListener('click', openPanel);
+    // v2.6.1：语言开关——点未激活语言切换过去；再点当前语言 = 回到跟随浏览器
+    langZhBtn.addEventListener('click', () => pickLang('zh'));
+    langEnBtn.addEventListener('click', () => pickLang('en'));
     // v2.5.2：下拉展开——点按钮开合设置面板；「开始采集」/槽内 Enter 触发采集
     pageBtn.addEventListener('click', togglePageMenu);
     pageGoBtn.addEventListener('click', () => { closePageMenu(); onCollectAllPages(); });
@@ -222,7 +261,63 @@
   // 导出按钮文案与格式下拉同步（含「导出中…」结束后的恢复）
   function syncExportBtn() {
     if (exporting) return; // 导出中保持「导出中…」，结束时统一恢复
-    exportBtn.textContent = '导出 ' + (FORMATS[fmtSel.value] || FORMATS.xlsx).label;
+    const fmt = FORMATS[fmtSel.value] || FORMATS.xlsx;
+    exportBtn.textContent = t('exportBtnLabel', '导出 ' + fmt.label, fmt.label);
+  }
+
+  /* ---------------- 界面语言开关（v2.6.1） ---------------- */
+
+  /** 语言开关高亮同步：aria-pressed 标注当前生效语言（手动选择优先，否则浏览器） */
+  function syncLangUI() {
+    if (!ns.i18n) return;
+    const cur = ns.i18n.langOf();
+    langZhBtn.setAttribute('aria-pressed', cur === 'zh' ? 'true' : 'false');
+    langEnBtn.setAttribute('aria-pressed', cur === 'en' ? 'true' : 'false');
+  }
+
+  /** 工具栏静态文案就地重取词（语言切换/偏好恢复后调用；进行时文案由各流程
+   *  t() 动态取词天然生效，无需在此处理）。只在空闲态被调用——切换期间
+   *  collecting/exporting/panel/specifying 任一进行都会禁用语言开关 */
+  function refreshTexts() {
+    countWrap.innerHTML = t('selectedCount', '已选 <b>' + selected.size + '</b> 个', String(selected.size));
+    countEl = countWrap.querySelector('b'); // innerHTML 重建了 <b>，重取引用
+    fmtSel.title = t('exportFormatTitle', '导出格式');
+    splitBtn.textContent = t('btnColSettings', '列设置');
+    cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
+    syncExportBtn();
+    pageBtn.innerHTML = t('btnCollectAll', '采集全部页') + '<i class="h2x-care" aria-hidden="true">▾</i>';
+    // 分页面板静态行文案（当前若展开会被先收拢，此处刷新的是下次展开内容）
+    pageBtn.title = t('pageBtnTitleDefault', '自动翻页采集已选中表格：点开可设置页数上限，识别不到分页器时可指定翻页按钮');
+    menuTitleEl.textContent = t('pageMenuTitle', '分页采集');
+    menuSubEl.textContent = t('pageMenuSub', '留空则采集全部页；识别不到分页器时会提示手动指定「下一页」按钮');
+    pageLimitLabelEl.textContent = t('pageLimitLabel', '页数上限');
+    pagesInput.placeholder = t('pageLimitPh', '全部');
+    pagesInput.title = t('pageLimitTitle', '只采集前 N 页，留空 = 全部页');
+    pagesInput.setAttribute('aria-label', t('pageLimitAria', '采集页数上限（留空为全部页）'));
+    pageUnitEl.textContent = t('pageUnit', '页');
+    pageCancelBtn.textContent = t('btnCancelShort', '取消');
+    pageGoBtn.textContent = t('btnStart', '开始采集');
+    resetHint(); // 空闲态提示回默认引导文案（语言切换不改变状态）
+  }
+
+  /** 语言切换入口：点未激活语言 = 切换过去并持久化；已是手动语言时再点 =
+   *  回到自动（跟随浏览器）；自动模式下点当前生效语言无操作。
+   *  手动英文需先经后台拉词表（异步），完成前生效语言不变，避免首帧闪中文 */
+  async function pickLang(code) {
+    if (!ns.i18n) return;
+    if (collecting || exporting || panel.isOpen() || specifying) return; // 防御：开关已禁用
+    const manual = ns.i18n.lang();
+    if (manual === null && ns.i18n.langOf() === code) return; // 自动且正是当前语言：无操作
+    const target = manual === code ? 'auto' : code; // 点当前手动语言 → 跟随浏览器
+    const before = ns.i18n.langOf();
+    await ns.i18n.setLang(target);
+    if (!active) return; // await 间隙用户已退出
+    if (ns.i18n.langOf() !== before) {
+      closePageMenu();
+      refreshTexts();
+      updateBar(); // 同步计数/主按钮 title/开关禁用态（语言变化后文案重取词）
+    }
+    syncLangUI();
   }
 
   /* ---------------- Toast 反馈系统（v2.0） ---------------- */
@@ -268,7 +363,7 @@
       const x = document.createElement('button');
       x.type = 'button';
       x.className = 'h2x-toast-x';
-      x.setAttribute('aria-label', '关闭');
+      x.setAttribute('aria-label', t('closeAria', '关闭'));
       x.textContent = '×';
       x.addEventListener('click', close);
       box.appendChild(x);
@@ -291,7 +386,7 @@
   }
 
   function resetHint() {
-    setHint(hasTables ? '点击选择表格（可多选）' : '页面未找到表格');
+    setHint(hasTables ? t('hintSelect', '点击选择表格（可多选）') : t('hintNoTables', '页面未找到表格'));
   }
 
   /* ---------------- 事件处理 ---------------- */
@@ -341,7 +436,7 @@
       const now = Date.now();
       if (now - lastBlockHint > 2000) {
         lastBlockHint = now;
-        toast('正在采集滚动数据，可点「停止采集」中止', { type: 'info' });
+        toast(t('toastCollectingClick', '正在采集滚动数据，可点「停止采集」中止'), { type: 'info' });
       }
       return;
     }
@@ -354,7 +449,7 @@
       exitSpecify();
       const table = [...selected.keys()].pop();
       if (btn && table && table.isConnected) startPagedCollect(table, manualPager(btn));
-      else if (btn) toast('已选表格已不在页面上，请重新选择后再采集', { type: 'warn' });
+      else if (btn) toast(t('toastTableGone', '已选表格已不在页面上，请重新选择后再采集'), { type: 'warn' });
       return;
     }
     const el = e.target instanceof Element ? e.target : null;
@@ -371,7 +466,7 @@
       e.stopPropagation();
       // 就地红框高亮被拦的链接（用户视线在点击处，右上角 toast 单独出现易被忽略）
       flashLink(link);
-      toast('选择模式下链接已停用，Esc 退出后可跳转', { type: 'warn', duration: 4000 });
+      toast(t('toastLinkBlocked', '选择模式下链接已停用，Esc 退出后可跳转'), { type: 'warn', duration: 4000 });
       return;
     }
     pruneDetached(); // 放行的点击可能触发翻页/筛选替换 DOM，同步剔除断开的选中项
@@ -389,7 +484,9 @@
       if (!table.isConnected) { removeSelected(table); removed++; }
     }
     if (removed) {
-      toast('已选表格已被页面刷新移除' + (removed > 1 ? '（' + removed + ' 个）' : ''), { type: 'warn' });
+      toast(removed > 1
+        ? t('toastTablesRemovedN', '已选表格已被页面刷新移除（' + removed + ' 个）', removed)
+        : t('toastTablesRemoved', '已选表格已被页面刷新移除'), { type: 'warn' });
     }
   }
 
@@ -504,7 +601,7 @@
     if (saved.rules.length) splitRules.set(table, saved.rules);
     if (saved.excluded.size) colFilters.set(table, saved.excluded);
     if (saved.formats.size) colFormats.set(table, saved.formats);
-    toast('已恢复上次的列设置', { type: 'info' });
+    toast(t('toastRestored', '已恢复上次的列设置'), { type: 'info' });
     updateBar(); // 「列设置」徽标点状态同步
   }
 
@@ -534,26 +631,26 @@
     hoverBox.hidden = true;
     exportBtn.disabled = true;
     splitBtn.disabled = true;
-    cancelBtn.textContent = '停止采集'; // v2.0：采集中可中止（不退出选择模式）
-    setHint('虚拟表格采集滚动中…', '#1976d2');
+    cancelBtn.textContent = t('btnStop', '停止采集'); // v2.0：采集中可中止（不退出选择模式）
+    setHint(t('hintVirtual', '虚拟表格采集滚动中…'), '#1976d2');
     try {
       const snap = await collectVirtual(
         table,
-        (n) => { if (gen === genToken) setHint('虚拟表格采集滚动中… 已采集 ' + n + ' 行', '#1976d2'); },
+        (n) => { if (gen === genToken) setHint(t('hintVirtualN', '虚拟表格采集滚动中… 已采集 ' + n + ' 行', n), '#1976d2'); },
         () => !active || gen !== genToken
       );
       if (!active || gen !== genToken) return; // 已退出/已作废（含「停止采集」）
       snapshots.set(table, snap);
       addSelected(table);
-      toast('采集完成，共 ' + snap.rows.length + ' 行（含表头）', { type: 'success' });
+      toast(t('toastCollectDone', '采集完成，共 ' + snap.rows.length + ' 行（含表头）', snap.rows.length), { type: 'success' });
       resetHint();
     } catch (err) {
       console.error('[HTML2XLSX] 虚拟表格采集失败：', err);
-      toast('采集失败：' + (err && err.message ? err.message : err), { type: 'error' });
+      toast(t('toastCollectFail', '采集失败：' + (err && err.message ? err.message : err), err && err.message ? err.message : err), { type: 'error' });
       resetHint();
     } finally {
       collecting = false;
-      cancelBtn.textContent = '取消 (Esc)';
+      cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
       updateBar();
     }
   }
@@ -563,7 +660,7 @@
    *  v2.5 起同样作用于分页翻页采集（collectPaged 同款令牌检查点） */
   function stopCollect() {
     genToken++;
-    toast('已停止采集', { type: 'info' });
+    toast(t('toastStopped', '已停止采集'), { type: 'info' });
     resetHint();
   }
 
@@ -597,7 +694,7 @@
     if (collecting || exporting || panel.isOpen() || specifying || !selected.size) return;
     const table = [...selected.keys()].pop(); // 唯一选中的表
     if (isVirtualTable(table)) {
-      toast('虚拟滚动表格点选时已自动采集全部行', { type: 'info' });
+      toast(t('toastVirtualAuto', '虚拟滚动表格点选时已自动采集全部行'), { type: 'info' });
       return;
     }
     const pager = detectPager(table);
@@ -611,7 +708,7 @@
     specifying = true;
     hoverTable = null;
     hoverBox.hidden = true;
-    setHint('未识别到分页器，请点击「下一页」按钮（Esc 取消）', '#1976d2');
+    setHint(t('hintSpecify', '未识别到分页器，请点击「下一页」按钮（Esc 取消）'), '#1976d2');
     updateBar();
   }
 
@@ -637,15 +734,15 @@
     splitBtn.disabled = true;
     closePageMenu(); // v2.5.2 采集中收拢下拉并禁用主按钮（updateBar 同步）
     pageBtn.disabled = true;
-    cancelBtn.textContent = '停止采集'; // 复用虚拟采集的中止交互
-    setHint('分页采集翻页中…', '#1976d2');
+    cancelBtn.textContent = t('btnStop', '停止采集'); // 复用虚拟采集的中止交互
+    setHint(t('hintPaged', '分页采集翻页中…'), '#1976d2');
     // 页数上限：输入框留空/非法值 = 0 = 采集全部页
     const n = parseInt(pagesInput.value, 10);
     const maxPages = (Number.isFinite(n) && n >= 1) ? n : 0;
     try {
       const res = await collectPaged(
         table, pager,
-        (page, n) => { if (gen === genToken) setHint('分页采集翻页中… 第 ' + page + ' 页，已采集 ' + n + ' 行', '#1976d2'); },
+        (page, n) => { if (gen === genToken) setHint(t('hintPagedN', '分页采集翻页中… 第 ' + page + ' 页，已采集 ' + n + ' 行', page, n), '#1976d2'); },
         () => !active || gen !== genToken,
         maxPages
       );
@@ -656,17 +753,17 @@
         if (key !== table && selected.has(table)) removeSelected(table); // 表格被重建：迁移选中
         snapshots.set(key, res.snap); // 重采覆盖旧快照
         if (!selected.has(key)) addSelected(key);
-        toast('采集完成，共 ' + res.snap.rows.length + ' 行（含表头）' +
-          (res.note ? '，' + res.note : ''), { type: res.note ? 'info' : 'success' });
+        toast(t('toastCollectDone', '采集完成，共 ' + res.snap.rows.length + ' 行（含表头）', res.snap.rows.length) +
+          (res.note ? t('noteSep', '，') + res.note : ''), { type: res.note ? 'info' : 'success' });
       }
       resetHint();
     } catch (err) {
       console.error('[HTML2XLSX] 分页采集失败：', err);
-      toast('采集失败：' + (err && err.message ? err.message : err), { type: 'error' });
+      toast(t('toastCollectFail', '采集失败：' + (err && err.message ? err.message : err), err && err.message ? err.message : err), { type: 'error' });
       resetHint();
     } finally {
       collecting = false;
-      cancelBtn.textContent = '取消 (Esc)';
+      cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
       updateBar();
     }
   }
@@ -686,10 +783,14 @@
     pageBtn.setAttribute('aria-disabled', pageOff ? 'true' : 'false');
     // 禁用原因随状态给出：多选时明确指向「只支持单表」，其余恢复功能说明
     pageBtn.title = (selected.size > 1)
-      ? '多表选择时不支持分页采集：请先取消其他表格，仅保留要采集的一个'
-      : '自动翻页采集已选中表格：点开可设置页数上限，识别不到分页器时可指定翻页按钮';
+      ? t('pageBtnTitleMulti', '多表选择时不支持分页采集：请先取消其他表格，仅保留要采集的一个')
+      : t('pageBtnTitleDefault', '自动翻页采集已选中表格：点开可设置页数上限，识别不到分页器时可指定翻页按钮');
     pagesInput.disabled = pageOff;
     if (pageOff) closePageMenu();
+    // v2.6.1：语言开关随忙碌态禁用（采集中/导出/面板/子模式期间不可切换，
+    // 防「切一半」——refreshTexts 只按空闲态就地重取词）
+    langZhBtn.disabled = busy;
+    langEnBtn.disabled = busy;
     // v2.0：已选表中存在拆分/筛选/格式配置 → 「列设置」按钮带徽标点
     let cfg = false;
     for (const tb of selected.keys()) {
@@ -723,7 +824,7 @@
         const s = String(fr.result);
         resolve(s.slice(s.indexOf(',') + 1));
       };
-      fr.onerror = () => reject(fr.error || new Error('base64 编码失败'));
+      fr.onerror = () => reject(fr.error || new Error(t('errBase64', 'base64 编码失败')));
       fr.readAsDataURL(new Blob([buf]));
     });
   }
@@ -755,9 +856,9 @@
   /** v2.0：导出成功保留选择（不再 0.6s 自动退出）——toast 给「退出」动作，
    *  用户可换格式连续导出；Esc / 取消 / toast 退出三条路径均可退出 */
   function finish(n) {
-    toast(n > 1 ? '已下载 ' + n + ' 个文件' : '已开始下载…', {
+    toast(n > 1 ? t('toastDownloaded', '已下载 ' + n + ' 个文件', n) : t('toastDownloadStart', '已开始下载…'), {
       type: 'success',
-      actions: [{ label: '退出', onClick: exit }]
+      actions: [{ label: t('btnExit', '退出'), onClick: exit }]
     });
   }
 
@@ -789,7 +890,7 @@
 
   /** 表单元 → xlsx 单文件（merges 与列宽随原逻辑） */
   function buildXlsxFile(tables, base) {
-    if (typeof XLSX === 'undefined') throw new Error('XLSX 库未加载');
+    if (typeof XLSX === 'undefined') throw new Error(t('errXlsxMissing', 'XLSX 库未加载'));
     const fmt = FORMATS.xlsx;
     const wb = XLSX.utils.book_new();
     for (const t of tables) {
@@ -853,8 +954,8 @@
     exporting = true; // await 让出主线程期间按钮未禁用，防重入（原同步链路天然互斥）
     // v2.0：导出中按钮反馈（防点击被静默吞掉）+ 进行时提示
     exportBtn.disabled = true;
-    exportBtn.textContent = '导出中…';
-    setHint('正在生成导出文件…', '#1976d2');
+    exportBtn.textContent = t('exportBtnBusy', '导出中…');
+    setHint(t('hintGenerating', '正在生成导出文件…'), '#1976d2');
     try {
       await persist.ready(); // 兜底注入初期的存储加载竞态（正常情况早已就绪）
       if (collecting || !selected.size) return; // await 期间状态可能变化
@@ -894,17 +995,17 @@
         files = fmtKey === 'xlsx' ? [buildXlsxFile(tables, base)] : buildTextFiles(fmtKey, base, tables);
       } catch (err) {
         console.error('[HTML2XLSX] 生成导出文件失败：', err);
-        showError('导出失败：' + (err && err.message ? err.message : err));
+        showError(t('toastExportFail', '导出失败：' + (err && err.message ? err.message : err), err && err.message ? err.message : err));
         return;
       }
 
       // 3. 逐文件编码下载（后台 downloads 优先，失败回退 blob）；
       //    v2.0：多文件时 toast 实时进度「正在下载 i/n」
       let pt = null;
-      if (files.length > 1) pt = toast('正在下载 1/' + files.length + '…', { type: 'info', sticky: true });
+      if (files.length > 1) pt = toast(t('toastDownloading', '正在下载 1/' + files.length + '…', 1, files.length), { type: 'info', sticky: true });
       for (let fi = 0; fi < files.length; fi++) {
         if (!active) return; // 编码间隙用户已退出，放弃下载
-        if (pt) pt.update('正在下载 ' + (fi + 1) + '/' + files.length + '…');
+        if (pt) pt.update(t('toastDownloading', '正在下载 ' + (fi + 1) + '/' + files.length + '…', fi + 1, files.length));
         await downloadFile(await arrayBufferToBase64(files[fi].buf), files[fi]);
         await yieldToMain();
       }
@@ -954,7 +1055,7 @@
   resetHint();
   if (!hasTables) {
     // v2.4：无表格页面只在底部 hint 留小字不够醒目，补一条警示 toast
-    toast('页面未找到表格，无法选择导出', { type: 'warn', duration: 4000 });
+    toast(t('toastNoTables', '页面未找到表格，无法选择导出'), { type: 'warn', duration: 4000 });
   }
   // 装配列设置面板依赖（host/Maps 为稳定引用；可变状态经 getter 读取）
   panel.init({
@@ -969,6 +1070,20 @@
     updateBar: updateBar,
     toast: toast
   });
+  syncLangUI(); // 工具栏语言开关初始高亮（默认按浏览器语言，见 i18n.js）
+  // v2.6.1：异步读取存储里的手动语言偏好；与初始（浏览器语言）不一致才就地重取词
+  if (ns.i18n) {
+    const langBefore = ns.i18n.langOf();
+    ns.i18n.init().then(() => {
+      if (!active) return;
+      if (ns.i18n.langOf() !== langBefore) {
+        closePageMenu();
+        refreshTexts();
+        updateBar();
+      }
+      syncLangUI();
+    });
+  }
   document.addEventListener('mouseover', onMouseOver, true);
   document.addEventListener('click', onClickCapture, true);
   document.addEventListener('keydown', onKeyDown, true);

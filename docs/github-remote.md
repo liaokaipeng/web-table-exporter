@@ -40,10 +40,22 @@ git push origin v2.6.1
 
 ### Release API 代发要点（已踩过，勿再踩）
 
-- token：`git credential fill`（stdin 写 `protocol=https`/`host=github.com`）读本机凭据管理器，token 全程不回显；先置 `GCM_INTERACTIVE=never` 防弹窗。**PowerShell `-File` 嵌套进程向 git 管道传 stdin 会失败（fatal: missing protocol field）**，须在内联终端执行或 `System.Diagnostics.Process` 直写 stdin
+- token：`git credential fill`（stdin 写 `protocol=https`/`host=github.com` 后留一空行）读本机凭据管理器，token 全程不回显；先置 `GCM_INTERACTIVE=never` 防弹窗。**PowerShell `-File` 嵌套进程向 git 管道传 stdin 会失败（fatal: refusing to work with credential missing protocol field，来自 GCM）**——脚本文件执行（含被 `-File` 包裹的自动化终端）均不可用管道喂 stdin，须内联终端执行，或改用**文件重定向 stdin**（唯一在 `-File` 下也稳的写法）：
+
+```powershell
+$env:GCM_INTERACTIVE='never'
+[System.IO.File]::WriteAllText('.git\_cred_in.txt', "protocol=https`nhost=github.com`n`n")
+Start-Process git -ArgumentList 'credential','fill' `
+  -RedirectStandardInput '.git\_cred_in.txt' -RedirectStandardOutput '.git\_cred_out.txt' `
+  -RedirectStandardError '.git\_cred_err.txt' -NoNewWindow -Wait
+# 再从 _cred_out.txt 取 password= 行；用毕删除三个临时文件
+```
+
+- `cmd /c "... < file"` 是更短的替代，但工具链禁止 `cmd`，勿依赖
 - body：正文存 UTF-8 文件，用 `[string](Get-Content -LiteralPath <f> -Raw -Encoding UTF8)` 读取；**必须强转 `[string]`**，否则 PS 5.1 `ConvertTo-Json` 把文件对象序列化进 body，GitHub 返回 422「body is not a string」
 - 创建：`POST /repos/<owner>/<repo>/releases`，JSON（tag_name/name/target_commitish/body），body 以 UTF-8 字节发送
-- 附件：`POST /repos/<owner>/<repo>/releases/<id>/assets?name=web-table-exporter-<ver>.zip`，头 `Content-Type: application/zip`，`Invoke-RestMethod -InFile <zip>`
+- 附件：**必须用创建响应里的 `upload_url`（`https://uploads.github.com/...`），不可自行拼 `api.github.com` 路径**——`POST https://api.github.com/repos/<owner>/<repo>/releases/<id>/assets` 一律 404。取法：`($rel.upload_url -replace '\{\?name,label\}','') + '?name=web-table-exporter-<ver>.zip'`，头 `Content-Type: application/zip`，`Invoke-RestMethod -InFile <zip>`
+- 核对：`GET /releases/tags/<tag>` 看 `draft=false` 与 body 编码；附件列表用 `GET /releases/<id>/assets`，再对 `browser_download_url` 发 HEAD 应 200 且长度与本地 zip 一致
 
 ## 凭据与安全
 

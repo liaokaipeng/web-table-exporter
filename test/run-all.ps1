@@ -46,7 +46,9 @@ try {
     @{ name = 'antdv';     url = "$base/test/antdv-fixture.html#e2e=1" },
     @{ name = 'aggrid';    url = "$base/test/aggrid-fixture.html#e2e=1" },
     @{ name = 'mui';       url = "$base/test/mui-fixture.html#e2e=1" },
-    @{ name = 'tabulator'; url = "$base/test/tabulator-fixture.html#e2e=1" }
+    @{ name = 'tabulator'; url = "$base/test/tabulator-fixture.html#e2e=1" },
+    @{ name = 'paged-el';     url = "$base/test/pagination-el-fixture.html#e2e=1" },
+    @{ name = 'paged-manual'; url = "$base/test/pagination-manual-fixture.html#e2e=1" }
   )
 
   if ($Interactive) {
@@ -122,7 +124,7 @@ try {
     $results += @{ page = $pg; ok = $ok; summary = $summary; fails = $fails; ms = $ms }
   }
 
-  Write-Host "浏览器：$(Split-Path -Leaf $browser)，七页并行 headless 运行："
+  Write-Host "浏览器：$(Split-Path -Leaf $browser)，九页并行 headless 运行："
   foreach ($res in $results) {
     $mark = if ($res.ok) { 'PASS' } else { 'FAIL' }
     $color = if ($res.ok) { 'Green' } else { 'Red' }
@@ -130,7 +132,7 @@ try {
     foreach ($f in $res.fails) { Write-Host "      FAIL $f" -ForegroundColor Red }
     if (-not $res.ok) { $e2eFail++ }
   }
-  if ($e2eFail -eq 0) { Write-Host "`n全部通过：语法 + 算法 + E2E（fixture / virtual / tablev2 / antdv / aggrid / mui / tabulator）" -ForegroundColor Green }
+  if ($e2eFail -eq 0) { Write-Host "`n全部通过：语法 + 算法 + E2E（fixture / virtual / tablev2 / antdv / aggrid / mui / tabulator / paged-el / paged-manual）" -ForegroundColor Green }
 } finally {
   if ($srv -and -not $srv.HasExited) { taskkill /PID $srv.Id /T /F | Out-Null }
 }

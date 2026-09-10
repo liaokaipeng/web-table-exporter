@@ -304,6 +304,7 @@
   await round('XLSX 导出', async (h) => {
     clickCell('#staff td');
     click(document.querySelector('table[aria-label="销售数据"] td'));
+    h.fmtSel.value = 'xlsx'; fire(h.fmtSel, 'change'); // v2.9：输出方式会被记住，显式指定免受上一轮影响
     click(h.exportBtn);
     const files = await waitExports(1);
     t('xlsx 导出文件生成（.xlsx）', files.length === 1 && /\.xlsx$/i.test(files[0].name), files[0] && files[0].name);
@@ -791,6 +792,54 @@
     const files = await waitExports(1);
     const lines = await csvLines(files[0]);
     t('合并结果取自 sync（排除姓名、保留部门）', lines[0] === '部门,入职日期', lines[0]);
+  });
+
+  /* ================= 轮次 X：输出方式与文件名记忆（v2.9） ================= */
+  const today = (() => {
+    const d = new Date(); const p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate());
+  })();
+  await round('输出方式与文件名记忆（保存）', async (h) => {
+    const nameEl = h.sr.querySelector('.h2x-name');
+    t('默认文件名为「页面标题_日期-时间」（v2.8 零回归）',
+      /_\d{8}-\d{6}$/.test(nameEl.value) && nameEl.value.indexOf(document.title) === 0, nameEl.value);
+    t('文件名输入框带模板说明（title/aria-label）',
+      nameEl.title.indexOf('{title}') >= 0 && nameEl.getAttribute('aria-label') === nameEl.title, nameEl.title);
+    h.fmtSel.value = 'json'; fire(h.fmtSel, 'change'); // 选择即记住
+    await waitFor(() => memStore['h2x.prefs'] && memStore['h2x.prefs'].fmt === 'json', 2000);
+    t('输出方式选择后写入偏好（h2x.prefs.fmt）',
+      !!(memStore['h2x.prefs'] && memStore['h2x.prefs'].fmt === 'json'), JSON.stringify(memStore['h2x.prefs'] || null));
+    nameEl.value = '订单导出_{date}'; // 编辑后 blur：记住为模板（占位符原样保存）
+    fire(nameEl, 'input');
+    fire(nameEl, 'blur');
+    await waitFor(() => memStore['h2x.prefs'] && memStore['h2x.prefs'].name === '订单导出_{date}', 2000);
+    t('文件名编辑后记住为模板（{date} 占位符原样保存）',
+      (memStore['h2x.prefs'] || {}).name === '订单导出_{date}', JSON.stringify((memStore['h2x.prefs'] || {}).name));
+    clickCell('#staff td');
+    click(h.exportBtn);
+    const files = await waitExports(1);
+    t('导出文件名按模板渲染（{date} → 当天）',
+      !!files[0] && files[0].name === '订单导出_' + today + '.json', files[0] && files[0].name);
+  });
+  await round('输出方式与文件名记忆（恢复）', async (h) => {
+    const nameEl = h.sr.querySelector('.h2x-name');
+    // 偏好为异步读取（存储 get）：等回填完成再断言
+    await waitFor(() => h.fmtSel.value === 'json' && nameEl.value === '订单导出_' + today, 2000);
+    t('重进选择模式恢复上次输出方式（JSON）',
+      h.fmtSel.value === 'json' && h.exportBtn.textContent.indexOf('JSON') >= 0,
+      h.fmtSel.value + '|' + h.exportBtn.textContent);
+    t('重进选择模式恢复文件名模板渲染结果', nameEl.value === '订单导出_' + today, nameEl.value);
+    nameEl.value = ''; // 清空 = 回落默认命名
+    fire(nameEl, 'input');
+    fire(nameEl, 'blur');
+    await waitFor(() => memStore['h2x.prefs'] && memStore['h2x.prefs'].name === '', 2000);
+    t('清空文件名后偏好记为空（回落默认）', (memStore['h2x.prefs'] || {}).name === '',
+      JSON.stringify((memStore['h2x.prefs'] || {}).name));
+    clickCell('#staff td');
+    click(h.exportBtn);
+    const files = await waitExports(1);
+    t('清空后导出回落默认命名（页面标题_日期-时间）',
+      /_\d{8}-\d{6}\.json$/.test((files[0] || {}).name || ''), files[0] && files[0].name);
   });
 
   log('=== harness 完成: ' + R.length + ' 项');

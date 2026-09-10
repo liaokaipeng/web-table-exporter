@@ -1015,14 +1015,15 @@ const actualModules = fs.readdirSync(path.join(__dirname, '..', 'extension', 'co
 check('模块清单：service-worker 注入列表与实际文件一致',
   [...swModules].sort(), [...actualModules].sort());
 // v2.5.2 教训：六个分页面 harness 漏注入 pagination.js（E2E 全线报 ns.pagination undefined）——
-// 清单检查从主 harness 扩到全部七个，任一 FILES 与 service-worker 依赖序不一致即失败
-const harnessFiles = fs.readdirSync(__dirname).filter(f => /^e2e-harness(-\w+)?\.js$/.test(f));
+// 清单检查从主 harness 扩到全部（v2.9 起九个：七页组件/虚拟 + 两个分页采集页），
+// 任一 FILES 与 service-worker 依赖序不一致即失败
+const harnessFiles = fs.readdirSync(__dirname).filter(f => /^e2e-harness(-\w+)*\.js$/.test(f));
 const harnessLists = harnessFiles.map(f => {
   const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
   const decl = src.match(/const FILES = \[([^\]]*)\]/);
   return { name: f, modules: decl ? [...decl[1].matchAll(/'(\w+)'/g)].map(m => m[1]) : [] };
 });
-check('模块清单：e2e-harness 数量齐备（七个页面 harness）', harnessFiles.length, 7);
+check('模块清单：e2e-harness 数量齐备（九个页面 harness）', harnessFiles.length, 9);
 for (const h of harnessLists) {
   check('模块清单：' + h.name + ' FILES 与实际文件一致', [...h.modules].sort(), [...actualModules].sort());
   check('模块清单：' + h.name + ' 与 service-worker 注入顺序一致（依赖序）', h.modules, swModules);
@@ -1107,6 +1108,9 @@ check('分页适配器：rootSel 互不相同（findPagerRoot 按注册序分发
   new Set(PAGER_ADAPTERS.map(a => a.rootSel)).size, PAGER_ADAPTERS.length);
 check('分页适配器：next/prev 均为单类名选择器（querySelector 可用）',
   PAGER_ADAPTERS.every(a => /^\.[\w-]+$/.test(a.nextSel) && /^\.[\w-]+$/.test(a.prevSel)), true);
+check('分页适配器：总页数选择器可选且非空（v2.9 取页码项最大值为总页数，缺省 = 不显示总数）',
+  PAGER_ADAPTERS.map(a => a.pageSel == null || (typeof a.pageSel === 'string' && a.pageSel.length > 0)),
+  PAGER_ADAPTERS.map(() => true));
 
 /* ================= 国际化词条一致性（i18n，v2.6） ================= */
 

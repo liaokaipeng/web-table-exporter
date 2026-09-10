@@ -1,5 +1,5 @@
 {
-  "extName": { "message": "Web Table Exporter: 导出表格" },
+  "extName": { "message": "Web Table Exporter：导出表格" },
   "extDesc": { "message": "Export web tables to Excel/CSV/JSON/MD/HTML. Free, open source, no tracking. Auto-collects virtual-scroll & paginated tables." },
   "actionTitle": { "message": "Export tables" },
 
@@ -28,6 +28,7 @@
   "btnClearTitle": { "message": "Clear selected tables" },
   "toastCleared": { "message": "Cleared all selected tables ($N$)", "placeholders": { "N": { "content": "$1" } } },
   "exportFormatTitle": { "message": "Export format / copy to clipboard" },
+  "nameTplTitle": { "message": "File name: {title} = page title, {date} = date, {time} = time; leave it empty for the default name" },
   "btnColSettings": { "message": "Columns" },
   "btnCollectAll": { "message": "Collect all pages" },
   "pageBtnTitleDefault": { "message": "Auto-collect the selected table across pages: open to set a page limit, or designate the next-page button if no paginator is detected" },
@@ -77,6 +78,9 @@
   "hintSpecify": { "message": "No paginator detected; click the \"next page\" button (Esc to cancel)" },
   "hintPaged": { "message": "Turning pages to collect…" },
   "hintPagedN": { "message": "Turning pages… page $P$, $N$ rows collected", "placeholders": { "P": { "content": "$1" }, "N": { "content": "$2" } } },
+  "hintPagedTotal": { "message": "Turning pages… page $P$/$T$, $N$ rows collected", "placeholders": { "P": { "content": "$1" }, "T": { "content": "$2" }, "N": { "content": "$3" } } },
+  "toastPagerReused": { "message": "Reusing the next-page button you designated last time" },
+  "toastPagerForgotten": { "message": "The remembered next-page button did not work, so it was cleared; click \"Collect all pages\" to designate it again" },
   "hintGenerating": { "message": "Generating export files…" },
   "toastDownloading": { "message": "Downloading $I$/$N$…", "placeholders": { "I": { "content": "$1" }, "N": { "content": "$2" } } },
   "toastDownloaded": { "message": "Downloaded $N$ file(s)", "placeholders": { "N": { "content": "$1" } } },

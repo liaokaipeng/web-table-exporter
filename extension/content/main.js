@@ -35,6 +35,10 @@
  * v2.8：导出可中止与列顺序——「取消」按钮在导出期变「停止导出」（exportToken
  * 作废当前任务，已落盘文件保留，不退出选择模式）；列顺序经 colOrders 传入
  * buildAoa 最后一环（reorderColumns）；剪贴板/下载成功 toast 反馈对称（均带退出动作）
+ * v2.9：界面偏好与翻页按钮记忆——①输出方式与文件名模板跨会话记住（'h2x.prefs'，
+ * 文件名支持 {title}/{date}/{time} 占位符，留空回落默认模板）；②分页采集进度带
+ * 总页数（「第 i/N 页」，见 pagination.js 适配器 totalOf）；③手动指定的翻页按钮
+ * 按「页面键 + 表指纹」记住（'h2x.pager.v1'，命中直接复用，未生效自动清除）
  */
 (() => {
   'use strict';
@@ -43,7 +47,7 @@
   const { timestamp, sanitizeFilename } = ns.util;
   const { extractTable, makeSheetName, splitGroupOf, gridRootOf, GRID_ROOT_SELECTOR } = ns.table;
   const { isVirtualTable, collectVirtual } = ns.virtual;
-  const { detectPager, manualPager, collectPaged, isPagingClick } = ns.pagination;
+  const { detectPager, manualPager, collectPaged, isPagingClick, pagerByLocator } = ns.pagination;
   const { applyColumnSplits, columnLayout, filterColumns, reorderColumns, colKeys, formatColumns, applyColFormats, autoColWidths } = ns.split;
   const { toCsv, toTsv, toJson, toMarkdown, toHtmlDocument } = ns.format;
   const panel = ns.panel;
@@ -79,6 +83,126 @@
     'copy-tsv': { key: 'copyTsvLabel', fb: '复制为表格 (TSV)' },
     'copy-md': { key: 'copyMdLabel', fb: '复制为 Markdown' }
   };
+
+  /* ---------------- 界面偏好（v2.9：输出方式 + 文件名模板） ----------------
+   * 存 chrome.storage.local 'h2x.prefs'：{ fmt, name }——fmt 为输出方式下拉值
+   * （五种导出格式 + 两种剪贴板模式），name 为文件名模板（用户编辑过的原文，
+   * 空串 = 用默认模板）。文件名支持 {title}/{date}/{time} 三个占位符，
+   * 未编辑过则每次进入选择模式按当前页面标题与时间重新渲染（与 v2.8 前一致） */
+  const PREF_KEY = 'h2x.prefs';
+  const NAME_TPL_DEFAULT = '{title}_{date}-{time}'; // {title} 已清洗，整体与旧默认名等价
+  let prefs = { fmt: '', name: '' };
+  let fmtTouched = false; // 本次会话用户改过输出方式：异步加载偏好不覆盖用户操作
+  let nameDirty = false;  // 本次会话用户改过文件名：blur 时记住为模板
+
+  const hasStorage = () =>
+    typeof chrome !== 'undefined' && !!(chrome.storage && chrome.storage.local);
+
+  /** 文件名模板渲染：{title} 页面标题（先清洗非法字符）/ {date} yyyymmdd /
+   *  {time} hhmmss。单遍替换——标题里带「{date}」这类字样不会被二次替换 */
+  function renderNameTpl(tpl) {
+    const ts = timestamp(); // yyyymmdd-hhmmss
+    return String(tpl).replace(/\{(title|date|time)\}/g, (m, k) => (
+      k === 'title' ? sanitizeFilename(document.title) : (k === 'date' ? ts.slice(0, 8) : ts.slice(9))
+    ));
+  }
+
+  /** 当前生效的文件名模板：输入框留空 = 回落默认模板（清空即恢复默认命名） */
+  const nameTpl = () => (nameInput.value.trim() ? nameInput.value : NAME_TPL_DEFAULT);
+
+  /** 读取界面偏好（注入时一次）：输出方式仅认已知值，文件名回填模板渲染结果；
+   *  用户已动过对应控件则不覆盖（异步间隙保护） */
+  async function loadPrefs() {
+    if (!hasStorage()) return;
+    try {
+      const data = await chrome.storage.local.get(PREF_KEY);
+      const p = data && data[PREF_KEY];
+      if (!p || typeof p !== 'object') return;
+      prefs = {
+        fmt: typeof p.fmt === 'string' ? p.fmt : '',
+        name: typeof p.name === 'string' ? p.name : ''
+      };
+    } catch (e) {
+      console.warn('[HTML2XLSX] 界面偏好读取失败（按默认值）：', e);
+      return;
+    }
+    if (!active) return;
+    if (!fmtTouched && (FORMATS[prefs.fmt] || CLIPBOARD[prefs.fmt])) {
+      fmtSel.value = prefs.fmt;
+      syncExportBtn();
+    }
+    if (!nameDirty && prefs.name) nameInput.value = renderNameTpl(prefs.name);
+  }
+
+  /** 写入界面偏好（fire-and-forget：失败降级为本次会话内有效） */
+  function savePrefs(patch) {
+    prefs = Object.assign({}, prefs, patch);
+    if (!hasStorage()) return;
+    try {
+      const p = chrome.storage.local.set({ [PREF_KEY]: prefs });
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* 扩展上下文失效：不影响本次会话已生效的值 */ }
+  }
+
+  /* ---------------- 手动指定的翻页按钮记忆（v2.9） ----------------
+   * 自建分页器每次采集都要手动指定一次「下一页」按钮，重复且易忘。此处把用户
+   * 指定的按钮定位器按「页面键 + 表指纹」记住（chrome.storage.local
+   * 'h2x.pager.v1'，单条记录容纳全部页面，LRU 上限 30 条），下次对同一表格点
+   * 「采集全部页」直接复用、不再进「指定翻页按钮」子模式；复用后未生效
+   * （连续两页无新行 / 表格失联）即清除记忆，避免一直踩失效按钮 */
+  const PAGER_KEY = 'h2x.pager.v1';
+  const PAGER_LIMIT = 30;      // 记忆条数上限（LRU：超出淘汰最旧）
+  const PAGER_SEP = '\u0001';  // 页面键与表指纹分隔（同 persist 表键约定）
+  let pagerMem = {};           // '<页面键>\u0001<表指纹>' -> { loc, updatedAt }
+
+  /** 记忆条目的键：页面键（origin+pathname）+ 表指纹；任一缺失返回 null（不记忆）。
+   *  表头变更 → 指纹变化 → 自动不命中（旧记忆自然失效，无需清理） */
+  function pagerEntryKey(table) {
+    const pk = (typeof location !== 'undefined') ? persist.pageKeyOf(location.href) : null;
+    const tk = persist.tableKeyOf(table);
+    return (pk && tk) ? pk + PAGER_SEP + tk : null;
+  }
+
+  /** 取本表记住的翻页按钮定位器；无记录/结构损坏返回 null */
+  function getPagerMem(table) {
+    const key = pagerEntryKey(table);
+    const loc = key && pagerMem[key] && pagerMem[key].loc;
+    if (!loc || typeof loc.sel !== 'string' || typeof loc.tag !== 'string' ||
+        !Number.isFinite(loc.idx)) return null;
+    return {
+      sel: loc.sel, idx: loc.idx, tag: loc.tag,
+      text: typeof loc.text === 'string' ? loc.text : ''
+    };
+  }
+
+  /** 记住/清除某表的翻页按钮（loc 为 null = 清除）；写入 fire-and-forget */
+  function savePagerMem(table, loc) {
+    const key = pagerEntryKey(table);
+    if (!key) return;
+    if (loc) pagerMem[key] = { loc: loc, updatedAt: Date.now() };
+    else delete pagerMem[key];
+    const keys = Object.keys(pagerMem);
+    if (keys.length > PAGER_LIMIT) {
+      keys.sort((a, b) => ((pagerMem[a] && pagerMem[a].updatedAt) || 0) - ((pagerMem[b] && pagerMem[b].updatedAt) || 0));
+      for (const k of keys.slice(0, keys.length - PAGER_LIMIT)) delete pagerMem[k];
+    }
+    if (!hasStorage()) return;
+    try {
+      const p = chrome.storage.local.set({ [PAGER_KEY]: pagerMem });
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* 扩展上下文失效：不影响本次会话 */ }
+  }
+
+  async function loadPagerMem() {
+    if (!hasStorage()) return;
+    try {
+      const data = await chrome.storage.local.get(PAGER_KEY);
+      const v = data && data[PAGER_KEY];
+      if (v && typeof v === 'object') pagerMem = v;
+    } catch (e) {
+      console.warn('[HTML2XLSX] 翻页按钮记忆读取失败（按未记忆处理）：', e);
+    }
+  }
 
   let active = true;
   let host = null;
@@ -285,10 +409,21 @@
     pageGoBtn.addEventListener('click', () => { closePageMenu(); onCollectAllPages(); });
     pageCancelBtn.addEventListener('click', closePageMenu);
     pagesInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); closePageMenu(); onCollectAllPages(); } });
-    // 格式切换：导出按钮文案同步（文件名扩展名在导出时按格式追加）
-    fmtSel.addEventListener('change', syncExportBtn);
+    // 格式切换：导出按钮文案同步（文件名扩展名在导出时按格式追加）；
+    // v2.9：选择即记住（下次进入选择模式恢复同一输出方式）
+    fmtSel.addEventListener('change', () => {
+      fmtTouched = true;
+      syncExportBtn();
+      savePrefs({ fmt: fmtSel.value });
+    });
+    // v2.9 文件名：编辑过即记住为模板（blur 时落盘，点导出按钮会先触发 blur）；
+    // 清空输入框 = 回落默认命名
+    nameInput.addEventListener('input', () => { nameDirty = true; });
+    nameInput.addEventListener('blur', () => { if (nameDirty) savePrefs({ name: nameInput.value.trim() }); });
 
-    nameInput.value = sanitizeFilename(document.title) + '_' + timestamp();
+    nameInput.title = t('nameTplTitle', '文件名：{title} 页面标题、{date} 日期、{time} 时间；留空 = 默认命名');
+    nameInput.setAttribute('aria-label', nameInput.title);
+    nameInput.value = renderNameTpl(NAME_TPL_DEFAULT);
   }
 
   // 导出按钮文案与格式下拉同步（含「导出中…」结束后的恢复）
@@ -324,6 +459,8 @@
     }
     clearBtn.title = t('btnClearTitle', '清空已选表格');
     clearBtn.setAttribute('aria-label', clearBtn.title);
+    nameInput.title = t('nameTplTitle', '文件名：{title} 页面标题、{date} 日期、{time} 时间；留空 = 默认命名');
+    nameInput.setAttribute('aria-label', nameInput.title);
     splitBtn.textContent = t('btnColSettings', '列设置');
     cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
     syncExportBtn();
@@ -490,7 +627,7 @@
       const btn = el && (el.closest('button, a, [role="button"]') || el);
       exitSpecify();
       const table = [...selected.keys()].pop();
-      if (btn && table && table.isConnected) startPagedCollect(table, manualPager(btn));
+      if (btn && table && table.isConnected) startPagedCollect(table, manualPager(btn), false);
       else if (btn) toast(t('toastTableGone', '已选表格已不在页面上，请重新选择后再采集'), { type: 'warn' });
       return;
     }
@@ -751,8 +888,9 @@
 
   /** 「采集全部页」入口：取唯一选中的表（v2.5.3 起多选时按钮禁用，此处恒为
    *  单表）。组件分页器（el-pagination / ant-pagination，pagination.js 适配器）
-   *  识别到直接采集；识别不到进入「指定翻页按钮」子模式兜底（用户点击下一页
-   *  控件，跨页经定位器重解析）。虚拟滚动表格不经此入口（点选时已自动滚动采集） */
+   *  识别到直接采集；v2.9 起先试上次记住的手动翻页按钮（同页面 + 同表指纹），
+   *  命中即直接采集、不再要求指定；都不可用才进入「指定翻页按钮」子模式兜底
+   *  （用户点击下一页控件，跨页经定位器重解析）。虚拟滚动表格不经此入口 */
   function onCollectAllPages() {
     if (collecting || exporting || panel.isOpen() || specifying || !selected.size) return;
     const table = [...selected.keys()].pop(); // 唯一选中的表
@@ -761,7 +899,14 @@
       return;
     }
     const pager = detectPager(table);
-    if (pager) { startPagedCollect(table, pager); return; }
+    if (pager) { startPagedCollect(table, pager, false); return; }
+    const remembered = getPagerMem(table);
+    const reused = remembered && pagerByLocator(remembered);
+    if (reused) { // v2.9：复用记忆的翻页按钮（元素已不在页面/解析失败时回落指定子模式）
+      toast(t('toastPagerReused', '已复用上次指定的翻页按钮'), { type: 'info' });
+      startPagedCollect(table, reused, true);
+      return;
+    }
     enterSpecify();
   }
 
@@ -787,8 +932,10 @@
    *  入 snapshots 供导出与列设置取样）。页数输入框非空时只采集指定页数（留空
    *  全部页）；「停止采集」保留已采集的页写入快照（退出选择模式才整体丢弃）。
    *  翻页中表格根被页面重建时，选中与配置迁移到新根（removeSelected +
-   *  addSelected，persist 记录按指纹自动恢复） */
-  async function startPagedCollect(table, pager) {
+   *  addSelected，persist 记录按指纹自动恢复）。
+   *  v2.9：fromMemory = 复用记忆的翻页按钮；手动指定（含复用）时把定位器写入
+   *  记忆，复用后未生效（连续两页无新行 / 表格失联）即清除，避免一直踩失效按钮 */
+  async function startPagedCollect(table, pager, fromMemory) {
     if (collecting) return;
     collecting = true;
     const gen = ++genToken;
@@ -799,13 +946,21 @@
     pageBtn.disabled = true;
     cancelBtn.textContent = t('btnStop', '停止采集'); // 复用虚拟采集的中止交互
     setHint(t('hintPaged', '分页采集翻页中…'), '#1976d2');
+    const manual = pager.name === 'manual' && pager.loc; // 手动指定/记忆复用的翻页按钮
+    if (manual) savePagerMem(table, pager.loc); // 记住用户指定的按钮（复用路径写入最新定位器，索引漂移自愈）
     // 页数上限：输入框留空/非法值 = 0 = 采集全部页
     const n = parseInt(pagesInput.value, 10);
     const maxPages = (Number.isFinite(n) && n >= 1) ? n : 0;
     try {
       const res = await collectPaged(
         table, pager,
-        (page, n) => { if (gen === genToken) setHint(t('hintPagedN', '分页采集翻页中… 第 ' + page + ' 页，已采集 ' + n + ' 行', page, n), '#1976d2'); },
+        // v2.9：分页器给出总页数时显示「第 i/N 页」，否则只显示当前页（0 = 未知）
+        (page, rows, total) => {
+          if (gen !== genToken) return;
+          setHint(total > 0
+            ? t('hintPagedTotal', '分页采集翻页中… 第 ' + page + '/' + total + ' 页，已采集 ' + rows + ' 行', page, total, rows)
+            : t('hintPagedN', '分页采集翻页中… 第 ' + page + ' 页，已采集 ' + rows + ' 行', page, rows), '#1976d2');
+        },
         () => !active || gen !== genToken,
         maxPages
       );
@@ -816,6 +971,13 @@
         if (key !== table && selected.has(table)) removeSelected(table); // 表格被重建：迁移选中
         snapshots.set(key, res.snap); // 重采覆盖旧快照
         if (!selected.has(key)) addSelected(key);
+        // v2.9：手动翻页按钮没翻动（连续两页无新行 / 表格失联）→ 清除记忆，别让下次继续踩
+        if (manual && (res.reason === 'noNew' || res.reason === 'tableLost')) {
+          savePagerMem(key, null);
+          if (fromMemory) {
+            toast(t('toastPagerForgotten', '上次记住的翻页按钮未生效，已清除记忆；再点「采集全部页」可重新指定'), { type: 'warn', duration: 4000 });
+          }
+        }
         toast(t('toastCollectDone', '采集完成，共 ' + res.snap.rows.length + ' 行（含表头）', res.snap.rows.length) +
           (res.note ? t('noteSep', '，') + res.note : ''), { type: res.note ? 'info' : 'success' });
       }
@@ -1111,7 +1273,9 @@
 
       // 3. 按所选格式生成下载文件列表（CSV 多表为多文件，其余单文件）
       const fmtKey = FORMATS[fmtSel.value] ? fmtSel.value : 'xlsx';
-      const base = sanitizeFilename(nameInput.value) || ('export_' + timestamp());
+      // v2.9：文件名按模板渲染（{title}/{date}/{time} 取当前页面标题与时间）；
+      // 输入框留空 = 回落默认模板，仍为空则用 export_<时间戳> 兜底
+      const base = sanitizeFilename(renderNameTpl(nameTpl())) || ('export_' + timestamp());
       let files;
       try {
         files = fmtKey === 'xlsx' ? [buildXlsxFile(tables, base)] : buildTextFiles(fmtKey, base, tables);
@@ -1207,6 +1371,9 @@
     toast: toast
   });
   syncLangUI(); // 工具栏语言开关初始高亮（默认按浏览器语言，见 i18n.js）
+  // v2.9：异步读界面偏好（输出方式 + 文件名模板）与手动翻页按钮记忆
+  loadPrefs();
+  loadPagerMem();
   // v2.6.1：异步读取存储里的手动语言偏好；与初始（浏览器语言）不一致才就地重取词
   if (ns.i18n) {
     const langBefore = ns.i18n.langOf();

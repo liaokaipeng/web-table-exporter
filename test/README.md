@@ -15,7 +15,7 @@
 | `e2e-harness-tablev2.js` | E2E 注入回归（tablev2-fixture.html，无扩展环境）：网格表格识别与悬浮整体高亮、点击后自动滚动采集（500 行全量）、固定列双分区拼接列序、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 24/24 pass |
 | `antdv-fixture.html` | Ant Design Vue 4.x Table（原生 table + ant-table 包装类，零组件特判）：普通表格（4 行含控件列）、`scroll.y` 分体结构（表头表 + 数据表，复刻 a-table 固定列 sticky cell + spacer 占位列）、JS 属性设值控件、普通 table 回归 | 悬浮整体高亮、一次点选，预期值见页内标注 |
 | `e2e-harness-antdv.js` | E2E 注入回归（antdv-fixture.html，无扩展环境）：分体配对命中（走既有 el-table 同构逻辑）、行数/列序（spacer 占位列不导出）、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 19/19 pass |
-| `aggrid-fixture.html` | AG Grid（v28+，ag-theme-balham）虚拟化表格：div + ARIA role 结构、单垂直滚动容器（固定列分区为其子级）、pinned 左固定列、行节点复用（aria-rowindex 重分配，DOM 序刻意倒置注入）、300 行含 3 条分散重复行、JS 属性设值控件、普通 table 回归 | 悬浮整体高亮、一次点选自动采集 301 行（含表头）、行序按 aria-rowindex 还原、固定列在前拼接、重复行保留 |
+| `aggrid-fixture.html` | AG Grid（v28+，ag-theme-balham）虚拟化表格：div + ARIA role 结构、单垂直滚动容器（固定列分区为其子级）、pinned 左固定列、行节点复用（aria-rowindex 重分配，DOM 序刻意倒置注入；v2.9 窗口衔接的「元素身份重叠」路径在此页被真实覆盖——若按引用误并/误丢，301 行断言即失败）、300 行含 3 条分散重复行、JS 属性设值控件、普通 table 回归 | 悬浮整体高亮、一次点选自动采集 301 行（含表头）、行序按 aria-rowindex 还原、固定列在前拼接、重复行保留 |
 | `e2e-harness-aggrid.js` | E2E 注入回归（aggrid-fixture.html，无扩展环境）：网格识别（表头/表体/固定列命中同一根）、自动滚动采集全量、行序排序（DOM 倒置修正）、固定列拼接列序、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 25/25 pass |
 | `mui-fixture.html` | MUI X DataGrid（v6/v7）虚拟化表格：div + ARIA role 结构、单滚动容器 virtualScroller、pinned 为同行 sticky cell（无独立分区）、行节点复用（aria-rowindex，DOM 序刻意倒置注入）、300 行含 3 条分散重复行、JS 属性设值控件、普通 table 回归 | 悬浮整体高亮、一次点选自动采集 301 行（含表头）、行序按 aria-rowindex 还原、重复行保留 |
 | `e2e-harness-mui.js` | E2E 注入回归（mui-fixture.html，无扩展环境）：网格识别、自动滚动采集全量、行序排序、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 24/24 pass |
@@ -26,13 +26,13 @@
 | `pagination-ant-fixture.html` | 分页表格（复刻 ant-pagination 类名结构：li.ant-pagination-prev/item/next，页码为 a 链接，禁用态 aria-disabled + .ant-pagination-disabled）：4 页 × 6 行 | 选中表 → 点「采集全部页」展开设置 → 点「开始采集」（留空 = 全部页）自动采集 25 行（含表头）、首行「订单 A-1」末行「订单 D-6」、完成回到第 1 页；验证翻页按钮为链接结构时编程式点击豁免采集期拦截；选择模式下手动点页码可翻页（v2.4 点击放行） |
 | `pagination-manual-fixture.html` | 分页表格（自建分页器，类名与组件库无交集，「下一页」为 a 链接且末页无 disabled 态）：3 页 × 5 行 | 选中表 → 点「采集全部页」展开设置 → 点「开始采集」进入「指定翻页按钮」子模式（hint 提示 + 悬浮高亮任意元素）→ 点击「下一页 »」后采集：toast 16 行（含表头）+「自当前页开始采集，连续翻页无新数据，已停止」；验证子模式拦截所有点击（含链接）、Esc 取消不丢选区、行为停止条件（连续 2 页无新行）；v2.9 指定一次即按页面记住（`h2x.pager.v1`），再次采集直接复用（toast「已复用上次指定的翻页按钮」），按钮从页面消失时回落子模式且保留记忆 |
 | `e2e-harness-paged-manual.js` | E2E 注入回归（pagination-manual-fixture.html，无扩展环境）：指定翻页按钮并记住（定位器 sel/tag 断言）、复用记忆按钮（不再进子模式 + 复用 toast）、生效的记忆保留、按钮失联回落子模式且不清记忆、自建分页器无总页数时进度只显示当前页、Esc 取消子模式不丢选区 | 控制台输出 `__TEST_RESULT` 数组 16/16 pass |
-| `algo-check.cjs` | 纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列顺序/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具、模块清单一致性、国际化词条一致性——覆盖明细见下节 | 全部 PASS（212 项） |
+| `algo-check.cjs` | 纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列顺序/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具、模块清单一致性、国际化词条一致性——覆盖明细见下节 | 全部 PASS（219 项） |
 
 ## algo-check 覆盖明细
 
 | 类别 | 覆盖 |
 |---|---|
-| 采集算法（virtual.js） | 滑动窗口去重、合法重复行保留、非虚拟误报无损、渲染延迟、5000 行性能 |
+| 采集算法（virtual.js） | 滑动窗口去重、合法重复行保留、非虚拟误报无损、渲染延迟、5000 行性能、超 200 行窗口（回归）；v2.9 元素身份重叠（refOverlapLen 对齐/整窗/无复用边界、refTopsMatch 内容二次校验）、行节点复用 + 相邻重复行不误并、同批节点换绑数据不整窗吞掉、无复用 + 相邻全同的既有限制（用例固化） |
 | 列拆分（split.js） | 三模式（control/block/delimiter，control 含多控件各自成列/参差补齐/空值占位）、段数上限、从右到左多规则、块内空格不拆（对照 delimiter）、多行表头、含 merges 禁用、规则解析不到原样返回 |
 | 列筛选（split.js） | colKeys 唯一表头/重名/空表头兜底、columnLayout 段列映射与短路、filterColumns 排除/全排除防御/短行补空、拆分+筛选端到端 |
 | 列顺序（split.js v2.8） | reorderColumns 原列整体重排、自然序/空/缺省 order 原引用零回归、未命中键忽略+自然序补齐、拆分新列跟随原列、与列筛选组合（按过滤后位置重排，防列号错位）、数字列键（无表头兜底）重排 |

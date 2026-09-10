@@ -1,6 +1,10 @@
 /**
  * 虚拟滚动表格支持：识别与自动滚动采集
  * 依赖：table（getRows）、cell（openBatch 批量取值）——均在函数调用时解引用
+ * v2.9：窗口衔接改为「元素身份优先、内容匹配兜底」——行节点复用的虚拟列表（组件库
+ * 常态：滚动时复用同一批行元素只换绑定数据）按 DOM 元素身份求重叠，相邻多行内容
+ * 完全相同时不再被内容匹配过度合并（修复已知限制：相邻重复行少采）；无复用（节点
+ * 整窗重建）或引用重叠内容不符时回落内容匹配，行为与 v2.8 一致
  */
 (() => {
   'use strict';
@@ -53,10 +57,37 @@
     return 0;
   }
 
+  /** 元素引用重叠：上一窗口尾部与本窗口头部 DOM 行元素相同的行数。行节点复用的
+   *  虚拟列表（滚动时复用同一批行元素、只换绑定数据）据此可精确判定重叠——内容
+   *  全同也不歧义；无复用（节点整窗重建）/ 首窗口返回 0（回落内容匹配）*/
+  function refOverlapLen(prevRefs, winRefs) {
+    if (!prevRefs || !winRefs || !prevRefs.length || !winRefs.length) return 0;
+    const max = Math.min(prevRefs.length, winRefs.length);
+    for (let k = max; k >= 1; k--) {
+      let ok = true;
+      for (let i = 0; i < k; i++) {
+        if (winRefs[i] !== prevRefs[prevRefs.length - k + i]) { ok = false; break; }
+      }
+      if (ok) return k;
+    }
+    return 0;
+  }
+
+  /** 引用重叠的 k 行「内容是否与已累积数据尾部一致」的二次校验：节点被跨数据复用
+   *  （同元素换了别行内容）时不采信元素身份，回落内容匹配（防误丢行） */
+  function refTopsMatch(dataSigs, winSigs, k) {
+    if (k <= 0 || k > dataSigs.length || k > winSigs.length) return false;
+    const base = dataSigs.length - k;
+    for (let i = 0; i < k; i++) {
+      if (dataSigs[base + i] !== winSigs[i]) return false;
+    }
+    return true;
+  }
+
   /**
    * 自动滚动采集虚拟表格全部行：回顶 → 按视口 80% 步长逐步下滚 → 逐窗口提取。
-   * 表头行剥离只保留一份；数据行用「相邻窗口重叠合并」（后缀/前缀匹配）衔接，
-   * 既消除窗口重叠区的重复，也保留数据中合法的重复行。
+   * 表头行剥离只保留一份；数据行用「相邻窗口重叠合并」衔接，既消除窗口重叠区的
+   * 重复，也保留数据中合法的重复行（重叠数优先按行元素身份判定，见 refOverlapLen）。
    * 参数可为普通 table、分体包装容器（滚动容器挂在数据表上层，表头行经 getRows
    * 合并取）或 div 网格表格（el-table-v2：滚动 window 为组件内 overflow:hidden 容器，
    * 编程式 scrollTop 有效并触发组件重渲染窗口行；固定列时多分区联动设置）。
@@ -104,17 +135,19 @@
         win.push(row);
         winRefs.push(el);
       }
-      // DOM 行元素与上一窗口完全相同（同一批节点）：
-      // 非虚拟表格被误判时每窗口都是同一批行；虚拟表格渲染未完成时同理。均无新行。
-      if (!firstWin && winRefs.length === prevRefs.length &&
-          winRefs.every((el, i) => el === prevRefs[i])) {
-        return 0;
-      }
+      // DOM 行元素与上一窗口完全相同（同一批节点）：非虚拟表格被误判时每窗口都是
+      // 同一批行；虚拟表格渲染未完成时同理。二者都交给内容匹配兜底判定——内容也
+      // 相同 → 重叠整窗、零新增；内容变了（同批节点原样换绑数据）→ 按内容求重叠，
+      // 不因「节点没变」而整窗吞掉新行
+      const winSigs = win.map(sigOf);
+      const sameRefs = !firstWin && winRefs.length === prevRefs.length &&
+        winRefs.every((el, i) => el === prevRefs[i]);
+      const kRef = sameRefs ? 0 : refOverlapLen(prevRefs, winRefs);
       prevRefs = winRefs;
-      const k = overlapLen(dataSigs, win.map(sigOf));
+      const k = (kRef > 0 && refTopsMatch(dataSigs, winSigs, kRef)) ? kRef : overlapLen(dataSigs, winSigs);
       for (let i = k; i < win.length; i++) {
         data.push(win[i]);
-        dataSigs.push(win[i].sig); // sig 已由 win.map 计算，直接取缓存
+        dataSigs.push(winSigs[i]); // 签名已由 win.map 计算，直接取缓存
       }
       return win.length - k; // 新增行数
     };
@@ -171,5 +204,11 @@
     }
   }
 
-  ns.virtual = { isVirtualTable: isVirtualTable, collectVirtual: collectVirtual, overlapLen: overlapLen };
+  ns.virtual = {
+    isVirtualTable: isVirtualTable,
+    collectVirtual: collectVirtual,
+    overlapLen: overlapLen,
+    refOverlapLen: refOverlapLen, // v2.9 元素身份重叠（纯函数，algo-check 整文件加载回归）
+    refTopsMatch: refTopsMatch
+  };
 })();

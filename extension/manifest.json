@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "__MSG_extName__",
   "description": "__MSG_extDesc__",
-  "version": "2.8.0",
+  "version": "2.9.0",
   "default_locale": "zh_CN",
   "action": {
     "default_title": "__MSG_actionTitle__"

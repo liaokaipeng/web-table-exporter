@@ -1,6 +1,6 @@
 // 算法回归测试：验证「相邻窗口重叠合并」采集算法、「列拆分」与「分体表格配对」纯函数的各场景
-// - overlapLen 直接加载 extension/content/virtual.js 的实现（保证与实现同步）；
-//   takeWindow 逻辑在测试内模拟
+// - overlapLen / refOverlapLen / refTopsMatch 直接加载 extension/content/virtual.js 的实现
+//   （保证与实现同步）；takeWindow 逻辑在测试内按其同构模拟
 // - 列拆分函数直接加载 extension/content/split.js 整个模块（零依赖纯函数文件）
 // - 分体表格配对直接加载 extension/content/table.js 的 pairSplitGroup / makeSheetName
 //   （模块级代码零 DOM 引用，可整文件加载；仅调用纯函数，表名生成以对象桩模拟 DOM，
@@ -19,7 +19,7 @@ function loadModule(relPath, modName, preNs) {
   return new Function('window', src + '\n;return window.__h2x.' + modName + ';')({ __h2x: preNs || {} });
 }
 
-const { overlapLen } = loadModule('virtual.js', 'virtual');
+const { overlapLen, refOverlapLen, refTopsMatch } = loadModule('virtual.js', 'virtual');
 const {
   splitByDelimiter, splitBlocks, limitBlocks, splitSegments, splitColName,
   resolveRuleCol, colKeys, columnLayout, filterColumns, reorderColumns, applyColumnSplits,
@@ -36,18 +36,21 @@ const util = loadModule('util.js', 'util');
 const { csvCell, toCsv, tsvCell, toTsv, headerKeys, rowObjects, toJson, mdCell, toMarkdown, toHtmlDocument } =
   loadModule('format.js', 'format', { util });
 
-// 模拟 takeWindow 完整逻辑（含 DOM 引用判定 + 重叠合并）
+// 模拟 takeWindow 完整逻辑（含「同批节点」判定 + 重叠合并），与 virtual.js 同构：
+// 重叠数优先按 DOM 行元素身份判定（refOverlapLen，行节点复用组件精确），无复用或
+// 引用重叠与已累积内容不符时回落内容匹配（overlapLen）；「整窗同一批节点」交给内容
+// 匹配兜底（内容也相同 = 零新增，内容变了 = 按内容求重叠，不整窗吞掉新行）
 // 窗口输入：{ rows: string[], refs: object[] }（refs 模拟 DOM 行元素引用）
 function run(windows) {
   const acc = [];
   let prevRefs = null;
   for (const { rows, refs } of windows) {
     const firstWin = prevRefs === null;
-    if (!firstWin && refs.length === prevRefs.length && refs.every((el, i) => el === prevRefs[i])) {
-      continue; // DOM 未变，无新行
-    }
+    const sameRefs = !firstWin && refs.length === prevRefs.length &&
+      refs.every((el, i) => el === prevRefs[i]);
+    const kRef = sameRefs ? 0 : refOverlapLen(prevRefs, refs);
     prevRefs = refs;
-    const k = overlapLen(acc, rows);
+    const k = (kRef > 0 && refTopsMatch(acc, rows, kRef)) ? kRef : overlapLen(acc, rows);
     for (let i = k; i < rows.length; i++) acc.push(rows[i]);
   }
   return acc;
@@ -139,8 +142,47 @@ check('超 200 行窗口重叠合并（回归）',
   ]),
   Array.from({length: 270}, (_, i) => 'r' + i));
 
-// 已知限制（不在断言内，记录用）：数据全同 + 虚拟滚动 + 整窗重建时，
-// 内容匹配无法区分重叠与新行，理论上会少采。普通场景（行内容各异或部分重复）均正确。
+// 7c. 纯函数：元素身份重叠（refOverlapLen）与内容二次校验（refTopsMatch，v2.9）
+const n1 = {}, n2 = {}, n3 = {}, n4 = {};
+check('refOverlapLen：窗口头部与上窗尾部引用对齐，取最大重叠',
+  refOverlapLen([n1, n2, n3], [n2, n3, n4]), 2);
+check('refOverlapLen：整窗同一批引用 = 整窗重叠',
+  refOverlapLen([n1, n2], [n1, n2]), 2);
+check('refOverlapLen：无复用 / 首窗口（null）/ 空数组均返回 0',
+  [refOverlapLen([n1, n2], [n3, n4]), refOverlapLen(null, [n1]), refOverlapLen([n1], [])],
+  [0, 0, 0]);
+check('refTopsMatch：引用重叠的行内容须与已累积尾部一致（不符则不采信元素身份）',
+  [refTopsMatch(['A', 'A'], ['A', 'B'], 2), refTopsMatch(['A', 'B'], ['B', 'C'], 1), refTopsMatch([], ['A'], 1)],
+  [false, true, false]);
+
+// 7d. 行节点复用 + 相邻多行内容完全相同（v2.9 修复的已知限制）：内容匹配会把「已
+// 累积尾部」与「窗口头部」的最大公共段当作重叠，把中间的合法重复行吞掉；按元素
+// 身份求重叠后精确（数据 [X,A,A,A,B] 的第二个窗口曾少采一行 A）
+check('相邻重复行（行节点复用）不误并（v2.9 修复）',
+  run([
+    { rows: ['X', 'A', 'A'],       refs: [n1, n2, n3] },
+    { rows: ['A', 'A', 'A'],       refs: [n2, n3, n4] },
+    { rows: ['A', 'A', 'B'],       refs: [n3, n4, {}] },
+  ]),
+  ['X', 'A', 'A', 'A', 'B']);
+
+// 7e. 同批节点原样换绑数据（节点没变但内容变了）：不再整窗吞掉，按内容求重叠
+check('同批节点内容已变时不整窗吞掉（按内容求重叠）',
+  run([
+    { rows: ['A', 'B'], refs: [n1, n2] },
+    { rows: ['B', 'C'], refs: [n1, n2] },
+  ]),
+  ['A', 'B', 'C']);
+
+// 已知限制（v2.9 收窄，上面 7d 用例固化「有复用」的正确性）：仅当「行节点整窗重建
+// （无复用）+ 相邻多行内容完全相同」时，内容匹配无法区分重叠与新行，仍可能少采；
+// 下方用例固化该既有限制，若将来实现按滚动位置/行号锚定可一并改为期望全采
+check('相邻重复行（节点整窗重建）仍按内容匹配：既有限制固化',
+  run([
+    { rows: ['A', 'A', 'A'],        refs: [{}, {}, {}] },
+    { rows: ['A', 'A', 'A', 'B'],   refs: [{}, {}, {}, {}] },
+  ]),
+  ['A', 'A', 'A', 'B']);
 
 /* ================= 列拆分（split.js 模块函数，文件头部已加载） ================= */
 

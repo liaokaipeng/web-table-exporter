@@ -9,7 +9,7 @@
 | `fixture.html` | 普通表格、rowspan/colspan 合并（带 caption）、空单元格/长文本、控件取值（第 4 节：select 单/多选、空值/value=文本、checkbox/radio、hidden、date/textarea/output、一格多控件、ARIA switch/slider/listbox/combobox、el/ant/van 组件开关、嵌套开关、类名形似非开关回退）、列拆分（第 5 节：控件值拆分（含同格多控件各自成列，复刻店小秘秒杀价/库存双输入）、按换行拆分、分隔符拆分、智能预填、段数不足补空、合并表格禁用）、分体表格合并（第 6 节：表头/表体两个 table 复刻 Element Plus el-table，垂直+水平双向滚动裁剪（表宽 860 > 容器 620，表头 scrollLeft 同步）、gutter 占位列）、图片链接导出（第 8 节：纯图片/图片+文字/无链接图片/控件+图片/双行格含图按换行拆分）、列格式（第 9 节：文本=默认零回归、数字列数值化（千分位剥离、解析失败保原文本）、拆分新列继承、合并单元格表格仍可设置）、选择模式下链接不跳转 | 行内「预期导出」列 |
 | `virtual-fixture.html` | 60 行虚拟滚动（thead 无 tr、input/select 由 JS 属性设值模拟 Vue、el-switch 开关列）；分体表格 + 虚拟滚动组合（表头/表体两个 table 复刻 vxe-table，滚动容器在数据表上层）；采集后拆分列面板回归（预期值见页内说明） | 61 行全采集（60 数据 + 表头）；序号 1/26/41 三行内容完全相同应全部保留（重复行不误删）；发货仓「华东仓(1)/华南仓(2)」、开关「是/否」；分体表悬浮整体高亮、一次点选、采集 41 行（40 数据 + 表头）、一口价取 JS 实时值 |
 | `auto-check.html` | DOM 层自动化回归（无扩展环境，页内自判 PASS/FAIL）：控件取值（controls.controlValue：input/checkbox/radio/hidden/date/textarea/output、select 单/多选、ARIA switch/slider、el-switch 类名开关、类名形似回退 null）；单元格四通道（cell.openBatch：空白归一化、nbsp/换行/连续空格压缩、控件 merged/text/ctrl 三通道、多控件对齐、嵌套开关不重复计数、图片绝对链接、无 src 图片为空）；表格提取（table.extractTable：常规 thead、rowspan/colspan 展开+merges、多行表头、无 thead 全 th 行计表头、display:none 行过滤）；导出管线端到端（提取→block+control 拆分→列筛选→数字格式→csv/json 精确对比，JS 属性设值复刻 Vue 实时状态） | 页内 summary「37 项全部 PASS」 |
-| `e2e-harness.js` | E2E 全链路注入回归（fixture.html，无扩展环境）：桩 chrome.storage（内存）与 runtime.sendMessage（走 blob 回退），捕获导出内容逐项断言。覆盖：选择交互（v2.4 非表格点击放行、被移除已选表格自动剔除 + toast 告知）、链接拦截（preventDefault + 警示 toast + 被拦链接就地红框高亮及还原）、Esc 退出、CSV/JSON/MD/HTML/XLSX 内容（BOM/CRLF、RFC4180 转义、列N兜底、thead 归位）、merges、Sheet 名、自适应列宽（解包 zip 读 cols XML）、XLSX 全量单元格比对（值+类型逐格，含合并延续空位与数字格式 t:n）、列拆分三模式、列筛选、列格式、分体表格合并、持久化保存/恢复/重置、面板折叠与默认收起 | 控制台输出 `__TEST_RESULT` 数组 110/110 pass |
+| `e2e-harness.js` | E2E 全链路注入回归（fixture.html，无扩展环境）：桩 chrome.storage（内存）与 runtime.sendMessage（走 blob 回退），捕获导出内容逐项断言。覆盖：选择交互（v2.4 非表格点击放行、被移除已选表格自动剔除 + toast 告知）、链接拦截（preventDefault + 警示 toast + 被拦链接就地红框高亮及还原）、Esc 退出、CSV/JSON/MD/HTML/XLSX 内容（BOM/CRLF、RFC4180 转义、列N兜底、thead 归位）、merges、Sheet 名、自适应列宽（解包 zip 读 cols XML）、XLSX 全量单元格比对（值+类型逐格，含合并延续空位与数字格式 t:n）、列拆分三模式、列筛选、列格式、分体表格合并、持久化保存/恢复/重置、面板折叠与默认收起、复制到剪贴板（TSV/Markdown，桩 Clipboard API 捕获文本）、清空已选与面板「恢复默认」 | 控制台输出 `__TEST_RESULT` 数组 125/125 pass |
 | `e2e-harness-virtual.js` | E2E 注入回归（virtual-fixture.html，无扩展环境）：虚拟滚动采集 61 行、合法重复行保留、控件实时值（input/select JS 属性设值）、分体表+虚拟滚动组合 41 行、采集后面板快照与默认收起/展开预设 | 控制台输出 `__TEST_RESULT` 数组 33/33 pass |
 | `tablev2-fixture.html` | Element Plus el-table-v2 虚拟化表格（div 网格结构，无 table 元素）：500 行两例——纯主分区网格 + 固定列（left/main 双分区，滚动联动）、JS 渲染窗口模拟虚拟滚动（仅渲染可见行 ± 缓存）、表头 dynamic-header-row、控件列（input/select JS 属性设值）、行内操作按钮 | 悬浮整体高亮、一次点选自动滚动采集 501 行（500 数据 + 表头）、固定列按视觉列序拼接（固定列在前）、控件取实时值、重复行保留 |
 | `e2e-harness-tablev2.js` | E2E 注入回归（tablev2-fixture.html，无扩展环境）：网格表格识别与悬浮整体高亮、点击后自动滚动采集（500 行全量）、固定列双分区拼接列序、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 24/24 pass |
@@ -24,7 +24,7 @@
 | `pagination-el-fixture.html` | 分页表格（复刻 el-pagination 类名结构：button.btn-prev / ul.el-pager / button.btn-next，disabled 态类 + 属性双写）：5 页 × 8 行、翻页仅重建 tbody、input 控件列（JS 设值）、普通无分页表回归 | 选中表 → 点「采集全部页」展开设置 → 点「开始采集」（页数上限留空 = 全部页）自动识别直接采集：toast 41 行（含表头）、首行「商品 P1-1」末行「商品 P5-8」、一口价列取 input 实时值；先翻到第 3 页再采集应先回第一页采全量、完成回到第 1 页；面板页数上限填 2 → 只采前 2 页（toast 17 行 +「已采集指定 2 页」，输入框 Enter 同效）；采集中「停止采集」→ 保留已采集的页（toast「已停止采集，保留已采集的 N 页」）且导出即已采部分；采集后「列设置」可取样；单表限定（v2.5.3）：再选中普通无分页表 → 「采集全部页」按钮变禁用、悬浮提示「多表选择时不支持分页采集」，取消普通表后按钮恢复可用 |
 | `pagination-ant-fixture.html` | 分页表格（复刻 ant-pagination 类名结构：li.ant-pagination-prev/item/next，页码为 a 链接，禁用态 aria-disabled + .ant-pagination-disabled）：4 页 × 6 行 | 选中表 → 点「采集全部页」展开设置 → 点「开始采集」（留空 = 全部页）自动采集 25 行（含表头）、首行「订单 A-1」末行「订单 D-6」、完成回到第 1 页；验证翻页按钮为链接结构时编程式点击豁免采集期拦截；选择模式下手动点页码可翻页（v2.4 点击放行） |
 | `pagination-manual-fixture.html` | 分页表格（自建分页器，类名与组件库无交集，「下一页」为 a 链接且末页无 disabled 态）：3 页 × 5 行 | 选中表 → 点「采集全部页」展开设置 → 点「开始采集」进入「指定翻页按钮」子模式（hint 提示 + 悬浮高亮任意元素）→ 点击「下一页 »」后采集：toast 16 行（含表头）+「自当前页开始采集，连续翻页无新数据，已停止」；验证子模式拦截所有点击（含链接）、Esc 取消不丢选区、行为停止条件（连续 2 页无新行） |
-| `algo-check.cjs` | 纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具、模块清单一致性、国际化词条一致性——覆盖明细见下节 | 全部 PASS（193 项） |
+| `algo-check.cjs` | 纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具、模块清单一致性、国际化词条一致性——覆盖明细见下节 | 全部 PASS（200 项） |
 
 ## algo-check 覆盖明细
 
@@ -39,7 +39,7 @@
 | 网格适配器（table.js v2.2） | 注册表完整性（四适配器齐备命名稳定、五钩子齐备、rootSel 互不相同且为单类名、GRID_ROOT_SELECTOR 组合）、rowsSortedByRowIndex 行序排序（全带 aria-rowindex 数值升序、无/部分缺失保持 DOM 序、纯函数不原地重排、数值比较非字典序）、tableKeyOf 网格分支（适配器表头格拼接、无表头格返回 null、非网格 div 回落内部 table） |
 | 分页适配器（pagination.js v2.5） | 注册表完整性（三适配器齐备命名稳定、四要素齐备、rootSel 互不相同、next/prev 均为单类名选择器）；采集引擎的页级重叠合并复用 virtual.js overlapLen 既有用例 |
 | 持久化（persist.js） | pageKeyOf 忽略 query/hash、tableKeyOf 指纹（含 thead 无 tr 的 vxe-table 写法取 th 子元素而非数据行；v2.1 网格表格取 dynamic-header-row 表头格、优先于内部 table 回退）与空值、sanitizeRecord 损坏剔除自愈（含 formats 键值对）、evictKeys LRU 淘汰 |
-| 格式序列化（format.js） | csvCell RFC4180 转义、toCsv BOM/CRLF、headerKeys 列名兜底、toJson 行对象/表名嵌套、mdCell 转义与 toMarkdown 结构（含无表头生成列N）、toHtmlDocument 结构 |
+| 格式序列化（format.js） | csvCell RFC4180 转义、toCsv BOM/CRLF、tsvCell 制表符/换行转空格（v2.7 剪贴板）、toTsv 分隔与空表边界、headerKeys 列名兜底、toJson 行对象/表名嵌套、mdCell 转义与 toMarkdown 结构（含无表头生成列N）、toHtmlDocument 结构 |
 | 通用工具 | util.js sanitizeFilename/escapeHtml；table.js makeSheetName 四级兜底、非法字符、31 字符截断、重名后缀 |
 | 模块清单一致性 | service-worker 注入列表 / 七个 e2e-harness 各自的 FILES / extension/content 实际文件对齐 + 依赖序（防新增模块漏同步；v2.5.2 曾因六个分页面 harness 漏注入 pagination.js 致 E2E 全线失败，检查随之扩全） |
 | 国际化词条一致性（v2.6） | 内容脚本与 manifest 引用的全部 `t()`/`__MSG_` 词条 ⊆ `_locales/en`（新增硬编码中文 UI 文案即失败）；manifest `__MSG_` 词条 ⊆ `_locales/zh_CN`（default_locale 静态引用，缺则商店/界面显示 key 名）；占位符词条消息含声明的全部 `$XXX$`；以 en 语言包桩 `chrome.i18n` 驱动 headerKeys/makeSheetName 验证 `$1` 注入（回归：`t()` 曾以箭头函数 `arguments` 取参致 subs 恒空、占位符不替换） |
@@ -73,7 +73,7 @@ powershell -ExecutionPolicy Bypass -File test/gen-icon.ps1
 用 `#e2e=1`（hash）而非 `?e2e=1`：serve 等静态服务器的 cleanUrls 重定向会丢查询串，hash 不受影响（两种写法均支持）：
 
 ```
-http://localhost:3000/test/fixture.html#e2e=1          → 页底「105 项全部 PASS」
+http://localhost:3000/test/fixture.html#e2e=1          → 页底「125 项全部 PASS」
 http://localhost:3000/test/virtual-fixture.html#e2e=1  → 页底「33 项全部 PASS」
 http://localhost:3000/test/tablev2-fixture.html#e2e=1  → 页底「24 项全部 PASS」
 http://localhost:3000/test/antdv-fixture.html#e2e=1    → 页底「19 项全部 PASS」
@@ -123,5 +123,11 @@ window.__TEST_RESULT = await (0, eval)(c);
    - 退出选择模式重进（刷新页面亦可）：仍是英文（偏好已记住）；再点「EN」（当前语言）恢复跟随浏览器语言
    - 面板/采集中开关禁用：选中表格打开列设置面板时语言开关灰置，关面板后恢复可点
    - 中文环境验证：浏览器语言为中文时默认即中文界面，开关高亮落在「中文」，点「EN」切英文后点「EN」回跟随浏览器（回中文）
+7. 剪贴板输出与选择/配置管理回归（v2.7）：
+   - 复制到剪贴板：选中表格 → 输出方式下拉选「复制为表格 (TSV)」（主按钮文案变「复制为表格 (TSV)」）→ 点击 → toast「已复制 N 行到剪贴板」；粘贴到 Excel / 飞书应还原成表格（列对齐、表头在首行）；再选「复制为 Markdown」→ 点击 → 粘贴到 Markdown 编辑器应为 GFM 表格
+   - 列设置对复制同样生效：先配好拆分/筛选/数字格式再复制，粘贴结果应与「导出 CSV」的内容一致
+   - 清空已选：多选 2-3 个表 → 点计数旁「✕」→ 计数归 0、绿色覆盖层全部消失、仍处于选择模式（可继续点选）、toast「已清空已选表格（N 个）」；未选表时该按钮不显示
+   - 恢复默认：列设置面板配好拆分并保存 → 重开面板点「恢复默认」→ 拆分全部收起（列勾选与格式回默认）；点「保存」→ toast 变「已清除本页列设置记忆，恢复默认导出」；刷新页面重选该表 → 不再恢复（回落默认）；点「恢复默认」后改点「取消」→ 原配置不受影响
+   - 语言切换同步：切到 EN 后输出方式下拉末尾两项为「Copy as table (TSV) / Copy as Markdown」，面板底部按钮为「Reset」且 title 为英文
 
 控件取值规则见 [docs/controls.md](../docs/controls.md)；真实页面回归：点三咪折扣活动编辑页（长列表 + 一口价 input 列）。

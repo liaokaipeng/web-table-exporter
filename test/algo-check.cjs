@@ -33,7 +33,7 @@ const { pageKeyOf, tableKeyOf, sanitizeRecord, evictKeys } = loadModule('persist
   table: { gridHeaderCellsOf: gridHeaderCellsOf }
 });
 const util = loadModule('util.js', 'util');
-const { csvCell, toCsv, headerKeys, rowObjects, toJson, mdCell, toMarkdown, toHtmlDocument } =
+const { csvCell, toCsv, tsvCell, toTsv, headerKeys, rowObjects, toJson, mdCell, toMarkdown, toHtmlDocument } =
   loadModule('format.js', 'format', { util });
 
 // 模拟 takeWindow 完整逻辑（含 DOM 引用判定 + 重叠合并）
@@ -864,6 +864,16 @@ check('toCsv 带 BOM 与 CRLF 行尾（转义单元格生效）',
 check('toCsv 空表输出仅 BOM',
   toCsv([]),
   '\ufeff');
+
+check('tsvCell 制表符/换行替换为空格（TSV 列行定界符不可转义）',
+  [tsvCell('a\tb'), tsvCell('a\nb\r\nc'), tsvCell(null), tsvCell(12)],
+  ['a b', 'a b c', '', '12']);
+check('toTsv 制表符分隔、行以 \\n 连接、无 BOM',
+  toTsv([['a', 'b'], [1, null], ['x\ty', 'z']]),
+  'a\tb\n1\t\nx y\tz');
+check('toTsv 空表 / 空行安全',
+  [toTsv([]), toTsv([[], ['a']])],
+  ['', '\na']);
 
 check('headerKeys 末行表头 / 重名加序号 / 空名补列N / 无表头',
   [headerKeys([['x', 'y'], ['a', 'b']], 2), headerKeys([['a', 'a']], 1),

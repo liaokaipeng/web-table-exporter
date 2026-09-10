@@ -1,8 +1,9 @@
 /**
- * 导出格式序列化（纯函数，零 DOM 依赖）：CSV / JSON / Markdown / HTML
+ * 导出格式序列化（纯函数，零 DOM 依赖）：CSV / TSV / JSON / Markdown / HTML
  * 输入为导出管线末端的 aoa（已应用列拆分/列筛选/列格式）：
  *   tables = [{ name, aoa, headerRows }]（name 与 Sheet 名同源，多表唯一）
- * 文本格式不还原合并单元格（aoa 为平面数据）；CSV 多表由调用方拆多文件
+ * 文本格式不还原合并单元格（aoa 为平面数据）；CSV 多表由调用方拆多文件；
+ * TSV（v2.7）仅用于剪贴板输出（粘贴进表格软件），不落盘
  * 依赖：util.escapeHtml；算法层模块，经 __h2x.format 挂载
  */
 (() => {
@@ -34,6 +35,19 @@
   function toCsv(aoa) {
     const lines = (aoa || []).map(row => (row || []).map(csvCell).join(','));
     return '\ufeff' + lines.join('\r\n') + (lines.length ? '\r\n' : '');
+  }
+
+  /* ---------------- TSV（v2.7 剪贴板：可直接粘贴进 Excel / 表格软件） ---------------- */
+
+  /** 单元格：制表符/换行是 TSV 的列/行定界符，无法转义（Excel 粘贴语义），
+   *  统一替换为空格；原始导出值不受影响，仅剪贴板文本用 */
+  function tsvCell(v) {
+    return String(v == null ? '' : v).replace(/[\t\r\n]+/g, ' ');
+  }
+
+  /** aoa → TSV 文本（无 BOM：剪贴板内容不需 BOM，粘贴时由接收方决定编码） */
+  function toTsv(aoa) {
+    return (aoa || []).map(row => (row || []).map(tsvCell).join('\t')).join('\n');
   }
 
   /* ---------------- 行对象（JSON / Markdown 表头共用） ---------------- */
@@ -148,7 +162,7 @@
   }
 
   ns.format = {
-    csvCell: csvCell, toCsv: toCsv,
+    csvCell: csvCell, toCsv: toCsv, tsvCell: tsvCell, toTsv: toTsv,
     headerKeys: headerKeys, rowObjects: rowObjects, toJson: toJson,
     mdCell: mdCell, toMarkdown: toMarkdown,
     toHtmlDocument: toHtmlDocument

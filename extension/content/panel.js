@@ -7,6 +7,9 @@
  * （含已配置状态点）、校验错误就地标红 + 滚动定位、focus trap + role="dialog"。
  * v2.0.1 列设置 UI 细节优化：拆分子行左缘竖线（从属层级）、列名 title 全名、
  * 面板加宽至 1000px、预览区限高自滚 + 表头 sticky、展开子行滚入视野。
+ * v2.7：面板底部「恢复默认」显式重置入口（此前重置要凑齐「全不拆 + 全列导出 +
+ * 全文本」再保存，路径不可发现）——只重置当前表格草稿为默认，仍走保存落盘，
+ * 空配置保存即删记忆且提示改口径（不再说「已保存并记住」）。
  * 保存时草稿回写主 UI 内存 Map，并经 persist 模块落盘（跨会话恢复）。
  * 依赖：主 UI 经 init() 注入 { host, selected, snapshots, splitRules,
  *   colFilters, colFormats, isBusy, isAlive, updateBar, toast }（main.js 最后装配）；
@@ -300,6 +303,9 @@
       '  <div class="h2x-cols"></div>',
       '  <div class="h2x-pv"><div class="h2x-pv-title">' + t('previewTitle', '导出预览（绿色为拆分新列，划线列为不导出）') + '</div><div class="h2x-pv-body"></div><div class="h2x-pv-note"></div></div>',
       '  <div class="h2x-panel-foot">',
+      // v2.7：显式重置入口——此前「重置」需凑齐「全不拆 + 全列导出 + 全文本」再保存，
+      // 用户推不出来；按钮只重置当前表格草稿为默认，仍走「保存」落盘（空配置 = 删记忆）
+      '    <button class="h2x-btn h2x-ghost h2x-reset" title="' + t('btnResetTitle', '将当前表格恢复为默认列设置（不拆分、全列导出、文本格式）；点「保存」后生效并清除本页记忆') + '">' + t('btnReset', '恢复默认') + '</button>',
       '    <span class="h2x-err"></span>',
       '    <button class="h2x-btn h2x-primary h2x-save">' + t('btnSave', '保存') + '</button>',
       '    <button class="h2x-btn h2x-ghost h2x-pcancel">' + t('btnCancel', '取消 (Esc)') + '</button>',
@@ -310,6 +316,7 @@
     panelMask.querySelector('.h2x-save').addEventListener('click', saveSplitPanel);
     panelMask.querySelector('.h2x-pcancel').addEventListener('click', closeSplitPanel);
     panelMask.querySelector('.h2x-px').addEventListener('click', closeSplitPanel);
+    panelMask.querySelector('.h2x-reset').addEventListener('click', resetDraft);
     // 页签切表（v2.0：下拉改页签，含已配置状态点）
     const tabs = panelMask.querySelector('.h2x-tabs');
     tabs.addEventListener('click', (e) => {
@@ -685,6 +692,22 @@
     panelMask.querySelectorAll('.h2x-invalid').forEach(el => el.classList.remove('h2x-invalid'));
   }
 
+  /** v2.7 恢复默认（当前表格）：草稿回智能预填默认（全不拆、全列导出、全文本），
+   *  并清空段数缓存与错误态。不改存储——点「保存」才落盘，空配置即删除本页记忆；
+   *  点「取消」则原配置原样保留（与面板既有的一进一出语义一致） */
+  function resetDraft() {
+    if (!panelOpen || !panelTable) return;
+    const entry = panelDrafts.get(panelTable);
+    if (!entry) return;
+    entry.draft = prefillDrafts(entry.cols);
+    entry.segCache = null;
+    clearInvalidMarks();
+    const errEl = panelMask.querySelector('.h2x-err');
+    if (errEl) errEl.textContent = '';
+    renderColList();
+    renderPreview();
+  }
+
   function saveSplitPanel() {
     const errEl = panelMask.querySelector('.h2x-err');
     errEl.textContent = '';
@@ -759,8 +782,16 @@
       else deps.colFormats.delete(table);
       ns.persist.save(table, rules, excluded, formats); // 持久化：均空时删除记录（即重置路径）
     }
+    // v2.7：保存后本面板各表均无配置 = 走了「恢复默认」/重置，提示改口径
+    // （否则「已保存并记住」会让人以为旧配置还在）
+    let anyCfg = false;
+    for (const table of panelDrafts.keys()) {
+      if (deps.splitRules.has(table) || deps.colFilters.has(table) || deps.colFormats.has(table)) { anyCfg = true; break; }
+    }
     closeSplitPanel();
-    deps.toast(t('toastSaved', '列设置已保存并记住，导出时生效'), { type: 'success' });
+    deps.toast(anyCfg ? t('toastSaved', '列设置已保存并记住，导出时生效')
+      : t('toastResetDone', '已清除本页列设置记忆，恢复默认导出'),
+      { type: anyCfg ? 'success' : 'info' });
   }
 
   function closeSplitPanel() {

@@ -29,6 +29,9 @@
  * v2.6.1：工具栏「中文 | EN」语言开关——手动指定界面语言（偏好持久化，默认
  * 跟随浏览器）；切换后静态文案就地重取词（提示/按钮/下拉/分页面板），进行时与
  * 导出内容文案均经 t() 动态取词同源生效
+ * v2.7：剪贴板输出与选择管理——「输出方式」下拉新增「复制为表格 (TSV)」/
+ * 「复制为 Markdown」（复用导出链路，只把落盘换成写剪贴板，列设置同样生效）；
+ * 已选计数旁「✕」一键清空已选（不退出选择模式）
  */
 (() => {
   'use strict';
@@ -39,7 +42,7 @@
   const { isVirtualTable, collectVirtual } = ns.virtual;
   const { detectPager, manualPager, collectPaged, isPagingClick } = ns.pagination;
   const { applyColumnSplits, columnLayout, filterColumns, colKeys, formatColumns, applyColFormats, autoColWidths } = ns.split;
-  const { toCsv, toJson, toMarkdown, toHtmlDocument } = ns.format;
+  const { toCsv, toTsv, toJson, toMarkdown, toHtmlDocument } = ns.format;
   const panel = ns.panel;
   const persist = ns.persist;
 
@@ -65,9 +68,19 @@
     html: { label: 'HTML', ext: 'html', mime: 'text/html' }
   };
 
+  // 剪贴板输出（v2.7）：与 FORMATS 同列于「输出方式」下拉——选中即不落盘，
+  // 内容按模式序列化后写入系统剪贴板（列拆分/筛选/列格式同样生效）。
+  // 同为文本输出故复用文本序列化器：TSV 供 Excel/表格软件粘贴（xlsx 无法直接
+  // 粘贴，改为制表符文本是最贴合的剪贴板表示），Markdown 供文档/笔记
+  const CLIPBOARD = {
+    'copy-tsv': { key: 'copyTsvLabel', fb: '复制为表格 (TSV)' },
+    'copy-md': { key: 'copyMdLabel', fb: '复制为 Markdown' }
+  };
+
   let active = true;
   let host = null;
   let hoverBox = null, countEl = null, countWrap = null, nameInput = null, exportBtn = null, cancelBtn = null, hintEl = null, splitBtn = null, fmtSel = null, pageWrap = null, pageBtn = null, pageMenu = null, pagesInput = null, pageGoBtn = null, pageCancelBtn = null;
+  let clearBtn = null; // v2.7 已选计数旁的「清空」小按钮（无选中时隐藏）
   let langZhBtn = null, langEnBtn = null; // v2.6.1 工具栏语言开关（中文 | EN）
   let menuTitleEl = null, menuSubEl = null, pageLimitLabelEl = null, pageUnitEl = null; // 分页面板静态文案节点（语言切换就地重取词）
   let toastRoot = null;
@@ -118,6 +131,10 @@
       '  .h2x-hint{color:var(--c-text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',  /* 空间不足先截断提示文案，按钮不被迫换行 */
       '  .h2x-count{flex:none;white-space:nowrap;}',
       '  .h2x-count b{color:var(--c-primary);}',
+      '  .h2x-clear{flex:none;width:20px;height:20px;padding:0;border:none;border-radius:50%;background:var(--c-bg-3);color:var(--c-text-3);cursor:pointer;font:12px/1 -apple-system,"Segoe UI",sans-serif;}',  /* v2.7 清空已选：贴计数右侧的小圆钮，无选中时隐藏（空间零占用） */
+      '  .h2x-clear:hover:not(:disabled){background:var(--c-danger);color:#fff;}',
+      '  .h2x-clear:disabled{opacity:.5;cursor:not-allowed;}',
+      '  .h2x-clear[hidden]{display:none;}',
       '  .h2x-name{flex:1 1 150px;min-width:110px;max-width:260px;padding:6px 10px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 -apple-system,"Segoe UI",sans-serif;color:var(--c-text);outline:none;background:var(--c-input);box-sizing:border-box;}',
       '  .h2x-name:focus{border-color:var(--c-primary);}',
       '  .h2x-ext{padding:6px 8px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 -apple-system,"Segoe UI",sans-serif;color:var(--c-text);background:var(--c-input);outline:none;cursor:pointer;flex:none;}',
@@ -181,9 +198,11 @@
       '<div class="h2x-bar">',
       '  <span class="h2x-hint"></span>',
       '  <span class="h2x-count">' + t('selectedCount', '已选 <b>0</b> 个', '0') + '</span>',
+      '  <button type="button" class="h2x-clear" hidden>✕</button>',
       '  <input class="h2x-name" type="text" spellcheck="false" />',
-      '  <select class="h2x-ext" title="' + t('exportFormatTitle', '导出格式') + '">' +
+      '  <select class="h2x-ext" title="' + t('exportFormatTitle', '导出格式 / 复制到剪贴板') + '">' +
       Object.keys(FORMATS).map(k => '<option value="' + k + '">' + FORMATS[k].label + ' (.' + FORMATS[k].ext + ')</option>').join('') +
+      Object.keys(CLIPBOARD).map(k => '<option value="' + k + '">' + t(CLIPBOARD[k].key, CLIPBOARD[k].fb) + '</option>').join('') +
       '</select>',
       '  <div class="h2x-actions">',
       '    <button class="h2x-btn h2x-split" disabled>' + t('btnColSettings', '列设置') + '</button>',
@@ -219,6 +238,9 @@
     hoverBox = root.querySelector('.h2x-hover');
     countWrap = root.querySelector('.h2x-count');
     countEl = root.querySelector('.h2x-count b');
+    clearBtn = root.querySelector('.h2x-clear');
+    clearBtn.title = t('btnClearTitle', '清空已选表格');
+    clearBtn.setAttribute('aria-label', clearBtn.title);
     nameInput = root.querySelector('.h2x-name');
     fmtSel = root.querySelector('.h2x-ext');
     // v2.5.2 修复：下拉面板内「开始采集/取消」也带 h2x-primary/h2x-ghost 类且 DOM 在前，
@@ -241,6 +263,7 @@
     langEnBtn = root.querySelector('.h2x-langen');
     toastRoot = root.querySelector('.h2x-toasts');
     exportBtn.addEventListener('click', doExport);
+    clearBtn.addEventListener('click', clearSelection); // v2.7 一键清空已选（逐个取消的快捷方式）
     // v2.0：采集中「取消」变「停止采集」（只作废当前任务，不退出选择模式）
     cancelBtn.addEventListener('click', () => { collecting ? stopCollect() : exit(); });
     splitBtn.addEventListener('click', openPanel);
@@ -261,6 +284,8 @@
   // 导出按钮文案与格式下拉同步（含「导出中…」结束后的恢复）
   function syncExportBtn() {
     if (exporting) return; // 导出中保持「导出中…」，结束时统一恢复
+    const cp = CLIPBOARD[fmtSel.value];
+    if (cp) { exportBtn.textContent = t(cp.key, cp.fb); return; } // v2.7 剪贴板模式：按钮即动作名
     const fmt = FORMATS[fmtSel.value] || FORMATS.xlsx;
     exportBtn.textContent = t('exportBtnLabel', '导出 ' + fmt.label, fmt.label);
   }
@@ -281,7 +306,14 @@
   function refreshTexts() {
     countWrap.innerHTML = t('selectedCount', '已选 <b>' + selected.size + '</b> 个', String(selected.size));
     countEl = countWrap.querySelector('b'); // innerHTML 重建了 <b>，重取引用
-    fmtSel.title = t('exportFormatTitle', '导出格式');
+    fmtSel.title = t('exportFormatTitle', '导出格式 / 复制到剪贴板');
+    // v2.7：剪贴板选项文案随界面语言就地重取词（选项文本在 buildUI 一次成型）
+    for (const k of Object.keys(CLIPBOARD)) {
+      const opt = fmtSel.querySelector('option[value="' + k + '"]');
+      if (opt) opt.textContent = t(CLIPBOARD[k].key, CLIPBOARD[k].fb);
+    }
+    clearBtn.title = t('btnClearTitle', '清空已选表格');
+    clearBtn.setAttribute('aria-label', clearBtn.title);
     splitBtn.textContent = t('btnColSettings', '列设置');
     cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
     syncExportBtn();
@@ -624,6 +656,17 @@
     updateBar();
   }
 
+  /** v2.7 一键清空已选：多选后想重来不必逐个点掉。只清选择（不退出选择模式，
+   *  区别于 Esc/取消的「退出」），逐个走 removeSelected 以复用快照/配置清理与
+   *  面板同步逻辑 */
+  function clearSelection() {
+    const n = selected.size;
+    if (!n) return;
+    for (const table of [...selected.keys()]) removeSelected(table);
+    toast(t('toastCleared', '已清空已选表格（' + n + ' 个）', n), { type: 'info' });
+    resetHint();
+  }
+
   async function startCollect(table) {
     if (collecting) return;
     collecting = true;
@@ -776,6 +819,8 @@
     }
     countEl.textContent = String(selected.size);
     const busy = collecting || exporting || panel.isOpen() || specifying; // 面板/导出/子模式期间主工具栏同步禁用
+    clearBtn.hidden = selected.size === 0; // v2.7 无选中不占位（隐藏而非禁用，工具栏更干净）
+    clearBtn.disabled = busy;
     exportBtn.disabled = busy || selected.size === 0;
     splitBtn.disabled = busy || selected.size === 0;
     const pageOff = busy || selected.size !== 1; // v2.5.3 下拉主按钮禁用（采集中/面板/导出/子模式、未选中或多选——分页采集只支持单表）
@@ -847,6 +892,27 @@
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
+  /** v2.7 写入系统剪贴板：优先异步 Clipboard API（内容脚本继承页面剪贴板权限，
+   *  点击手势内调用即可写）；页面未授权/未聚焦时回退 execCommand（老式复制路径），
+   *  两者都失败才抛错（由调用方转成错误 toast，不静默） */
+  async function writeClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return;
+      } catch (e) { /* 权限/焦点问题：走 execCommand 回退 */ }
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('aria-hidden', 'true');
+    ta.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:none;';
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } finally { ta.remove(); }
+    if (!ok) throw new Error(t('errClipboard', '浏览器未授予剪贴板写入权限'));
   }
 
   function showError(msg) {
@@ -953,9 +1019,11 @@
     if (exporting || collecting || !selected.size) return;
     exporting = true; // await 让出主线程期间按钮未禁用，防重入（原同步链路天然互斥）
     // v2.0：导出中按钮反馈（防点击被静默吞掉）+ 进行时提示
+    // v2.7：剪贴板模式（下拉选「复制为…」）复用同一条链路，只有落盘那步换成写剪贴板
+    const copyKey = CLIPBOARD[fmtSel.value] ? fmtSel.value : null;
     exportBtn.disabled = true;
-    exportBtn.textContent = t('exportBtnBusy', '导出中…');
-    setHint(t('hintGenerating', '正在生成导出文件…'), '#1976d2');
+    exportBtn.textContent = copyKey ? t('copyBtnBusy', '复制中…') : t('exportBtnBusy', '导出中…');
+    setHint(copyKey ? t('hintCopying', '正在复制到剪贴板…') : t('hintGenerating', '正在生成导出文件…'), '#1976d2');
     try {
       await persist.ready(); // 兜底注入初期的存储加载竞态（正常情况早已就绪）
       if (collecting || !selected.size) return; // await 期间状态可能变化
@@ -987,7 +1055,27 @@
         await yieldToMain(); // 每表之间让出主线程：多表/大表导出期间页面不冻结
       }
 
-      // 2. 按所选格式生成下载文件列表（CSV 多表为多文件，其余单文件）
+      // 2. v2.7 剪贴板模式：不落盘（列拆分/筛选/格式已在上一步应用于 aoa）。
+      //    多表时 TSV 表间空行分隔（粘贴进表格软件即为上下两段），Markdown 复用
+      //    文档序列化（表名二级标题分区）
+      if (copyKey) {
+        const text = copyKey === 'copy-md'
+          ? toMarkdown(tables)
+          : tables.map(tb => toTsv(tb.aoa)).join('\n\n');
+        try {
+          await writeClipboard(text);
+        } catch (err) {
+          const m = err && err.message ? err.message : String(err);
+          console.error('[HTML2XLSX] 复制到剪贴板失败：', err);
+          showError(t('toastCopyFail', '复制失败：' + m, m));
+          return;
+        }
+        const n = tables.reduce((sum, tb) => sum + Math.max(0, tb.aoa.length - (tb.headerRows || 0)), 0);
+        toast(t('toastCopied', '已复制 ' + n + ' 行到剪贴板（可直接粘贴到表格软件）', n), { type: 'success' });
+        return;
+      }
+
+      // 3. 按所选格式生成下载文件列表（CSV 多表为多文件，其余单文件）
       const fmtKey = FORMATS[fmtSel.value] ? fmtSel.value : 'xlsx';
       const base = sanitizeFilename(nameInput.value) || ('export_' + timestamp());
       let files;
@@ -999,7 +1087,7 @@
         return;
       }
 
-      // 3. 逐文件编码下载（后台 downloads 优先，失败回退 blob）；
+      // 4. 逐文件编码下载（后台 downloads 优先，失败回退 blob）；
       //    v2.0：多文件时 toast 实时进度「正在下载 i/n」
       let pt = null;
       if (files.length > 1) pt = toast(t('toastDownloading', '正在下载 1/' + files.length + '…', 1, files.length), { type: 'info', sticky: true });

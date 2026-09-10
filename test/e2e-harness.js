@@ -5,7 +5,8 @@
  *   window.__TEST_RESULT = await (0, eval)(c);
  * 覆盖：选择交互、链接拦截、Esc 退出、CSV/JSON/MD/HTML/XLSX 导出内容、
  * 合并单元格 merges、Sheet 名、自适应列宽、列拆分三模式、列筛选、列格式、
- * 分体表格合并、持久化保存/恢复/重置。
+ * 分体表格合并、持久化保存/恢复/重置、复制到剪贴板（TSV/MD，v2.7）、
+ * 清空已选与面板恢复默认（v2.7）。
  * v2 加固：强制全新注入（预清 __html2xlsx/__h2x 与残留 host，entry 守卫永不误触发）、
  * 注入后隐藏 __html2xlsx（防外部脚本误退出本会话）、轮次串行锁、调试日志。
  * 提速（v2.2）：固定 sleep 改事件驱动 waitFor（exit/openPanel 均同步或微任务级），
@@ -636,6 +637,71 @@
     const s = await files[0].blob.text();
     t('HTML 完整文档（DOCTYPE + thead + 数据）', s.indexOf('<!DOCTYPE') >= 0 && s.toLowerCase().indexOf('<thead') >= 0 && s.indexOf('王五') >= 0, s.slice(0, 80));
     t('HTML 文件名 .html 扩展名', /\.html$/i.test(files[0].name), files[0].name);
+  });
+
+  /* ================= 轮次 R：复制到剪贴板（v2.7） ================= */
+  await round('复制到剪贴板（TSV / Markdown）', async (h) => {
+    // 桩 Clipboard API：无扩展/无权限环境下写剪贴板走它，命中即捕获文本
+    window.__clip = null;
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async (s) => { window.__clip = s; } }
+    });
+    clickCell('#staff td');
+    h.fmtSel.value = 'copy-tsv'; fire(h.fmtSel, 'change');
+    t('剪贴板模式按钮文案同步（复制为表格）', h.exportBtn.textContent.indexOf('复制') >= 0, h.exportBtn.textContent);
+    click(h.exportBtn);
+    await waitFor(() => window.__clip != null, 3000);
+    const tsvLines = (window.__clip || '').split('\n');
+    t('TSV 表头行制表符分隔', tsvLines[0] === '姓名\t部门\t入职日期', JSON.stringify(tsvLines[0]));
+    t('TSV 数据行（表头 + 3 数据行）', tsvLines.length === 4 && tsvLines[1] === '张三\t研发部\t2021-03-15',
+      tsvLines.length + '|' + tsvLines[1]);
+    t('复制模式不产生下载文件', window.__exports.length === 0, 'exports=' + window.__exports.length);
+    t('复制成功 toast', toastText(h).indexOf('已复制') >= 0, toastText(h));
+    window.__clip = null;
+    h.fmtSel.value = 'copy-md'; fire(h.fmtSel, 'change');
+    click(h.exportBtn);
+    await waitFor(() => window.__clip != null, 3000);
+    t('Markdown 复制内容为 GFM 表格', (window.__clip || '').indexOf('| 姓名 |') >= 0, (window.__clip || '').slice(0, 40));
+  });
+
+  /* ================= 轮次 S：清空已选 + 面板恢复默认（v2.7） ================= */
+  await round('清空已选与面板恢复默认', async (h) => {
+    const clearBtn = h.sr.querySelector('.h2x-clear');
+    t('未选表时清空按钮隐藏（不占位）', clearBtn.hidden === true);
+    clickCell('#staff td');
+    clickCell('#controls td');
+    t('多选后清空按钮出现', clearBtn.hidden === false && h.count.textContent === '2', 'count=' + h.count.textContent);
+    click(clearBtn);
+    t('清空后计数归零 + 覆盖层全部移除', h.count.textContent === '0' && h.sr.querySelectorAll('.h2x-sel').length === 0,
+      h.count.textContent);
+    t('清空只清选择、仍处于选择模式（toast 告知）',
+      document.documentElement.contains(h.host) && toastText(h).indexOf('已清空已选表格') >= 0, toastText(h));
+    t('清空后回到默认引导提示', h.hint.textContent.indexOf('点击选择表格') >= 0, h.hint.textContent);
+    // 面板「恢复默认」：先配一条拆分保存（有记忆），再重置保存 → 记忆清除
+    clickCell('#split td');
+    click(h.splitBtn);
+    await waitFor(() => h.sr.querySelector('.h2x-mask'));
+    let mask = h.sr.querySelector('.h2x-mask');
+    click(sbtnOf(rowOf(h, '适用站点'))); // 展开拆分（delimiter 预设）
+    click(mask.querySelector('.h2x-save'));
+    await waitFor(() => !h.sr.querySelector('.h2x-mask'));
+    click(h.splitBtn);
+    await waitFor(() => h.sr.querySelector('.h2x-mask'));
+    mask = h.sr.querySelector('.h2x-mask');
+    t('重开面板保留已保存拆分（子行存在）', mask.querySelectorAll('.h2x-sub').length === 1,
+      'subs=' + mask.querySelectorAll('.h2x-sub').length);
+    click(mask.querySelector('.h2x-reset'));
+    t('「恢复默认」后拆分全部收起', mask.querySelectorAll('.h2x-sub').length === 0 &&
+      mask.querySelectorAll('.h2x-sbtn.h2x-on').length === 0);
+    click(mask.querySelector('.h2x-save'));
+    await waitFor(() => !h.sr.querySelector('.h2x-mask'));
+    t('恢复默认保存后提示改口径（清除记忆）', toastText(h).indexOf('已清除本页列设置记忆') >= 0, toastText(h));
+    click(h.splitBtn);
+    await waitFor(() => h.sr.querySelector('.h2x-mask'));
+    mask = h.sr.querySelector('.h2x-mask');
+    t('恢复默认后重开面板无子行（记忆已清）', mask.querySelectorAll('.h2x-sub').length === 0);
+    click(mask.querySelector('.h2x-pcancel'));
   });
 
   log('=== harness 完成: ' + R.length + ' 项');

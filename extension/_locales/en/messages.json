@@ -25,7 +25,9 @@
   "noteMaxPages": { "message": "collected the specified $N$ page(s)", "placeholders": { "N": { "content": "$1" } } },
 
   "selectedCount": { "message": "Selected <b>$N$</b>", "placeholders": { "N": { "content": "$1" } } },
-  "exportFormatTitle": { "message": "Export format" },
+  "btnClearTitle": { "message": "Clear selected tables" },
+  "toastCleared": { "message": "Cleared all selected tables ($N$)", "placeholders": { "N": { "content": "$1" } } },
+  "exportFormatTitle": { "message": "Export format / copy to clipboard" },
   "btnColSettings": { "message": "Columns" },
   "btnCollectAll": { "message": "Collect all pages" },
   "pageBtnTitleDefault": { "message": "Auto-collect the selected table across pages: open to set a page limit, or designate the next-page button if no paginator is detected" },
@@ -46,6 +48,13 @@
   "closeAria": { "message": "Close" },
   "exportBtnLabel": { "message": "Export $FMT$", "placeholders": { "FMT": { "content": "$1" } } },
   "exportBtnBusy": { "message": "Exporting…" },
+  "copyTsvLabel": { "message": "Copy as table (TSV)" },
+  "copyMdLabel": { "message": "Copy as Markdown" },
+  "copyBtnBusy": { "message": "Copying…" },
+  "hintCopying": { "message": "Copying to clipboard…" },
+  "toastCopied": { "message": "Copied $N$ data rows to the clipboard (paste into any spreadsheet)", "placeholders": { "N": { "content": "$1" } } },
+  "toastCopyFail": { "message": "Copy failed: $ERR$", "placeholders": { "ERR": { "content": "$1" } } },
+  "errClipboard": { "message": "The browser did not grant clipboard write permission" },
   "hintSelect": { "message": "Click to select tables (multi-select allowed)" },
   "hintNoTables": { "message": "No tables found on this page" },
   "toastNoTables": { "message": "No tables found on this page; nothing to select or export" },
@@ -113,5 +122,8 @@
   "previewNoRows": { "message": "No data rows" },
   "errKeepOne": { "message": "Table $N$: keep at least one exported column", "placeholders": { "N": { "content": "$1" } } },
   "errCount": { "message": "$N$ invalid setting(s) — marked red; fix and retry", "placeholders": { "N": { "content": "$1" } } },
+  "btnReset": { "message": "Reset" },
+  "btnResetTitle": { "message": "Reset this table to the default column settings (no split, all columns exported, text format); click Save to apply and clear the saved settings for this page" },
+  "toastResetDone": { "message": "Saved column settings cleared; default export restored" },
   "toastSaved": { "message": "Column settings saved and remembered; they take effect on export" }
 }

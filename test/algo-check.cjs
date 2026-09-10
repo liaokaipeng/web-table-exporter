@@ -22,7 +22,7 @@ function loadModule(relPath, modName, preNs) {
 const { overlapLen } = loadModule('virtual.js', 'virtual');
 const {
   splitByDelimiter, splitBlocks, limitBlocks, splitSegments, splitColName,
-  resolveRuleCol, colKeys, columnLayout, filterColumns, applyColumnSplits,
+  resolveRuleCol, colKeys, columnLayout, filterColumns, reorderColumns, applyColumnSplits,
   toNumValue, formatColumns, applyColFormats, cellWidth, autoColWidths
 } = loadModule('split.js', 'split');
 const { pairSplitGroup, makeSheetName, gridHeaderCellsOf, rowsSortedByRowIndex,
@@ -628,6 +628,46 @@ check('端到端 block拆分+筛选+数字格式',
     1),
   [['标题/产品ID1', '本地展示价'], ['T1', 4722], ['T2', 'x']]);
 
+/* ================= 列顺序重排（reorderColumns，v2.8） ================= */
+
+// 基础：原列整体重排 / 自然序与空 order 零回归（同引用返回）
+const chOrd = { aoa: [['A', 'B', 'C'], ['1', '2', '3']], headerRows: 1 };
+const layoutOrd = columnLayout(chOrd, null);
+check('reorder 原列整体重排',
+  reorderColumns(chOrd.aoa, layoutOrd, null, ['C', 'A', 'B']),
+  [['C', 'A', 'B'], ['3', '1', '2']]);
+check('reorder 自然序 / 空 / 缺省 order 原样返回（同引用，零回归）',
+  [reorderColumns(chOrd.aoa, layoutOrd, null, ['A', 'B', 'C']) === chOrd.aoa,
+    reorderColumns(chOrd.aoa, layoutOrd, null, []) === chOrd.aoa,
+    reorderColumns(chOrd.aoa, layoutOrd, null, null) === chOrd.aoa],
+  [true, true, true]);
+check('reorder 未命中的键忽略、其余列按自然序补齐',
+  reorderColumns(chOrd.aoa, layoutOrd, null, ['C', '不存在']),
+  [['C', 'A', 'B'], ['3', '1', '2']]);
+
+// 拆分新列跟随其原列（不单独移动）
+const chOrdSplit = {
+  aoa: [['标题/产品ID', '价'], ['T1\nI1', '9']],
+  blocks: [[null, null], [['T1', 'I1'], null]],
+  headerRows: 1
+};
+const rulesOrdSplit = [{ col: '标题/产品ID', mode: 'block' }];
+const layoutOrdSplit = columnLayout(chOrdSplit, rulesOrdSplit);
+check('reorder 拆分新列跟随原列整体移动',
+  reorderColumns(applyColumnSplits(chOrdSplit, rulesOrdSplit), layoutOrdSplit, null, ['价', '标题/产品ID']),
+  [['价', '标题/产品ID', '标题/产品ID1', '标题/产品ID2'], ['9', 'T1\nI1', 'T1', 'I1']]);
+check('reorder 与列筛选组合（被排除的原列不参与重排）',
+  reorderColumns(
+    filterColumns(applyColumnSplits(chOrdSplit, rulesOrdSplit), layoutOrdSplit, new Set(['标题/产品ID', '标题/产品ID#2'])),
+    layoutOrdSplit, new Set(['标题/产品ID', '标题/产品ID#2']), ['价', '标题/产品ID']),
+  [['价', '标题/产品ID1'], ['9', 'T1']]);
+
+// 无表头表格：列键为数字（列序号兜底）时同样可重排
+const chOrdNum = { aoa: [['1', '2', '3']], headerRows: 0 };
+check('reorder 数字列键（无表头兜底）重排',
+  reorderColumns(chOrdNum.aoa, columnLayout(chOrdNum, null), null, [2, 0, 1]),
+  [['3', '1', '2']]);
+
 /* ================= 自适应列宽（cellWidth / autoColWidths，v1.10） ================= */
 
 // 51. cellWidth：视觉宽度估算（半角 1、全角 2），内嵌换行取最长行，计满 cap 截断
@@ -818,20 +858,24 @@ check('tableKeyOf 网格无表头格且无 table 返回 null',
 
 // 38. sanitizeRecord：损坏字段剔除、类型归位（数字列键=列序号兜底）
 check('sanitizeRecord 合法规整原样通过',
-  sanitizeRecord({ rules: [{ col: '标题', mode: 'block', pattern: 'x', limit: 3 }], excluded: ['标题#1'], formats: [['标题', 'number']], updatedAt: 123 }),
-  { rules: [{ col: '标题', mode: 'block', pattern: 'x', limit: 3 }], excluded: ['标题#1'], formats: [['标题', 'number']], updatedAt: 123 });
+  sanitizeRecord({ rules: [{ col: '标题', mode: 'block', pattern: 'x', limit: 3 }], excluded: ['标题#1'], formats: [['标题', 'number']], order: ['金额', '标题'], updatedAt: 123 }),
+  { rules: [{ col: '标题', mode: 'block', pattern: 'x', limit: 3 }], excluded: ['标题#1'], formats: [['标题', 'number']], order: ['金额', '标题'], updatedAt: 123 });
 check('sanitizeRecord 剔除非法 mode、pattern/limit 类型归位',
   sanitizeRecord({ rules: [{ col: 'A', mode: 'wrong' }, { col: 0, mode: 'delimiter', pattern: 5, limit: '3' }], excluded: ['B', 2, null, ''], updatedAt: 'x' }),
-  { rules: [{ col: 0, mode: 'delimiter', pattern: '5', limit: null }], excluded: ['B', 2], formats: [], updatedAt: 0 });
+  { rules: [{ col: 0, mode: 'delimiter', pattern: '5', limit: null }], excluded: ['B', 2], formats: [], order: [], updatedAt: 0 });
 check('sanitizeRecord 规则字段补全',
   sanitizeRecord({ rules: [{ col: 'A', mode: 'control' }], excluded: [] }),
-  { rules: [{ col: 'A', mode: 'control', pattern: '', limit: null }], excluded: [], formats: [], updatedAt: 0 });
+  { rules: [{ col: 'A', mode: 'control', pattern: '', limit: null }], excluded: [], formats: [], order: [], updatedAt: 0 });
 check('sanitizeRecord formats 键值对规整（非法键值/非文本格式剔除）',
   sanitizeRecord({ rules: [], excluded: [], formats: [['售价', 'number'], [0, 'number'], ['x', 'text'], ['y', null], 'bad', [null, 'number']], updatedAt: 5 }),
-  { rules: [], excluded: [], formats: [['售价', 'number'], [0, 'number']], updatedAt: 5 });
-check('sanitizeRecord 仅 formats 也保留（全空仍返回 null）',
-  [!!sanitizeRecord({ formats: [['售价', 'number']] }), sanitizeRecord({ rules: [], excluded: [], formats: [] })],
-  [true, null]);
+  { rules: [], excluded: [], formats: [['售价', 'number'], [0, 'number']], order: [], updatedAt: 5 });
+check('sanitizeRecord order 规整（空串/null/非键值剔除，数字键保留）',
+  sanitizeRecord({ order: ['A', 0, '', null, 'B', {}, []] }),
+  { rules: [], excluded: [], formats: [], order: ['A', 0, 'B'], updatedAt: 0 });
+check('sanitizeRecord 仅 formats / 仅 order 也保留（全空仍返回 null）',
+  [!!sanitizeRecord({ formats: [['售价', 'number']] }), !!sanitizeRecord({ order: ['A'] }),
+    sanitizeRecord({ rules: [], excluded: [], formats: [] })],
+  [true, true, null]);
 check('sanitizeRecord 全空 / 非对象返回 null',
   [sanitizeRecord({ rules: [], excluded: [] }), sanitizeRecord(null), sanitizeRecord('x')],
   [null, null, null]);

@@ -185,6 +185,53 @@
     });
   }
 
+  /** 列顺序重排（v2.8）：按 order（原列 colKey 的有序数组）重排「列筛选后」的输出列。
+   *  拆分新列跟随其原列（保持 layout 内的相对次序，不单独移动）。
+   *  keep 的算法与 filterColumns 完全一致（含「无排除/全部被排除时原样」短路），
+   *  保证输出列号与 filterColumns / formatColumns 对齐——故本步必须在二者之后执行
+   *  （格式作用于值、重排只换位置，先后不影响结果）。
+   *  order 中未命中的 key（表头变了 / 该列被排除）静默忽略，其余原列按自然序追加；
+   *  结果顺序与自然序相同时返回原数组（零回归，不改引用） */
+  function reorderColumns(aoa, layout, excluded, order) {
+    if (!order || !order.length) return aoa;
+    let keep = layout.map((_, i) => i);
+    if (excluded && excluded.size) {
+      const k = [];
+      layout.forEach((col, i) => { if (!excluded.has(col.key)) k.push(i); });
+      if (k.length && k.length < layout.length) keep = k;
+    }
+    // 保留列按原列归组（段列紧随其原列），并记录自然序。
+    // 注意：入参 aoa 是 filterColumns 之后的结果，故这里一律用「过滤后位置 p」
+    // 而非过滤前列号，才能真正重排到手（无筛选时两者等价）
+    const natural = [];
+    const byCol = new Map();
+    for (let p = 0; p < keep.length; p++) {
+      const sc = layout[keep[p]].srcCol;
+      if (!byCol.has(sc)) { byCol.set(sc, []); natural.push(sc); }
+      byCol.get(sc).push(p);
+    }
+    // order 命中的原列（原列在 layout 中 seg === null）优先，其余按自然序补齐
+    const wanted = [];
+    const used = new Set();
+    for (const key of order) {
+      const hit = layout.find(col => col.seg === null && String(col.key) === String(key));
+      if (hit && !used.has(hit.srcCol) && byCol.has(hit.srcCol)) {
+        used.add(hit.srcCol);
+        wanted.push(hit.srcCol);
+      }
+    }
+    for (const sc of natural) if (!used.has(sc)) wanted.push(sc);
+    const next = [];
+    for (const sc of wanted) for (const p of byCol.get(sc)) next.push(p);
+    let same = true;
+    for (let i = 0; i < next.length; i++) if (next[i] !== i) { same = false; break; }
+    if (same) return aoa;
+    return aoa.map(row => {
+      const r = row || [];
+      return next.map(p => (r[p] == null ? '' : r[p]));
+    });
+  }
+
   /** 数值化：剥离千分位逗号与空白后按 Number 解析（'1,234' → 1234）；
    *  空值/解析失败/非有限数返回原值（保持文本，Excel 里不丢内容） */
   function toNumValue(v) {
@@ -390,7 +437,7 @@
     splitSegments: splitSegments, splitColName: splitColName,
     ctrlCountOf: ctrlCountOf, ctrlColNames: ctrlColNames,
     resolveRuleCol: resolveRuleCol, colKeys: colKeys, columnLayout: columnLayout,
-    filterColumns: filterColumns, toNumValue: toNumValue,
+    filterColumns: filterColumns, reorderColumns: reorderColumns, toNumValue: toNumValue,
     formatColumns: formatColumns, applyColFormats: applyColFormats,
     cellWidth: cellWidth, autoColWidths: autoColWidths,
     applyColumnSplits: applyColumnSplits

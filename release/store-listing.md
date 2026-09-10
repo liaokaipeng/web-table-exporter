@@ -28,16 +28,17 @@ Web Table Exporter：导出表格
 【使用方式】
 1. 点击浏览器工具栏的扩展图标，进入选择模式
 2. 鼠标悬停高亮表格，点击选中（可多选多个表格）
-3. 点击「导出」，文件自动下载
+3. 点击「导出」，文件自动下载（也可选「复制为表格 / 复制为 Markdown」直接进剪贴板）
 
 【列设置 · 按页面记忆】
 · 拆分：按分隔符、按换行、按控件值把一列拆成多列（如「2249 PHP」拆为价格与币种两列）
 · 筛选：勾选需要的列导出，不必导出后再删
+· 排序：拖动列前手柄调整导出列的顺序（拆分出的新列跟随原列）
 · 格式：指定数字列，导出为数值而非文本，Excel 可直接求和
-· 记忆：规则仅存本机，按「页面 + 表头」定位，下次打开同页面自动恢复
+· 记忆：规则仅存本机，按「页面 + 表头」定位，下次打开同页面自动恢复；面板「恢复默认」可一键重置并清除本页记忆
 
 【支持格式】
-xlsx（多表多 Sheet）、csv、json、md、html，工具栏下拉切换
+xlsx（多表多 Sheet）、csv、json、md、html，工具栏下拉切换；另支持复制到剪贴板（表格 TSV / Markdown），不落盘，可直接粘贴进 Excel、飞书或笔记
 
 【核心能力】
 · 虚拟滚动全量采集：只渲染可见行的长表格，自动滚动采集全部数据并去重
@@ -46,9 +47,11 @@ xlsx（多表多 Sheet）、csv、json、md、html，工具栏下拉切换
 · 分体表格合并：表头与表体分离渲染的组件表格自动识别为一张逻辑表
 · 表单控件取值：单元格内的输入框、下拉框、开关等按当前值导出
 · 图片链接导出：单元格内的图片以链接导出，Excel 中可直接打开
+· 复制到剪贴板：不想落盘时可直接复制为表格（TSV）或 Markdown，粘贴进表格软件与文档
 
 【隐私与数据安全】
-· 不收集任何数据，无任何网络请求，表格数据与列设置全部在本机处理，不出浏览器
+· 不收集任何数据，无任何网络请求，表格数据始终在本机处理，不出浏览器
+· 列设置默认仅存本机；登录 Chrome 账号时随浏览器账号在您自己的设备间同步（由浏览器提供，不经过任何第三方服务器）
 · 完全免费、代码开源，可自行审计：https://github.com/liaokaipeng/web-table-exporter
 
 【适用场景】
@@ -85,16 +88,17 @@ Virtual-scrolling and paginated tables are collected in full automatically; tabl
 HOW TO USE
 1. Click the extension icon to enter selection mode
 2. Hover to highlight tables, click to select (multiple tables supported)
-3. Click "Export" and the file downloads automatically
+3. Click "Export" and the file downloads automatically (or pick "Copy as table / Copy as Markdown" to put it straight on the clipboard)
 
 COLUMN SETTINGS · REMEMBERED PER PAGE
 · Split: break a column into several by delimiter, line break, or control values (e.g. "2249 PHP" becomes price and currency columns)
 · Filter: export only the columns you need
+· Reorder: drag the handle in front of a column to change the export order (split columns follow their source column)
 · Format: mark numeric columns so they export as real numbers you can sum in Excel
-· Memory: rules are stored locally, keyed by page + header, and restored automatically next time
+· Memory: rules are stored locally, keyed by page + header, and restored automatically next time; the "Reset" button clears the memory for the current table
 
 EXPORT FORMATS
-xlsx (one sheet per table), csv, json, md, html — switch via the toolbar dropdown
+xlsx (one sheet per table), csv, json, md, html — switch via the toolbar dropdown. You can also copy to the clipboard (table TSV / Markdown) without saving a file, ready to paste into Excel, Sheets or your notes.
 
 KEY FEATURES
 · Full capture of virtual-scrolling tables: grids that only render visible rows are auto-scrolled to collect every row with deduplication
@@ -103,9 +107,11 @@ KEY FEATURES
 · Split-header tables: components rendering header and body as separate tables are merged into one logical table
 · Form control values: inputs, selects and switches inside cells are exported with their current values
 · Image links: images inside cells are exported as links you can open directly in Excel
+· Copy to clipboard: copy as a table (TSV) or as Markdown and paste into any spreadsheet, doc or note
 
 PRIVACY & DATA SAFETY
-· No data collected, no network requests at all — table data and column settings are processed entirely on your device and never leave your browser
+· No data collected, no network requests at all — table data is processed entirely on your device and never leaves your browser
+· Column settings are stored locally by default; when you are signed in to Chrome they sync across your own devices through your browser account (handled by the browser, never by a third-party server)
 · Free and open source — audit the code yourself: https://github.com/liaokaipeng/web-table-exporter
 
 USE CASES

@@ -28,19 +28,22 @@
     return !!cond();
   };
 
-  /* ---- 全局桩：chrome.storage（内存实现）、chrome.runtime.sendMessage（抛错走 blob 回退） ---- */
-  const memStore = {};
+  /* ---- 全局桩：chrome.storage（local + sync 各自内存实现，v2.8 跨设备同步回归）、
+          chrome.runtime.sendMessage（抛错走 blob 回退） ---- */
+  const memStore = {}; // local 区
+  const memSync = {};  // sync 区（独立，供「镜像 / 加载合并」断言）
+  const mkArea = (store) => ({
+    get: async (k) => {
+      const out = {};
+      if (k == null) { for (const key in store) out[key] = store[key]; return out; }
+      for (const key of (Array.isArray(k) ? k : [k])) if (store[key] != null) out[key] = store[key];
+      return out;
+    },
+    set: async (obj) => { for (const key in obj) store[key] = obj[key]; },
+    remove: async (keys) => { for (const k of (Array.isArray(keys) ? keys : [keys])) delete store[k]; }
+  });
   window.chrome = {
-    storage: { local: {
-      get: async (k) => {
-        const out = {};
-        if (k == null) { for (const key in memStore) out[key] = memStore[key]; return out; }
-        for (const key of (Array.isArray(k) ? k : [k])) if (memStore[key] != null) out[key] = memStore[key];
-        return out;
-      },
-      set: async (obj) => { for (const key in obj) memStore[key] = obj[key]; },
-      remove: async (keys) => { for (const k of (Array.isArray(keys) ? keys : [keys])) delete memStore[k]; }
-    } },
+    storage: { local: mkArea(memStore), sync: mkArea(memSync) },
     runtime: { sendMessage: () => { throw new Error('E2E: 无扩展上下文（预期走 blob 回退）'); } }
   };
 
@@ -702,6 +705,92 @@
     mask = h.sr.querySelector('.h2x-mask');
     t('恢复默认后重开面板无子行（记忆已清）', mask.querySelectorAll('.h2x-sub').length === 0);
     click(mask.querySelector('.h2x-pcancel'));
+  });
+
+  /* ================= 轮次 T：导出可中止（v2.8） ================= */
+  await round('导出可中止（停止导出）', async (h) => {
+    clickCell('#staff td');
+    h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
+    click(h.exportBtn);
+    t('导出中「取消」变「停止导出」', h.cancelBtn.textContent.indexOf('停止导出') >= 0, h.cancelBtn.textContent);
+    // 同步点击：doExport 首个 await（persist.ready）尚未恢复，令牌即被作废
+    click(h.cancelBtn);
+    await waitFor(() => toastText(h).indexOf('已停止导出') >= 0, 2000);
+    t('停止导出后不产生文件', window.__exports.length === 0, 'files=' + window.__exports.length);
+    t('停止导出 toast 且不退出选择模式', toastText(h).indexOf('已停止导出') >= 0 && h.count.textContent === '1',
+      toastText(h) + '|count=' + h.count.textContent);
+    t('按钮态恢复（取消 / 导出 CSV）',
+      h.cancelBtn.textContent.indexOf('取消') >= 0 && h.exportBtn.textContent.indexOf('CSV') >= 0,
+      h.cancelBtn.textContent + '|' + h.exportBtn.textContent);
+    click(h.exportBtn); // 作废的是上一个任务，再次导出应正常
+    const files = await waitExports(1);
+    t('停止后再次导出正常（1 个文件）', files.length === 1 && /\.csv$/i.test(files[0].name), files.map(f => f.name).join('|'));
+  });
+
+  /* ================= 轮次 U：列顺序调整（v2.8） ================= */
+  await round('列顺序调整与导出列序', async (h) => {
+    const colNames = () => [...h.sr.querySelectorAll('.h2x-col')].map(r => r.querySelector('.h2x-cname').textContent);
+    clickCell('#staff td');
+    click(h.splitBtn);
+    await waitFor(() => h.sr.querySelector('.h2x-mask'));
+    const mask = h.sr.querySelector('.h2x-mask');
+    t('列区按自然序渲染（姓名在首）', colNames()[0].indexOf('姓名') === 0, colNames().join('|'));
+    t('每列渲染拖拽手柄', mask.querySelectorAll('.h2x-col .h2x-grip').length === 3,
+      'grips=' + mask.querySelectorAll('.h2x-col .h2x-grip').length);
+    const grip = mask.querySelector('.h2x-col[data-c="2"] .h2x-grip'); // 入职日期
+    grip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true, cancelable: true }));
+    t('Alt+↑ 上移一位（入职日期到第 2 位）', colNames()[1].indexOf('入职日期') === 0, colNames().join('|'));
+    t('焦点回填到手柄（可连续键盘操作）',
+      h.sr.activeElement === mask.querySelector('.h2x-col[data-c="2"] .h2x-grip'),
+      h.sr.activeElement ? h.sr.activeElement.className : 'null');
+    click(mask.querySelector('.h2x-save'));
+    await waitFor(() => !h.sr.querySelector('.h2x-mask'));
+    h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
+    click(h.exportBtn);
+    const files = await waitExports(1);
+    const lines = await csvLines(files[0]);
+    t('导出列序按调整后输出（姓名,入职日期,部门）', lines[0] === '姓名,入职日期,部门', lines[0]);
+    click(h.splitBtn);
+    await waitFor(() => h.sr.querySelector('.h2x-mask'));
+    t('重开面板保持调整后的列序', colNames()[1].indexOf('入职日期') === 0, colNames().join('|'));
+    click(h.sr.querySelector('.h2x-mask .h2x-pcancel'));
+  });
+
+  /* ================= 轮次 V/W：跨设备同步（v2.8，sync 镜像 + 加载合并） ================= */
+  const pageKey = 'h2x.v1:p:' + window.__h2x.persist.pageKeyOf(location.href);
+  await round('跨设备同步（保存镜像到 sync）', async (h) => {
+    clickCell('#staff td');
+    click(h.splitBtn);
+    await waitFor(() => h.sr.querySelector('.h2x-mask'));
+    const mask = h.sr.querySelector('.h2x-mask');
+    const rDept = rowOf(h, '部门');
+    ckxOf(rDept).checked = false;
+    fire(ckxOf(rDept), 'change');
+    click(mask.querySelector('.h2x-save'));
+    await waitFor(() => !h.sr.querySelector('.h2x-mask'));
+    const tkey = window.__h2x.persist.tableKeyOf(document.querySelector('#staff'));
+    // 落盘是 fire-and-forget：等两侧都写完（排除列=部门）再植入「另一台设备」记录，
+    // 否则会被本次挂起的镜像写覆盖
+    const isDept = (store) => !!(store[pageKey] && store[pageKey][tkey] &&
+      JSON.stringify(store[pageKey][tkey].excluded) === '["部门"]');
+    await waitFor(() => isDept(memStore), 2000);
+    await waitFor(() => isDept(memSync), 2000);
+    t('保存后本表记录已镜像到 sync（与 local 同源）', isDept(memSync) && isDept(memStore),
+      JSON.stringify(memSync[pageKey] && memSync[pageKey][tkey]));
+    t('镜像记录含列顺序与排除列（v2.8 字段齐备）',
+      !!(memSync[pageKey][tkey] && memSync[pageKey][tkey].order && memSync[pageKey][tkey].order.length === 3),
+      JSON.stringify(memSync[pageKey][tkey] && memSync[pageKey][tkey].order));
+    // 模拟「另一台设备改过」：sync 写入 updatedAt 更新的记录（排除姓名而非部门，列序回自然序）
+    memSync[pageKey][tkey] = { rules: [], excluded: ['姓名'], formats: [], order: [], updatedAt: Date.now() + 60000 };
+  });
+  await round('跨设备同步（加载按 updatedAt 合并）', async (h) => {
+    clickCell('#staff td');
+    t('注入时合并 sync 更新记录（恢复提示）', toastText(h).indexOf('已恢复上次的列设置') >= 0, toastText(h));
+    h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
+    click(h.exportBtn);
+    const files = await waitExports(1);
+    const lines = await csvLines(files[0]);
+    t('合并结果取自 sync（排除姓名、保留部门）', lines[0] === '部门,入职日期', lines[0]);
   });
 
   log('=== harness 完成: ' + R.length + ' 项');

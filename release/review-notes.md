@@ -27,7 +27,7 @@ Export web page tables to xlsx/csv/json/md/html files.
 | `activeTab` | 仅在用户点击扩展图标时获取当前标签页，用于在该页面注入表格识别脚本。 | Granted only when the user clicks the extension icon, used to inject the table-detection scripts into the current tab. |
 | `scripting` | 按需注入内容脚本（表格识别与导出界面），不在页面常驻。 | Used to inject content scripts (table detection and export UI) on demand; nothing runs persistently on pages. |
 | `downloads` | 保存导出的文件（xlsx/csv/json/md/html）。 | Used to save the exported files (xlsx/csv/json/md/html) to the user's computer. |
-| `storage` | 在本地记忆用户按页面保存的列拆分/筛选/格式设置，下次打开同一页面自动恢复。 | Stores the user's per-page column split/filter/format settings locally so they are restored when the same page is opened again. |
+| `storage` | 在本地（并在用户登录 Chrome 账号时随其账号）记忆按页面保存的列拆分/筛选/排序/格式设置，下次打开同一页面自动恢复。 | Stores the user's per-page column split/filter/order/format settings locally (and syncs them with the user's own Chrome account when signed in) so they are restored when the same page is opened again. |
 
 ## 3. 数据使用声明（Data use certification）
 
@@ -54,7 +54,9 @@ Export web page tables to xlsx/csv/json/md/html files.
 
 ```
 本扩展为纯本地工具：点击图标后按需注入内容脚本，用户点选页面表格后导出文件。
-不请求任何网络权限，不收集、不传输任何数据。列设置仅存于 chrome.storage.local。
+不请求任何网络权限，不收集、不传输任何数据。列设置默认仅存本机（chrome.storage.local）；
+用户登录 Chrome 账号时由浏览器镜像一份到 chrome.storage.sync，便于其在多台设备上沿用
+同一套设置，数据始终在用户自己的浏览器账号内，不经过任何第三方服务器。
 ```
 
 **English**
@@ -62,8 +64,10 @@ Export web page tables to xlsx/csv/json/md/html files.
 ```
 This extension is a purely local tool: clicking the icon injects content scripts on demand;
 the user selects tables on the page and exports them as files. It requests no network
-permissions and collects or transmits no data. Column settings are stored only in
-chrome.storage.local.
+permissions and collects or transmits no data. Column settings are stored locally
+(chrome.storage.local) and, when the user is signed in to Chrome, mirrored by the browser to
+chrome.storage.sync so the same settings carry over to their other devices — the data stays
+inside the user's own browser account and never reaches any third-party server.
 ```
 
 ---

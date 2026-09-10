@@ -10,9 +10,13 @@
  * v2.7：面板底部「恢复默认」显式重置入口（此前重置要凑齐「全不拆 + 全列导出 +
  * 全文本」再保存，路径不可发现）——只重置当前表格草稿为默认，仍走保存落盘，
  * 空配置保存即删记忆且提示改口径（不再说「已保存并记住」）。
+ * v2.8：列顺序调整——每行左侧手柄可拖放（落点上/下缘内阴影标示），手柄聚焦后
+ * Alt+↑/↓ 键盘移动；列序存在 entry.order（显示序，列索引数组），列区与预览按它
+ * 渲染（预览即所得），保存时映射为 colKeys 落盘（自然序不记录）；含合并单元格的
+ * 表禁用（merges 按列号定位，重排会错位）。
  * 保存时草稿回写主 UI 内存 Map，并经 persist 模块落盘（跨会话恢复）。
  * 依赖：主 UI 经 init() 注入 { host, selected, snapshots, splitRules,
- *   colFilters, colFormats, isBusy, isAlive, updateBar, toast }（main.js 最后装配）；
+ *   colFilters, colFormats, colOrders, isBusy, isAlive, updateBar, toast }（main.js 最后装配）；
  *   算法层经 __h2x 命名空间（util/table/split/persist）
  */
 (() => {
@@ -135,6 +139,19 @@
       });
     }
     return draft;
+  }
+
+  /** 已保存列顺序 → 面板显示序（列索引数组，v2.8）：按 keys 解析，未命中（表头变了 /
+   *  列已不存在）的键忽略，其余列按自然序追加补齐——保证任何情况下都是全排列 */
+  function orderFromSaved(savedOrder, keys) {
+    const out = [];
+    const used = new Set();
+    for (const k of (savedOrder || [])) {
+      const i = keys.findIndex(key => String(key) === String(k));
+      if (i >= 0 && !used.has(i)) { used.add(i); out.push(i); }
+    }
+    for (let i = 0; i < keys.length; i++) if (!used.has(i)) out.push(i);
+    return out;
   }
 
   function sampleChannels(table) {
@@ -261,6 +278,15 @@
       '  .h2x-col{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--c-border-2);background:var(--c-bg);}',
       '  .h2x-col.noexp .h2x-cname{color:var(--c-text-3);}',
       '  .h2x-ckw{width:34px;flex:none;display:flex;justify-content:center;}',
+      // v2.8 列顺序拖拽：手柄 16px（表头以 .h2x-hgrip 同宽占位保持列对齐）；
+      // 拖到行上/下缘时以顶部/底部内阴影标示落点
+      '  .h2x-grip{width:16px;flex:none;padding:0;border:none;background:transparent;color:var(--c-text-3);cursor:grab;font:12px/1 -apple-system,"Segoe UI",sans-serif;letter-spacing:-1px;}',
+      '  .h2x-grip:hover{color:var(--c-primary);}',
+      '  .h2x-grip:active{cursor:grabbing;}',
+      '  .h2x-grip-off{display:inline-block;cursor:default;}',
+      '  .h2x-hgrip{width:16px;flex:none;}',
+      '  .h2x-col.h2x-drop-before{box-shadow:inset 0 2px 0 var(--c-primary);}',
+      '  .h2x-col.h2x-drop-after{box-shadow:inset 0 -2px 0 var(--c-primary);}',
       '  .h2x-cname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}',
       '  .h2x-tag{display:inline-block;background:rgba(25,118,210,.12);color:var(--c-info);border-radius:8px;padding:0 6px;font-size:11px;font-weight:400;font-style:normal;margin-left:4px;}',
       '  @media (prefers-color-scheme: dark){.h2x-tag{background:rgba(100,181,246,.18);}}',
@@ -330,6 +356,12 @@
     colsBox.addEventListener('change', onColChange);
     colsBox.addEventListener('input', onColInput);
     colsBox.addEventListener('click', onColClick); // 拆分按钮（展开/收起）+ 全选/全不选
+    // v2.8：列顺序调整——手柄拖放（含落点指示）+ 手柄聚焦后 Alt+↑/↓ 键盘移动
+    colsBox.addEventListener('dragstart', onColDragStart);
+    colsBox.addEventListener('dragover', onColDragOver);
+    colsBox.addEventListener('drop', onColDrop);
+    colsBox.addEventListener('dragend', onColDragEnd);
+    colsBox.addEventListener('keydown', onColGripKey);
     panelMask.addEventListener('keydown', onPanelKeyDown); // focus trap（Tab 圈定面板内）
   }
 
@@ -362,7 +394,9 @@
       const keys = colKeys(panelSample); // 列标识（拆分规则与列筛选共用的定位基准）
       entry = {
         draft: draftFromSaved(deps.splitRules.get(table), panelCols, keys, deps.colFilters.get(table), deps.colFormats.get(table)),
-        cols: panelCols, keys: keys, sample: panelSample
+        cols: panelCols, keys: keys, sample: panelSample,
+        // v2.8：列顺序（显示序，列索引数组；自然序 = [0..n-1]）
+        order: orderFromSaved(deps.colOrders && deps.colOrders.get(table), keys)
       };
       panelDrafts.set(table, entry);
     }
@@ -392,7 +426,8 @@
     let i = 0;
     for (const t of deps.selected.keys()) {
       const name = makeSheetName(t, i, used);
-      const cfg = deps.splitRules.has(t) || deps.colFilters.has(t) || deps.colFormats.has(t);
+      const cfg = deps.splitRules.has(t) || deps.colFilters.has(t) || deps.colFormats.has(t) ||
+        (deps.colOrders && deps.colOrders.has(t));
       html += '<button type="button" class="h2x-tab' + (t === panelTable ? ' h2x-tab-on' : '') +
         '" data-i="' + i + '" role="tab" aria-selected="' + (t === panelTable) + '" title="' + escapeHtml(name) + '">' +
         '<i class="h2x-tab-dot' + (cfg ? '' : ' h2x-off') + '" aria-hidden="true"></i><span>' +
@@ -474,15 +509,22 @@
     let html = '<div class="h2x-tools"><span>' + t('colsExportLabel', '导出列') + ' <b class="h2x-exp-n"></b></span>' +
       '<button type="button" class="h2x-mini h2x-all"' + (hasMerges ? ' disabled' : '') + '>' + t('selectAll', '全选') + '</button>' +
       '<button type="button" class="h2x-mini h2x-none"' + (hasMerges ? ' disabled' : '') + '>' + t('selectNone', '全不选') + '</button></div>';
-    html += '<div class="h2x-col-head"><span class="h2x-h1">' + t('headExport', '导出') + '</span><span class="h2x-h2">' + t('headColumn', '列') + '</span>' +
+    html += '<div class="h2x-col-head"><span class="h2x-hgrip" aria-hidden="true"></span><span class="h2x-h1">' + t('headExport', '导出') + '</span><span class="h2x-h2">' + t('headColumn', '列') + '</span>' +
       '<span class="h2x-h3">' + t('headFormat', '格式') + '</span><span class="h2x-h4">' + t('headSplit', '拆分') + '</span></div>';
-    panelCols.forEach((col, c) => {
+    // v2.8：按 entry.order（显示序）逐行渲染，data-c 仍是原列号（草稿/规则/筛选的定位基准）
+    // 拖拽手柄：含合并单元格的表不可重排（merges 按列号定位，重排会让合并区错位）→ 占位不拖
+    const gripTitle = t('gripTitle', '拖动调整列顺序（也可聚焦后按 Alt+↑/↓）');
+    entry.order.forEach(c => {
+      const col = panelCols[c];
       const d = draft[c];
-      if (!d) return;
+      if (!col || !d) return;
       const name = col.name || t('colN', '列' + (c + 1), c + 1);
       const sbtnTitle = hasMerges ? t('noSplitMerges', '含合并单元格的表格不可拆分')
         : (d.checked ? t('collapseSplitTitle', '收起并取消该列拆分') : splitHint(col));
       html += '<div class="h2x-col' + (d.export ? '' : ' noexp') + '" data-c="' + c + '">' +
+        (hasMerges
+          ? '<span class="h2x-grip h2x-grip-off" aria-hidden="true"></span>'
+          : '<button type="button" class="h2x-grip" draggable="true" title="' + escapeHtml(gripTitle) + '" aria-label="' + escapeHtml(gripTitle) + '">⋮⋮</button>') +
         '<label class="h2x-ckw"><input type="checkbox" class="h2x-ck-x"' + (d.export ? ' checked' : '') + (hasMerges ? ' disabled' : '') + '></label>' +
         '<span class="h2x-cname" title="' + escapeHtml(name) + '">' + escapeHtml(name) + (col.hasCtrl ? '<i class="h2x-tag">' + t('tagCtrl', '控件') + '</i>' : '') + (col.multiBlock ? '<i class="h2x-tag">' + t('tagMultiLine', '多行') + '</i>' : '') + '</span>' +
         '<select class="h2x-fmt" title="' + escapeHtml(t('fmtNumberTitle', '数字格式：数值化后写入 Excel（含千分位逗号会先剥离，无法解析保持原文本）；作用于该列及其拆分新列')) + '">' +
@@ -609,7 +651,105 @@
     renderPreview();
   }
 
-  /** 最终输出全列预览（v2.0）：按导出时的真实列序与列名渲染——原列 +
+  /* ---------------- 列顺序调整（v2.8，拖拽 + 键盘） ---------------- */
+
+  let dragCol = null; // 正在拖拽的原列号（null = 未拖拽）
+  let dropAt = null;  // 当前落点 { c, before }
+
+  /** 拖拽起点：只有手柄可拖（行内还有勾选/下拉，整行 draggable 会抢交互）；
+   *  含合并单元格的表不参与（merges 按列号定位，重排会让合并区错位） */
+  function onColDragStart(e) {
+    const grip = e.target.closest && e.target.closest('.h2x-grip');
+    if (!grip || grip.classList.contains('h2x-grip-off') || panelHasMerges()) return;
+    const row = grip.closest('.h2x-col');
+    if (!row) return;
+    dragCol = parseInt(row.dataset.c, 10);
+    dropAt = null;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(dragCol)); // Firefox 须 setData 才启动拖拽
+    }
+  }
+
+  /** 落点：指针在目标行上半 → 插到其前，下半 → 插到其后（内阴影标示） */
+  function onColDragOver(e) {
+    if (dragCol == null) return;
+    const row = e.target.closest && e.target.closest('.h2x-col');
+    if (!row) return;
+    e.preventDefault(); // 必须 preventDefault 才允许 drop
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    const c = parseInt(row.dataset.c, 10);
+    const r = row.getBoundingClientRect();
+    const before = (e.clientY - r.top) < r.height / 2;
+    if (dropAt && dropAt.c === c && dropAt.before === before) return; // 落点未变不重绘
+    dropAt = { c: c, before: before };
+    paintDropHint();
+  }
+
+  function paintDropHint() {
+    if (!panelMask) return;
+    panelMask.querySelectorAll('.h2x-col').forEach(el => {
+      const hit = dropAt && parseInt(el.dataset.c, 10) === dropAt.c;
+      el.classList.toggle('h2x-drop-before', !!(hit && dropAt.before));
+      el.classList.toggle('h2x-drop-after', !!(hit && !dropAt.before));
+    });
+  }
+
+  function onColDrop(e) {
+    if (dragCol == null) return;
+    e.preventDefault();
+    const from = dragCol;
+    const at = dropAt;
+    dragCol = null;
+    dropAt = null;
+    paintDropHint(); // 清落点标示
+    if (!at || at.c === from) return;
+    const entry = panelDrafts.get(panelTable);
+    if (entry) applyMove(entry, from, at.c, !at.before); // 落点下半 = 插到其后
+  }
+
+  function onColDragEnd() {
+    dragCol = null;
+    dropAt = null;
+    paintDropHint();
+  }
+
+  /** 键盘移动（手柄聚焦时 Alt+↑/↓）：与拖一位等价，便于纯键盘操作 */
+  function onColGripKey(e) {
+    if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    const grip = e.target.closest && e.target.closest('.h2x-grip');
+    if (!grip) return;
+    const row = grip.closest('.h2x-col');
+    const entry = panelDrafts.get(panelTable);
+    if (!row || !entry) return;
+    const c = parseInt(row.dataset.c, 10);
+    const pos = entry.order.indexOf(c);
+    const to = e.key === 'ArrowUp' ? pos - 1 : pos + 1;
+    if (pos < 0 || to < 0 || to >= entry.order.length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    applyMove(entry, c, entry.order[to], e.key === 'ArrowDown');
+    refocusGrip(c); // 重渲染后手柄是全新节点，焦点需回填
+  }
+
+  /** 移动入口：把 from 列插到 target 列之前/之后，重渲染列区与预览 */
+  function applyMove(entry, from, target, after) {
+    const arr = entry.order.filter(c => c !== from);
+    let idx = arr.indexOf(target);
+    if (idx < 0) return;
+    if (after) idx += 1;
+    arr.splice(idx, 0, from);
+    entry.order = arr;
+    renderColList();
+    renderPreview();
+  }
+
+  function refocusGrip(c) {
+    const grip = panelMask.querySelector('.h2x-col[data-c="' + c + '"] .h2x-grip');
+    if (grip) grip.focus();
+  }
+
+  /** 最终输出全列预览（v2.0；v2.8 起列序改为面板显示序 entry.order，预览与导出列序一致）：按导出时的真实列序与列名渲染——原列 +
    *  拆分新列（applyColumnSplits 语义：原列保留、新列追加其后），未拆列也
    *  显示；新列绿色、不导出划线；数据行取前 3 行 + 尾注总行数；
    *  数字格式预览即所得（导出同规则数值化） */
@@ -633,7 +773,9 @@
     const partsOf = (r, c, d) => splitSegments(
       d.mode, (aoa[r] || [])[c], (blocksCh[r] || [])[c], d.pattern, parseLimit(d.limit));
     let html = '<table><thead><tr>';
-    draft.forEach((d, c) => {
+    // v2.8：预览按显示序（entry.order）渲染，与导出列序一致（预览即所得）
+    entry.order.forEach(c => {
+      const d = draft[c];
       if (!d) return;
       const raw = (panelCols[c] && panelCols[c].name) || '';
       const name = raw || t('colN', '列' + (c + 1), c + 1);
@@ -648,7 +790,8 @@
     const rowsShown = Math.min(dataRows, 3);
     for (let r = headerRows; r < headerRows + rowsShown; r++) {
       html += '<tr>';
-      draft.forEach((d, c) => {
+      entry.order.forEach(c => {
+        const d = draft[c];
         if (!d) return;
         // 数字格式预览即所得：数据值经 toNumValue 展示（导出同规则数值化）
         const num = (v) => (d.fmt === 'number' && v != null && v !== '' ? toNumValue(v) : v);
@@ -692,6 +835,15 @@
     panelMask.querySelectorAll('.h2x-invalid').forEach(el => el.classList.remove('h2x-invalid'));
   }
 
+  /** v2.8 保存用列顺序键数组：面板显示序（列索引）→ colKeys；与自然序相同则返回 []
+   *  （不落记录，未拖动过的表零回归；表头变更时未命中的键由 reorderColumns 静默忽略） */
+  function orderKeysOf(entry) {
+    for (let i = 0; i < entry.order.length; i++) {
+      if (entry.order[i] !== i) return entry.order.map(c => entry.keys[c]);
+    }
+    return [];
+  }
+
   /** v2.7 恢复默认（当前表格）：草稿回智能预填默认（全不拆、全列导出、全文本），
    *  并清空段数缓存与错误态。不改存储——点「保存」才落盘，空配置即删除本页记忆；
    *  点「取消」则原配置原样保留（与面板既有的一进一出语义一致） */
@@ -701,6 +853,7 @@
     if (!entry) return;
     entry.draft = prefillDrafts(entry.cols);
     entry.segCache = null;
+    entry.order = entry.keys.map((_, i) => i); // v2.8：列顺序一并回自然序
     clearInvalidMarks();
     const errEl = panelMask.querySelector('.h2x-err');
     if (errEl) errEl.textContent = '';
@@ -780,13 +933,17 @@
       else deps.colFilters.delete(table);
       if (formats.size) deps.colFormats.set(table, formats);
       else deps.colFormats.delete(table);
-      ns.persist.save(table, rules, excluded, formats); // 持久化：均空时删除记录（即重置路径）
+      const order = orderKeysOf(entry); // v2.8：与自然序相同 → []（不记录，零回归）
+      if (order.length) deps.colOrders.set(table, order);
+      else deps.colOrders.delete(table);
+      ns.persist.save(table, rules, excluded, formats, order); // 持久化：均空时删除记录（即重置路径）
     }
     // v2.7：保存后本面板各表均无配置 = 走了「恢复默认」/重置，提示改口径
     // （否则「已保存并记住」会让人以为旧配置还在）
     let anyCfg = false;
     for (const table of panelDrafts.keys()) {
-      if (deps.splitRules.has(table) || deps.colFilters.has(table) || deps.colFormats.has(table)) { anyCfg = true; break; }
+      if (deps.splitRules.has(table) || deps.colFilters.has(table) || deps.colFormats.has(table) ||
+        (deps.colOrders && deps.colOrders.has(table))) { anyCfg = true; break; }
     }
     closeSplitPanel();
     deps.toast(anyCfg ? t('toastSaved', '列设置已保存并记住，导出时生效')

@@ -32,6 +32,9 @@
  * v2.7：剪贴板输出与选择管理——「输出方式」下拉新增「复制为表格 (TSV)」/
  * 「复制为 Markdown」（复用导出链路，只把落盘换成写剪贴板，列设置同样生效）；
  * 已选计数旁「✕」一键清空已选（不退出选择模式）
+ * v2.8：导出可中止与列顺序——「取消」按钮在导出期变「停止导出」（exportToken
+ * 作废当前任务，已落盘文件保留，不退出选择模式）；列顺序经 colOrders 传入
+ * buildAoa 最后一环（reorderColumns）；剪贴板/下载成功 toast 反馈对称（均带退出动作）
  */
 (() => {
   'use strict';
@@ -41,7 +44,7 @@
   const { extractTable, makeSheetName, splitGroupOf, gridRootOf, GRID_ROOT_SELECTOR } = ns.table;
   const { isVirtualTable, collectVirtual } = ns.virtual;
   const { detectPager, manualPager, collectPaged, isPagingClick } = ns.pagination;
-  const { applyColumnSplits, columnLayout, filterColumns, colKeys, formatColumns, applyColFormats, autoColWidths } = ns.split;
+  const { applyColumnSplits, columnLayout, filterColumns, reorderColumns, colKeys, formatColumns, applyColFormats, autoColWidths } = ns.split;
   const { toCsv, toTsv, toJson, toMarkdown, toHtmlDocument } = ns.format;
   const panel = ns.panel;
   const persist = ns.persist;
@@ -90,6 +93,7 @@
   let exporting = false;  // 导出文件生成/编码进行中（await 让出主线程期间的重入保护）
   let specifying = false; // v2.5：「指定翻页按钮」子模式（分页器识别不到的兜底）
   let genToken = 0;       // 代际令牌：退出/重新采集时使旧采集任务失效
+  let exportToken = 0;    // v2.8 导出代际令牌：「停止导出」使进行中的导出任务失效（不退出选择模式）
   let hasTables = true;   // 进入选择模式时页面是否存在表格（无表时默认提示切换）
   let lastBlockHint = 0;  // 采集中点击提示的上次 toast 时间（2s 节流防刷屏）
 
@@ -98,6 +102,7 @@
   const splitRules = new Map();  // table -> 列拆分规则（会话内存：面板保存时经 persist 落盘，选中时按表指纹恢复）
   const colFilters = new Map();  // table -> 导出列排除集 Set<colKey|colKey#k>（会话内存，持久化同上；无记录 = 全列导出）
   const colFormats = new Map();  // table -> 列格式 Map<colKey,'number'>（会话内存，持久化同上；文本为默认不记录）
+  const colOrders = new Map();   // table -> 列顺序 colKey 数组（v2.8；与自然序相同则不记录，持久化同上）
 
   /* ---------------- UI 构建（Shadow DOM 隔离页面样式） ---------------- */
 
@@ -265,7 +270,12 @@
     exportBtn.addEventListener('click', doExport);
     clearBtn.addEventListener('click', clearSelection); // v2.7 一键清空已选（逐个取消的快捷方式）
     // v2.0：采集中「取消」变「停止采集」（只作废当前任务，不退出选择模式）
-    cancelBtn.addEventListener('click', () => { collecting ? stopCollect() : exit(); });
+    // v2.8：导出中同样变「停止导出」（三态：采集/导出/退出）
+    cancelBtn.addEventListener('click', () => {
+      if (collecting) stopCollect();
+      else if (exporting) abortExport();
+      else exit();
+    });
     splitBtn.addEventListener('click', openPanel);
     // v2.6.1：语言开关——点未激活语言切换过去；再点当前语言 = 回到跟随浏览器
     langZhBtn.addEventListener('click', () => pickLang('zh'));
@@ -627,12 +637,13 @@
    *  配置不覆盖，面板保存后重选也拿到最新值——removeSelected 只清内存不清存储）。
    *  选中表格时调用；导出/面板入口再兜底一次注入初期的存储加载竞态 */
   function restoreFromPersist(table) {
-    if (splitRules.has(table) || colFilters.has(table) || colFormats.has(table)) return;
+    if (splitRules.has(table) || colFilters.has(table) || colFormats.has(table) || colOrders.has(table)) return;
     const saved = persist.getSaved(table);
-    if (!saved || (!saved.rules.length && !saved.excluded.size && !saved.formats.size)) return;
+    if (!saved || (!saved.rules.length && !saved.excluded.size && !saved.formats.size && !(saved.order && saved.order.length))) return;
     if (saved.rules.length) splitRules.set(table, saved.rules);
     if (saved.excluded.size) colFilters.set(table, saved.excluded);
     if (saved.formats.size) colFormats.set(table, saved.formats);
+    if (saved.order && saved.order.length) colOrders.set(table, saved.order);
     toast(t('toastRestored', '已恢复上次的列设置'), { type: 'info' });
     updateBar(); // 「列设置」徽标点状态同步
   }
@@ -652,6 +663,7 @@
     splitRules.delete(table); // 会话内配置随取消失效（持久化记录保留，重选时自动恢复）
     colFilters.delete(table);
     colFormats.delete(table);
+    colOrders.delete(table);
     panel.onTableRemoved(table); // 面板草稿同步删除；面板正在编辑该表则直接关闭
     updateBar();
   }
@@ -705,6 +717,14 @@
     genToken++;
     toast(t('toastStopped', '已停止采集'), { type: 'info' });
     resetHint();
+  }
+
+  /** v2.8：停止当前导出——exportToken 作废进行中任务（doExport 在检查点静默返回，
+   *  已落盘的文件保留）；不退出选择模式，按钮与提示由 doExport 的 finally 恢复，
+   *  「已停止导出」toast 同处发出（带已完成文件数）。交互对齐「停止采集」；
+   *  Esc 仍为整体退出（与采集期语义一致） */
+  function abortExport() {
+    exportToken++;
   }
 
   /* ---------------- 分页表格全页采集（v2.5） ---------------- */
@@ -839,7 +859,7 @@
     // v2.0：已选表中存在拆分/筛选/格式配置 → 「列设置」按钮带徽标点
     let cfg = false;
     for (const tb of selected.keys()) {
-      if (splitRules.has(tb) || colFilters.has(tb) || colFormats.has(tb)) { cfg = true; break; }
+      if (splitRules.has(tb) || colFilters.has(tb) || colFormats.has(tb) || colOrders.has(tb)) { cfg = true; break; }
     }
     splitBtn.classList.toggle('h2x-has-cfg', cfg);
   }
@@ -944,6 +964,11 @@
     if (formats && formats.size) {
       aoa = applyColFormats(aoa, formatColumns(layout, colKeys(ch), excluded, formats), ch.headerRows || 0);
     }
+    // v2.8：列顺序最后应用（格式已作用于值，重排只换位置；含 merges 的表在面板侧
+    // 禁用拖拽——merges 按列号定位，重排会让合并区错位）
+    if (!(ch.merges && ch.merges.length)) {
+      aoa = reorderColumns(aoa, layout, excluded, colOrders.get(table));
+    }
     return aoa;
   }
 
@@ -1018,11 +1043,15 @@
   async function doExport() {
     if (exporting || collecting || !selected.size) return;
     exporting = true; // await 让出主线程期间按钮未禁用，防重入（原同步链路天然互斥）
+    const gen = ++exportToken; // v2.8：本次导出代际（「停止导出」自增使本任务失效）
     // v2.0：导出中按钮反馈（防点击被静默吞掉）+ 进行时提示
     // v2.7：剪贴板模式（下拉选「复制为…」）复用同一条链路，只有落盘那步换成写剪贴板
     const copyKey = CLIPBOARD[fmtSel.value] ? fmtSel.value : null;
+    let done = 0; // 已落盘文件数（停止导出时用于告知「已下载 N 个」）
+    let copied = false; // 剪贴板已写入成功（此时即使令牌被作废也不再报「已停止导出」，避免双 toast）
     exportBtn.disabled = true;
     exportBtn.textContent = copyKey ? t('copyBtnBusy', '复制中…') : t('exportBtnBusy', '导出中…');
+    cancelBtn.textContent = t('btnStopExport', '停止导出'); // v2.8：导出可中止（对齐「停止采集」交互）
     setHint(copyKey ? t('hintCopying', '正在复制到剪贴板…') : t('hintGenerating', '正在生成导出文件…'), '#1976d2');
     try {
       await persist.ready(); // 兜底注入初期的存储加载竞态（正常情况早已就绪）
@@ -1038,7 +1067,7 @@
       const used = new Set();
       let i = 0;
       for (const table of list) {
-        if (!active) return; // yield 间隙用户可能已退出，放弃导出
+        if (!active || gen !== exportToken) return; // yield 间隙用户已退出/已停止导出
         let aoa, headerRows, merges = null;
         if (snapshots.has(table)) {
           // 虚拟滚动表格：使用采集到的全量快照
@@ -1071,7 +1100,12 @@
           return;
         }
         const n = tables.reduce((sum, tb) => sum + Math.max(0, tb.aoa.length - (tb.headerRows || 0)), 0);
-        toast(t('toastCopied', '已复制 ' + n + ' 行到剪贴板（可直接粘贴到表格软件）', n), { type: 'success' });
+        copied = true;
+        // v2.8：与下载成功对称——同样提供「退出」动作（保留选择、可继续换格式复制）
+        toast(t('toastCopied', '已复制 ' + n + ' 行到剪贴板（可直接粘贴到表格软件）', n), {
+          type: 'success',
+          actions: [{ label: t('btnExit', '退出'), onClick: exit }]
+        });
         return;
       }
 
@@ -1092,18 +1126,30 @@
       let pt = null;
       if (files.length > 1) pt = toast(t('toastDownloading', '正在下载 1/' + files.length + '…', 1, files.length), { type: 'info', sticky: true });
       for (let fi = 0; fi < files.length; fi++) {
-        if (!active) return; // 编码间隙用户已退出，放弃下载
+        if (!active || gen !== exportToken) { // 编码间隙用户已退出 / 已停止导出，放弃剩余下载
+          if (pt) pt.close();
+          return;
+        }
         if (pt) pt.update(t('toastDownloading', '正在下载 ' + (fi + 1) + '/' + files.length + '…', fi + 1, files.length));
         await downloadFile(await arrayBufferToBase64(files[fi].buf), files[fi]);
+        done++;
         await yieldToMain();
       }
       if (pt) pt.close();
       finish(files.length);
     } finally {
+      const aborted = !copied && gen !== exportToken; // v2.8：本任务被「停止导出」作废（退出场景由 active 兜底区分）
       exporting = false;
+      cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
       syncExportBtn(); // 恢复按钮文案（导出中… → 导出 <格式>）
       updateBar();
-      if (active) resetHint();
+      if (active) {
+        resetHint();
+        if (aborted) {
+          toast(done ? t('toastExportStoppedN', '已停止导出（已下载 ' + done + ' 个文件）', done)
+            : t('toastExportStopped', '已停止导出'), { type: 'info' });
+        }
+      }
     }
   }
 
@@ -1126,6 +1172,7 @@
     splitRules.clear(); // 只清会话内存（持久化记录在 chrome.storage，重进选择模式自动恢复）
     colFilters.clear();
     colFormats.clear();
+    colOrders.clear();
     panel.reset();
     window.__html2xlsx = null;
   }
@@ -1153,6 +1200,7 @@
     splitRules: splitRules,
     colFilters: colFilters,
     colFormats: colFormats,
+    colOrders: colOrders,
     isBusy: () => collecting,
     isAlive: () => active,
     updateBar: updateBar,

@@ -97,6 +97,8 @@ http://localhost:3000/test/pagination-manual-fixture.html#e2e=1 → 页底「16 
   虚拟滚动页人工核对约 10-30 秒（真实时钟采集）
 - 分页两页（paged-el / paged-manual）另用 `MutationObserver` 记录 hint 的每次写入：翻页进度的
   「写入后立刻被重置」中间帧（如最后一页的进度）靠轮询抓不到，观察器不丢帧
+- 首轮九页并行，偶发单页在虚拟时间预算内未跑完（无结论徽标；机器负载竞争所致，非断言失败）：
+  收割后只对这类「未完成」页串行补跑一次，消除并行竞争；断言 FAIL 属确定性失败，不重跑
 
 也可手动执行（同效果，结果在控制台 `__TEST_RESULT`，结构 `{total, passed, results}`）：
 
@@ -108,6 +110,9 @@ window.__TEST_RESULT = await (0, eval)(c);
 注意：
 
 - harness 自带并发守卫与轮次串行锁，重复执行须等上轮结束（或刷新页面后重来）
+- `run-all.ps1` 的辅助函数（`Start-PageRun` / `Read-PageResult`）须防「杂散输出污染返回值」：
+  PowerShell 函数的输出流即返回值，`Remove-Item` 在本机安全删除包装器下会往成功流吐一个 `$null`
+  （脚本级语句只多一空行，函数内则混进结果数组），故一律写成 `$null = Remove-Item …` 显式丢弃
 - 九个 harness 均内置后台标签页适配（rAF 定时器替代、scrollTop 补发 scroll 事件），后台跑也可
 - `window.__TEST_LOG` 为调试日志，失败排查用
 - 国际化（v2.6）：页面桩 chrome 不含 `chrome.i18n`，内容脚本 `t()` 回落代码内中文，断言预期值不变；需验证英文界面时按 `_locales/en/messages.json` 给桩实现 `getMessage` 即可（词条 key 一致性已由 algo-check 保证）

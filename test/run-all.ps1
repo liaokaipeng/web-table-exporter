@@ -79,9 +79,8 @@ try {
     return
   }
 
-  # 各页并行启动后依次收割（各自独立 headless 进程 + 独立临时 profile）
-  $runners = @()
-  foreach ($pg in $pages) {
+  # 启动单页 headless 进程（异步返回句柄，收割见 Read-PageResult）
+  function Start-PageRun($pg) {
     $stamp = [System.IO.Path]::GetFileName([System.IO.Path]::GetRandomFileName())
     $outFile = "$env:TEMP\h2x-e2e-$stamp.html"
     $profile = "$env:TEMP\h2x-e2e-profile-$stamp"
@@ -92,16 +91,16 @@ try {
         # 预算只在页面空闲时快进耗尽，取大不影响实际耗时
         '--virtual-time-budget=600000', '--dump-dom', $pg.url
       ) -RedirectStandardOutput $outFile -RedirectStandardError "$env:TEMP\h2x-e2e-$stamp.err" -PassThru -WindowStyle Hidden
-    $runners += @{ page = $pg; proc = $p; outFile = $outFile; profile = $profile; errFile = "$env:TEMP\h2x-e2e-$stamp.err"; watch = [System.Diagnostics.Stopwatch]::StartNew() }
+    return @{ page = $pg; proc = $p; outFile = $outFile; profile = $profile; errFile = "$env:TEMP\h2x-e2e-$stamp.err"; watch = [System.Diagnostics.Stopwatch]::StartNew() }
   }
 
-  $results = @()
-  foreach ($r in $runners) {
+  # 收割单页：等退出 → 读 --dump-dom 输出 → 解析标题徽标与页底浮层
+  # complete = 页面给出了结论徽标（无徽标即虚拟时间预算内未跑完，可重试；断言 FAIL 属确定性失败，不重试）
+  function Read-PageResult($r) {
     $pg = $r.page
     if (-not $r.proc.WaitForExit(180000)) {
       taskkill /PID $r.proc.Id /T /F | Out-Null
-      $results += @{ page = $pg; ok = $false; summary = 'headless 运行超时（180 秒）'; fails = @(); ms = $r.watch.ElapsedMilliseconds }
-      continue
+      return @{ page = $pg; ok = $false; complete = $true; summary = 'headless 运行超时（180 秒）'; fails = @(); ms = $r.watch.ElapsedMilliseconds }
     }
     $null = $r.proc.WaitForExit()   # 无参重载：等待重定向流句柄关闭，防止读输出文件撞锁
     $ms = $r.watch.ElapsedMilliseconds
@@ -112,7 +111,8 @@ try {
         try { $txt = [System.IO.File]::ReadAllText($r.outFile, [System.Text.Encoding]::UTF8) } catch { Start-Sleep -Milliseconds 200 }
       }
     }
-    Remove-Item $r.outFile, $r.profile, $r.errFile -Recurse -Force -ErrorAction SilentlyContinue
+    # 赋 $null 丢弃输出：函数的输出流即返回值，杂散对象（安全删除包装器的空输出等）会污染结果
+    $null = Remove-Item $r.outFile, $r.profile, $r.errFile -Recurse -Force -ErrorAction SilentlyContinue
     $title = [regex]::Match($txt, '<title>([^<]*)</title>').Groups[1].Value
     $sums = [regex]::Matches($txt, 'id="e2e-summary"[^>]*>([^<]*)</b>')
     $summary = if ($sums.Count -gt 0) { $sums[$sums.Count - 1].Groups[1].Value } else { '(页底无结果浮层)' }
@@ -120,8 +120,26 @@ try {
       $_.Groups[1].Value -replace '&lt;', '<' -replace '&gt;', '>' -replace '&quot;', '"' -replace '&amp;', '&'
     })
     $ok = $title.Contains('[全部 PASS]')
-    if (-not $ok -and -not $title.Contains('[')) { $summary = '未完成（无结论徽标，虚拟时间预算内未跑完）' }
-    $results += @{ page = $pg; ok = $ok; summary = $summary; fails = $fails; ms = $ms }
+    $complete = $title.Contains('[')
+    if (-not $complete) { $summary = '未完成（无结论徽标，虚拟时间预算内未跑完）' }
+    return @{ page = $pg; ok = $ok; complete = $complete; summary = $summary; fails = $fails; ms = $ms }
+  }
+
+  # 首轮：九页并行启动后依次收割（各自独立 headless 进程 + 独立临时 profile）
+  $runners = @()
+  foreach ($pg in $pages) { $runners += Start-PageRun $pg }
+  $results = @()
+  foreach ($r in $runners) { $results += Read-PageResult $r }
+
+  # 补跑：九页并行偶发资源竞争致单页在虚拟时间预算内未跑完（本例为已踩过的抖动，
+  # 非代码问题）；仅对「未完成」页串行补跑一次，消除并行竞争
+  $stuck = @($results | Where-Object { -not $_.complete })
+  if ($stuck.Count -gt 0) {
+    Write-Host "  [补跑] 首轮 $($stuck.Count) 页未跑完（$(($stuck | ForEach-Object { $_.page.name }) -join ' / ')），串行重跑一次：" -ForegroundColor Yellow
+    for ($i = 0; $i -lt $results.Count; $i++) {
+      if ($results[$i].complete) { continue }
+      $results[$i] = Read-PageResult (Start-PageRun $results[$i].page)
+    }
   }
 
   Write-Host "浏览器：$(Split-Path -Leaf $browser)，九页并行 headless 运行："

@@ -1,5 +1,5 @@
 /**
- * 分页表格自动翻页采集（v2.5，方案见 docs/pagination-plan.md）
+ * 分页表格自动翻页采集（v2.5）
  * 依赖：table（extractTable）、persist（tableKeyOf 表头指纹）、virtual（overlapLen
  * 重叠合并）——均在函数调用时解引用，注入序置于 virtual 之后即可。
  * 分层识别：组件特征类适配器（el-pagination / ant-pagination）自动识别；

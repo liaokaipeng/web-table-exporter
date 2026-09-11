@@ -1,6 +1,6 @@
 # AGENTS.md — AI 协作须知
 
-Chrome MV3 扩展（原生 JS，零构建）。架构与产品信息见 [docs/architecture.md](docs/architecture.md)、[docs/product.md](docs/product.md)，不在此重复。
+Chrome MV3 扩展（原生 JS，零构建）。架构、机制与产品信息见 [docs/architecture.md](docs/architecture.md)、[docs/mechanisms.md](docs/mechanisms.md)、[docs/product.md](docs/product.md)，设计取舍见 [docs/decisions.md](docs/decisions.md)，不在此重复。
 
 目录约定：`extension/` 是插件本体（chrome://extensions 加载该目录）；`test/`、`docs/` 为开发材料，不随插件分发。
 
@@ -30,5 +30,5 @@ node test/algo-check.cjs
 
 ## 坑（已踩过，勿再踩）
 
-- 单元格取文本：离屏容器不能加 `visibility:hidden`（innerText 会排除不可见文本）；input 值必须从原元素读（cloneNode 丢属性设值）。详见 architecture.md 设计决策表
+- 单元格取文本：离屏容器不能加 `visibility:hidden`（innerText 会排除不可见文本）；input 值必须从原元素读（cloneNode 丢属性设值）。详见 [docs/decisions.md](docs/decisions.md)
 - `test/dianxiaomi-table.html` 含真实业务数据，已在 .gitignore，勿提交勿删除该忽略规则

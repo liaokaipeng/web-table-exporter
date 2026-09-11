@@ -76,7 +76,7 @@ Edge、Firefox 等其它浏览器同样可用，仅需将 `chrome://extensions` 
 │   │   ├── cell.js             #   单元格四通道取值
 │   │   ├── table.js            #   行获取 / 合并单元格展开 / 网格适配器注册表 / Sheet 命名
 │   │   ├── virtual.js          #   虚拟滚动表格采集
-│   │   ├── pagination.js       #   分页表格自动翻页采集（方案见 docs/pagination-plan.md）
+│   │   ├── pagination.js       #   分页表格自动翻页采集
 │   │   ├── persist.js          #   拆分规则/列筛选/列顺序/列格式持久化（本机 + 随 Chrome 账号同步）
 │   │   ├── format.js           #   csv/tsv/json/md/html 导出格式序列化纯函数（tsv 供剪贴板）
 │   │   ├── panel.js            #   列设置面板（列筛选 + 列顺序 + 拆分配置 + 列格式）
@@ -94,7 +94,7 @@ Edge、Firefox 等其它浏览器同样可用，仅需将 `chrome://extensions` 
 │   ├── run-all.ps1             # 一键回归（语法 + 算法 + 九页 E2E 并行）
 │   └── gen-icon.ps1            # 重新生成扩展图标（四尺寸）
 ├── release/                    # Chrome Web Store 上架材料（商店文案/截图/打包脚本）
-└── docs/                       # 文档（架构 / 产品 / 控件规则 / 分页采集方案 / GitHub 远程操作 / archive 归档方案）
+└── docs/                       # 文档（架构 / 机制 / 设计决策 / 产品 / 控件规则 / GitHub 远程操作）
 ```
 
 ## 开发与测试
@@ -118,13 +118,13 @@ npx -y serve .
 
 ## 文档
 
-- [架构文档](docs/architecture.md)：模块划分、数据流、关键设计决策
-- [产品文档](docs/product.md)：功能清单、交互规范、已知限制
+- [架构文档](docs/architecture.md)：系统构成、模块职责、国际化
+- [关键机制与开发侧限制](docs/mechanisms.md)：运行时机制、开发侧已知限制
+- [关键设计决策](docs/decisions.md)：核心设计取舍与理由
+- [产品文档](docs/product.md)：功能清单、交互规范、状态反馈、版本历史、已知限制
 - [控件值规则](docs/controls.md)：三层判定与覆盖矩阵
-- [分页采集方案](docs/pagination-plan.md)：分页器识别、采集引擎与交互设计
 - [GitHub 远程操作](docs/github-remote.md)：推送 / Tag / Release 代发与凭据约定
 - [测试与回归](test/README.md)：测试页覆盖矩阵、命令、浏览器回归步骤
-- 历史方案（已实施归档，设计已并入架构/产品文档）：[列拆分](docs/archive/column-split-plan.md) · [持久化](docs/archive/persist-plan.md) · [UI/UX 优化](docs/archive/uiux-plan.md)
 
 ## 许可证
 

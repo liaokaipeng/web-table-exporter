@@ -211,7 +211,8 @@
   let host = null;
   let hoverBox = null, countEl = null, countWrap = null, nameInput = null, exportBtn = null, cancelBtn = null, hintEl = null, splitBtn = null, fmtSel = null, pageWrap = null, pageBtn = null, pageMenu = null, pagesInput = null, pageGoBtn = null, pageCancelBtn = null;
   let clearBtn = null; // v2.7 已选计数旁的「清空」小按钮（无选中时隐藏）
-  let expDrop = null;   // v2.10 导出按钮右侧的输出方式下拉区（箭头 + 透明原生 select）
+  let expDrop = null;   // v2.10 导出按钮右侧的输出方式下拉区（v2.11 起为箭头按钮，开合自绘菜单）
+  let expWrap = null, expMenu = null; // v2.11 下拉包装（定位锚点）与自绘菜单
   let langZhBtn = null, langEnBtn = null; // v2.6.1 工具栏语言开关（中文 | EN）
   let menuTitleEl = null, menuSubEl = null, pageLimitLabelEl = null, pageUnitEl = null; // 分页面板静态文案节点（语言切换就地重取词）
   let toastRoot = null;
@@ -270,18 +271,26 @@
       '  .h2x-clear[hidden]{display:none;}',
       '  .h2x-name{flex:1 1 150px;min-width:110px;max-width:260px;padding:6px 10px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 -apple-system,"Segoe UI",sans-serif;color:var(--c-text);outline:none;background:var(--c-input);box-sizing:border-box;}',
       '  .h2x-name:focus{border-color:var(--c-primary);}',
-      // v2.10 输出方式与导出按钮合并为分体按钮：主按钮（导出当前格式）+ 右侧箭头下拉（选择其他格式）。
-      // 箭头区为原生 select 透明覆盖（.h2x-ext opacity:0），保留原生下拉交互与键盘可达性
+      // v2.11 输出方式下拉改自绘菜单：原生 select 弹层在部分浏览器中内容贴边且无法定制内边距。
+      // 主按钮（导出当前格式）+ 右侧箭头按钮开合菜单；隐藏的原生 select 保留为格式状态与词条来源
       '  .h2x-btn.h2x-exp{border-top-right-radius:0;border-bottom-right-radius:0;}',
-      '  .h2x-expdrop{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;margin-left:-8px;background:var(--c-primary);color:#fff;border-left:1px solid rgba(255,255,255,.38);border-radius:0 var(--r-s) var(--r-s) 0;cursor:pointer;}',
-      '  .h2x-expdrop:hover{filter:brightness(1.06);}',
-      '  .h2x-expdrop:active{filter:brightness(.94);}',
-      '  .h2x-expdrop.h2x-off{background:var(--c-disable-bg);border-left-color:rgba(255,255,255,.25);cursor:not-allowed;}',
-      '  .h2x-expdrop.h2x-off:hover,.h2x-expdrop.h2x-off:active{filter:none;}',
-      '  .h2x-expdrop:focus-within{outline:2px solid var(--c-info);outline-offset:1px;}',
-      '  .h2x-expcare{font-style:normal;font-size:10px;line-height:1;opacity:.9;pointer-events:none;}',
-      '  .h2x-ext{position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;border:none;padding:0;margin:0;appearance:none;font:inherit;cursor:pointer;}',
-      '  .h2x-ext:disabled{cursor:not-allowed;}',
+      '  .h2x-expwrap{position:relative;display:inline-flex;align-items:stretch;flex:none;margin-left:-8px;}',
+      '  .h2x-expdrop{display:inline-flex;align-items:center;justify-content:center;width:28px;padding:0;box-sizing:border-box;background:var(--c-primary);color:#fff;border:none;border-left:1px solid rgba(255,255,255,.38);border-radius:0 var(--r-s) var(--r-s) 0;cursor:pointer;}',
+      '  .h2x-expdrop:hover:not(:disabled){filter:brightness(1.06);}',
+      '  .h2x-expdrop:active:not(:disabled){filter:brightness(.94);}',
+      '  .h2x-expdrop:disabled{background:var(--c-disable-bg);border-left-color:rgba(255,255,255,.25);cursor:not-allowed;filter:none;}',
+      '  .h2x-expdrop:focus-visible{outline:2px solid var(--c-info);outline-offset:1px;}',
+      '  .h2x-expcare{font-style:normal;font-size:10px;line-height:1;opacity:.9;pointer-events:none;transition:transform .15s;}',
+      '  .h2x-expwrap.h2x-open .h2x-expcare{transform:rotate(180deg);}',
+      '  .h2x-expmenu{position:absolute;right:0;bottom:calc(100% + 8px);width:max-content;min-width:184px;max-width:calc(100vw - 24px);box-sizing:border-box;padding:6px;background:var(--c-bg);border:1px solid var(--c-border-2);border-radius:10px;box-shadow:0 10px 32px rgba(0,0,0,.22);z-index:2;display:flex;flex-direction:column;gap:2px;}',  /* 上移弹层：与「采集全部页」面板同款圆角/描边/阴影 */
+      '  .h2x-expmenu[hidden]{display:none;}',
+      '  .h2x-expopt{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:7px 10px;border:none;border-radius:var(--r-s);background:transparent;color:var(--c-text);font:13px/1.3 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;text-align:left;white-space:nowrap;cursor:pointer;}',
+      '  .h2x-expopt:hover{background:var(--c-bg-2);}',
+      '  .h2x-expopt:focus-visible{outline:2px solid var(--c-info);outline-offset:-2px;}',
+      '  .h2x-expopt[aria-selected="true"]{color:var(--c-primary);font-weight:600;background:var(--c-bg-2);}',
+      '  .h2x-expopt[aria-selected="true"]::after{content:"✓";margin-left:auto;font-size:12px;font-weight:400;}',
+      '  .h2x-expsep{height:1px;margin:4px 2px;background:var(--c-border-2);}',
+      '  .h2x-ext{display:none;}',  /* 仅作格式状态与词条来源：不参与交互与显示 */
       '  .h2x-btn{padding:6px 16px;border:none;border-radius:var(--r-s);cursor:pointer;font:13px/1.2 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}',
       '  .h2x-btn:hover:not(:disabled){filter:brightness(1.06);}',
       '  .h2x-btn:active:not(:disabled){filter:brightness(.94);}',
@@ -362,13 +371,20 @@
       '      </div>',
       '    </div>',
       '    <button class="h2x-btn h2x-primary h2x-exp" disabled></button>',
-      // v2.10 合并控件右侧箭头：透明原生 select 覆盖，点开即选择其他输出方式
-      '    <span class="h2x-expdrop">',
-      '      <i class="h2x-expcare" aria-hidden="true">▾</i>',
-      '      <select class="h2x-ext" aria-label="' + t('exportFormatTitle', '导出格式 / 复制到剪贴板') + '" title="' + t('exportFormatTitle', '导出格式 / 复制到剪贴板') + '">' +
+      // v2.11 右侧箭头按钮开合自绘菜单；隐藏 select 仅作格式状态与词条来源（不参与交互）
+      '    <span class="h2x-expwrap">',
+      '      <button type="button" class="h2x-expdrop" disabled aria-haspopup="listbox" aria-expanded="false" aria-label="' + t('exportFormatTitle', '导出格式 / 复制到剪贴板') + '" title="' + t('exportFormatTitle', '导出格式 / 复制到剪贴板') + '">',
+      '        <i class="h2x-expcare" aria-hidden="true">▾</i>',
+      '      </button>',
+      '      <select class="h2x-ext" hidden tabindex="-1" aria-hidden="true">' +
       Object.keys(FORMATS).map(k => '<option value="' + k + '">' + FORMATS[k].label + ' (.' + FORMATS[k].ext + ')</option>').join('') +
       Object.keys(CLIPBOARD).map(k => '<option value="' + k + '">' + t(CLIPBOARD[k].key, CLIPBOARD[k].fb) + '</option>').join('') +
       '</select>',
+      '      <div class="h2x-expmenu" role="listbox" aria-label="' + t('exportFormatTitle', '导出格式 / 复制到剪贴板') + '" hidden>' +
+      Object.keys(FORMATS).map(k => '<button type="button" class="h2x-expopt" role="option" data-k="' + k + '" aria-selected="false">' + FORMATS[k].label + ' (.' + FORMATS[k].ext + ')</button>').join('') +
+      '<div class="h2x-expsep" aria-hidden="true"></div>' +
+      Object.keys(CLIPBOARD).map(k => '<button type="button" class="h2x-expopt" role="option" data-k="' + k + '" aria-selected="false">' + t(CLIPBOARD[k].key, CLIPBOARD[k].fb) + '</button>').join('') +
+      '</div>',
       '    </span>',
       '    <button class="h2x-btn h2x-ghost">' + t('btnCancel', '取消 (Esc)') + '</button>',
       '  </div>',
@@ -389,8 +405,10 @@
     clearBtn.title = t('btnClearTitle', '清空已选表格');
     clearBtn.setAttribute('aria-label', clearBtn.title);
     nameInput = root.querySelector('.h2x-name');
-    fmtSel = root.querySelector('.h2x-ext');
-    expDrop = root.querySelector('.h2x-expdrop'); // v2.10 下拉区（禁用态灰显与 select 同步）
+    fmtSel = root.querySelector('.h2x-ext');        // v2.11 隐藏的原生 select：格式状态 + 词条来源
+    expWrap = root.querySelector('.h2x-expwrap');   // v2.11 自绘下拉：箭头按钮 + 菜单（禁用态同步）
+    expDrop = root.querySelector('.h2x-expdrop');
+    expMenu = root.querySelector('.h2x-expmenu');
     // v2.5.2 修复：下拉面板内「开始采集/取消」也带 h2x-primary/h2x-ghost 类且 DOM 在前，
     // 裸类名查询会错绑到面板按钮（导出文案与点击监听跑到对话框里、真按钮空白死掉）——限定工具栏直系子级
     exportBtn = root.querySelector('.h2x-actions > .h2x-primary');
@@ -430,11 +448,16 @@
     pagesInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); closePageMenu(); onCollectAllPages(); } });
     // 格式切换：导出按钮文案同步（文件名扩展名在导出时按格式追加）；
     // v2.9：选择即记住（下次进入选择模式恢复同一输出方式）
-    fmtSel.addEventListener('change', () => {
-      fmtTouched = true;
-      syncExportBtn();
-      savePrefs({ fmt: fmtSel.value });
+    fmtSel.addEventListener('change', applyFmt);
+    // v2.11 输出方式自绘下拉：箭头开合菜单、点项生效、点工具栏其他处/keyboard 收拢
+    expDrop.addEventListener('click', toggleExpMenu);
+    expMenu.addEventListener('click', e => {
+      const opt = e.target instanceof Element ? e.target.closest('.h2x-expopt') : null;
+      if (opt) pickFmt(opt.dataset.k);
     });
+    expMenu.addEventListener('keydown', onExpMenuKey);
+    expWrap.addEventListener('focusout', e => { if (!expWrap.contains(e.relatedTarget)) closeExpMenu(); });
+    root.addEventListener('click', e => { if (!expWrap.contains(e.target)) closeExpMenu(); });
     // v2.9 文件名：编辑过即记住为模板（blur 时落盘，点导出按钮会先触发 blur）；
     // 清空输入框 = 回落默认命名
     nameInput.addEventListener('input', () => { nameDirty = true; });
@@ -457,8 +480,64 @@
   /** v2.10 进行时（采集/导出）下拉区与主按钮一同灰置：这些路径不经 updateBar，
    *  需就地同步；结束后统一由 updateBar 按状态恢复 */
   function lockExpDrop() {
+    closeExpMenu();
     fmtSel.disabled = true;
-    expDrop.classList.add('h2x-off');
+    expDrop.disabled = true;
+  }
+
+  /* ---------------- 输出方式自绘下拉（v2.11） ---------------- */
+
+  /** 格式生效：文案同步 + 记住偏好（隐藏 select 的 change 与菜单点选共用） */
+  function applyFmt() {
+    fmtTouched = true;
+    syncExportBtn();
+    savePrefs({ fmt: fmtSel.value });
+  }
+
+  /** 选中态同步：按隐藏 select 的当前值标记菜单项（程序化改值后仍一致） */
+  function syncExpMenu() {
+    for (const opt of expMenu.querySelectorAll('.h2x-expopt')) {
+      opt.setAttribute('aria-selected', opt.dataset.k === fmtSel.value ? 'true' : 'false');
+    }
+  }
+
+  function openExpMenu() {
+    if (expDrop.disabled) return;
+    syncExpMenu();
+    expMenu.hidden = false;
+    expWrap.classList.add('h2x-open');
+    expDrop.setAttribute('aria-expanded', 'true');
+    const cur = expMenu.querySelector('.h2x-expopt[aria-selected="true"]');
+    (cur || expMenu.querySelector('.h2x-expopt')).focus();
+  }
+
+  function closeExpMenu() {
+    if (expMenu.hidden) return;
+    expMenu.hidden = true;
+    expWrap.classList.remove('h2x-open');
+    expDrop.setAttribute('aria-expanded', 'false');
+  }
+
+  function toggleExpMenu() {
+    expMenu.hidden ? openExpMenu() : closeExpMenu();
+  }
+
+  /** 点选菜单项：写入 select 后走同一生效路径；重复点当前项只收起 */
+  function pickFmt(k) {
+    closeExpMenu();
+    if (!k || k === fmtSel.value || !(FORMATS[k] || CLIPBOARD[k])) return;
+    fmtSel.value = k;
+    applyFmt();
+  }
+
+  /** 菜单内 ↑/↓ 首尾循环移动焦点（Esc/Enter/Tab 由全局键盘处理与按钮默认行为接管） */
+  function onExpMenuKey(e) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const opts = [...expMenu.querySelectorAll('.h2x-expopt')];
+    const i = opts.indexOf(e.target instanceof Element ? e.target.closest('.h2x-expopt') : null);
+    const next = opts[(i + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length];
+    if (next) next.focus();
   }
 
   /* ---------------- 界面语言开关（v2.6.1） ---------------- */
@@ -477,10 +556,13 @@
   function refreshTexts() {
     countWrap.innerHTML = t('selectedCount', '已选 <b>' + selected.size + '</b> 个', String(selected.size));
     countEl = countWrap.querySelector('b'); // innerHTML 重建了 <b>，重取引用
-    fmtSel.title = t('exportFormatTitle', '导出格式 / 复制到剪贴板');
-    // v2.7：剪贴板选项文案随界面语言就地重取词（选项文本在 buildUI 一次成型）
+    // v2.11：自绘菜单文案重取词——剪贴板项随语言变（文件格式项文案不含语言）；
+    // 隐藏 select 的 option 文本不再展示，只保菜单一致
+    expDrop.title = t('exportFormatTitle', '导出格式 / 复制到剪贴板');
+    expDrop.setAttribute('aria-label', expDrop.title);
+    expMenu.setAttribute('aria-label', expDrop.title);
     for (const k of Object.keys(CLIPBOARD)) {
-      const opt = fmtSel.querySelector('option[value="' + k + '"]');
+      const opt = expMenu.querySelector('.h2x-expopt[data-k="' + k + '"]');
       if (opt) opt.textContent = t(CLIPBOARD[k].key, CLIPBOARD[k].fb);
     }
     clearBtn.title = t('btnClearTitle', '清空已选表格');
@@ -519,6 +601,7 @@
     if (!active) return; // await 间隙用户已退出
     if (ns.i18n.langOf() !== before) {
       closePageMenu();
+      closeExpMenu();
       refreshTexts();
       updateBar(); // 同步计数/主按钮 title/开关禁用态（语言变化后文案重取词）
     }
@@ -633,6 +716,7 @@
     // 工具栏自身的点击不拦截（按钮/输入框正常工作）
     if (e.composedPath().includes(host)) return;
     if (!pageMenu.hidden) closePageMenu(); // v2.5.2 点击页面处收拢下拉面板
+    if (!expMenu.hidden) closeExpMenu();   // v2.11 输出方式菜单同理
     if (collecting) {
       if (isPagingClick(e)) return; // v2.5：翻页按钮的编程式点击放行（分页器常为 a[href]，拦截则翻页永不发生）
       // 采集滚动/翻页中仍全拦截（防误操作打断采集），但给点击反馈（2s 节流）
@@ -736,6 +820,13 @@
       return;
     }
     if (e.key === 'Escape') {
+      if (!expMenu.hidden) { // v2.11 输出方式菜单优先收拢（避免误退出选择模式），焦点回箭头
+        e.preventDefault();
+        e.stopPropagation();
+        closeExpMenu();
+        expDrop.focus();
+        return;
+      }
       if (!pageMenu.hidden) { // v2.5.2 下拉优先：点开未采时 Esc 只收拢面板
         e.preventDefault();
         e.stopPropagation();
@@ -1035,7 +1126,8 @@
     const expOff = busy || selected.size === 0;
     exportBtn.disabled = expOff;
     fmtSel.disabled = expOff;
-    expDrop.classList.toggle('h2x-off', expOff);
+    expDrop.disabled = expOff;
+    if (expOff) closeExpMenu(); // 失效后菜单不可留在屏上（v2.11）
     splitBtn.disabled = busy || selected.size === 0;
     const pageOff = busy || selected.size !== 1; // v2.5.3 下拉主按钮禁用（采集中/面板/导出/子模式、未选中或多选——分页采集只支持单表）
     pageBtn.disabled = pageOff;
@@ -1414,6 +1506,7 @@
       if (!active) return;
       if (ns.i18n.langOf() !== langBefore) {
         closePageMenu();
+        closeExpMenu();
         refreshTexts();
         updateBar();
       }

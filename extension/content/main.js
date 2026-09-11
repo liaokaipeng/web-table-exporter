@@ -39,6 +39,9 @@
  * 文件名支持 {title}/{date}/{time} 占位符，留空回落默认模板）；②分页采集进度带
  * 总页数（「第 i/N 页」，见 pagination.js 适配器 totalOf）；③手动指定的翻页按钮
  * 按「页面键 + 表指纹」记住（'h2x.pager.v1'，命中直接复用，未生效自动清除）
+ * v2.10：输出方式下拉与导出按钮合并为分体按钮——主按钮导出当前格式（默认 Excel），
+ * 右侧箭头下拉选择其他输出方式（透明原生 select 覆盖，保留原生下拉与键盘交互）；
+ * 两者启用/禁用同源（未选表或忙态整体灰置），下拉位置即原导出按钮处
  */
 (() => {
   'use strict';
@@ -208,6 +211,7 @@
   let host = null;
   let hoverBox = null, countEl = null, countWrap = null, nameInput = null, exportBtn = null, cancelBtn = null, hintEl = null, splitBtn = null, fmtSel = null, pageWrap = null, pageBtn = null, pageMenu = null, pagesInput = null, pageGoBtn = null, pageCancelBtn = null;
   let clearBtn = null; // v2.7 已选计数旁的「清空」小按钮（无选中时隐藏）
+  let expDrop = null;   // v2.10 导出按钮右侧的输出方式下拉区（箭头 + 透明原生 select）
   let langZhBtn = null, langEnBtn = null; // v2.6.1 工具栏语言开关（中文 | EN）
   let menuTitleEl = null, menuSubEl = null, pageLimitLabelEl = null, pageUnitEl = null; // 分页面板静态文案节点（语言切换就地重取词）
   let toastRoot = null;
@@ -266,8 +270,18 @@
       '  .h2x-clear[hidden]{display:none;}',
       '  .h2x-name{flex:1 1 150px;min-width:110px;max-width:260px;padding:6px 10px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 -apple-system,"Segoe UI",sans-serif;color:var(--c-text);outline:none;background:var(--c-input);box-sizing:border-box;}',
       '  .h2x-name:focus{border-color:var(--c-primary);}',
-      '  .h2x-ext{padding:6px 8px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 -apple-system,"Segoe UI",sans-serif;color:var(--c-text);background:var(--c-input);outline:none;cursor:pointer;flex:none;}',
-      '  .h2x-ext:focus{border-color:var(--c-primary);}',
+      // v2.10 输出方式与导出按钮合并为分体按钮：主按钮（导出当前格式）+ 右侧箭头下拉（选择其他格式）。
+      // 箭头区为原生 select 透明覆盖（.h2x-ext opacity:0），保留原生下拉交互与键盘可达性
+      '  .h2x-btn.h2x-exp{border-top-right-radius:0;border-bottom-right-radius:0;}',
+      '  .h2x-expdrop{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;margin-left:-8px;background:var(--c-primary);color:#fff;border-left:1px solid rgba(255,255,255,.38);border-radius:0 var(--r-s) var(--r-s) 0;cursor:pointer;}',
+      '  .h2x-expdrop:hover{filter:brightness(1.06);}',
+      '  .h2x-expdrop:active{filter:brightness(.94);}',
+      '  .h2x-expdrop.h2x-off{background:var(--c-disable-bg);border-left-color:rgba(255,255,255,.25);cursor:not-allowed;}',
+      '  .h2x-expdrop.h2x-off:hover,.h2x-expdrop.h2x-off:active{filter:none;}',
+      '  .h2x-expdrop:focus-within{outline:2px solid var(--c-info);outline-offset:1px;}',
+      '  .h2x-expcare{font-style:normal;font-size:10px;line-height:1;opacity:.9;pointer-events:none;}',
+      '  .h2x-ext{position:absolute;left:0;top:0;width:100%;height:100%;opacity:0;border:none;padding:0;margin:0;appearance:none;font:inherit;cursor:pointer;}',
+      '  .h2x-ext:disabled{cursor:not-allowed;}',
       '  .h2x-btn{padding:6px 16px;border:none;border-radius:var(--r-s);cursor:pointer;font:13px/1.2 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;}',
       '  .h2x-btn:hover:not(:disabled){filter:brightness(1.06);}',
       '  .h2x-btn:active:not(:disabled){filter:brightness(.94);}',
@@ -329,10 +343,6 @@
       '  <span class="h2x-count">' + t('selectedCount', '已选 <b>0</b> 个', '0') + '</span>',
       '  <button type="button" class="h2x-clear" hidden>✕</button>',
       '  <input class="h2x-name" type="text" spellcheck="false" />',
-      '  <select class="h2x-ext" title="' + t('exportFormatTitle', '导出格式 / 复制到剪贴板') + '">' +
-      Object.keys(FORMATS).map(k => '<option value="' + k + '">' + FORMATS[k].label + ' (.' + FORMATS[k].ext + ')</option>').join('') +
-      Object.keys(CLIPBOARD).map(k => '<option value="' + k + '">' + t(CLIPBOARD[k].key, CLIPBOARD[k].fb) + '</option>').join('') +
-      '</select>',
       '  <div class="h2x-actions">',
       '    <button class="h2x-btn h2x-split" disabled>' + t('btnColSettings', '列设置') + '</button>',
       '    <div class="h2x-pagewrap">',
@@ -351,7 +361,15 @@
       '        </div>',
       '      </div>',
       '    </div>',
-      '    <button class="h2x-btn h2x-primary" disabled></button>',
+      '    <button class="h2x-btn h2x-primary h2x-exp" disabled></button>',
+      // v2.10 合并控件右侧箭头：透明原生 select 覆盖，点开即选择其他输出方式
+      '    <span class="h2x-expdrop">',
+      '      <i class="h2x-expcare" aria-hidden="true">▾</i>',
+      '      <select class="h2x-ext" aria-label="' + t('exportFormatTitle', '导出格式 / 复制到剪贴板') + '" title="' + t('exportFormatTitle', '导出格式 / 复制到剪贴板') + '">' +
+      Object.keys(FORMATS).map(k => '<option value="' + k + '">' + FORMATS[k].label + ' (.' + FORMATS[k].ext + ')</option>').join('') +
+      Object.keys(CLIPBOARD).map(k => '<option value="' + k + '">' + t(CLIPBOARD[k].key, CLIPBOARD[k].fb) + '</option>').join('') +
+      '</select>',
+      '    </span>',
       '    <button class="h2x-btn h2x-ghost">' + t('btnCancel', '取消 (Esc)') + '</button>',
       '  </div>',
       // v2.6.1 语言分段开关：按钮文案即语言自称（中文/EN），刻意双语恒定、不随
@@ -372,6 +390,7 @@
     clearBtn.setAttribute('aria-label', clearBtn.title);
     nameInput = root.querySelector('.h2x-name');
     fmtSel = root.querySelector('.h2x-ext');
+    expDrop = root.querySelector('.h2x-expdrop'); // v2.10 下拉区（禁用态灰显与 select 同步）
     // v2.5.2 修复：下拉面板内「开始采集/取消」也带 h2x-primary/h2x-ghost 类且 DOM 在前，
     // 裸类名查询会错绑到面板按钮（导出文案与点击监听跑到对话框里、真按钮空白死掉）——限定工具栏直系子级
     exportBtn = root.querySelector('.h2x-actions > .h2x-primary');
@@ -433,6 +452,13 @@
     if (cp) { exportBtn.textContent = t(cp.key, cp.fb); return; } // v2.7 剪贴板模式：按钮即动作名
     const fmt = FORMATS[fmtSel.value] || FORMATS.xlsx;
     exportBtn.textContent = t('exportBtnLabel', '导出 ' + fmt.label, fmt.label);
+  }
+
+  /** v2.10 进行时（采集/导出）下拉区与主按钮一同灰置：这些路径不经 updateBar，
+   *  需就地同步；结束后统一由 updateBar 按状态恢复 */
+  function lockExpDrop() {
+    fmtSel.disabled = true;
+    expDrop.classList.add('h2x-off');
   }
 
   /* ---------------- 界面语言开关（v2.6.1） ---------------- */
@@ -822,6 +848,7 @@
     const gen = ++genToken;
     hoverBox.hidden = true;
     exportBtn.disabled = true;
+    lockExpDrop();
     splitBtn.disabled = true;
     cancelBtn.textContent = t('btnStop', '停止采集'); // v2.0：采集中可中止（不退出选择模式）
     setHint(t('hintVirtual', '虚拟表格采集滚动中…'), '#1976d2');
@@ -941,6 +968,7 @@
     const gen = ++genToken;
     hoverBox.hidden = true;
     exportBtn.disabled = true;
+    lockExpDrop();
     splitBtn.disabled = true;
     closePageMenu(); // v2.5.2 采集中收拢下拉并禁用主按钮（updateBar 同步）
     pageBtn.disabled = true;
@@ -1003,7 +1031,11 @@
     const busy = collecting || exporting || panel.isOpen() || specifying; // 面板/导出/子模式期间主工具栏同步禁用
     clearBtn.hidden = selected.size === 0; // v2.7 无选中不占位（隐藏而非禁用，工具栏更干净）
     clearBtn.disabled = busy;
-    exportBtn.disabled = busy || selected.size === 0;
+    // v2.10：导出按钮与输出方式下拉合并为一个控件，启用/禁用同源——未选表或忙态整体灰置
+    const expOff = busy || selected.size === 0;
+    exportBtn.disabled = expOff;
+    fmtSel.disabled = expOff;
+    expDrop.classList.toggle('h2x-off', expOff);
     splitBtn.disabled = busy || selected.size === 0;
     const pageOff = busy || selected.size !== 1; // v2.5.3 下拉主按钮禁用（采集中/面板/导出/子模式、未选中或多选——分页采集只支持单表）
     pageBtn.disabled = pageOff;
@@ -1212,6 +1244,7 @@
     let done = 0; // 已落盘文件数（停止导出时用于告知「已下载 N 个」）
     let copied = false; // 剪贴板已写入成功（此时即使令牌被作废也不再报「已停止导出」，避免双 toast）
     exportBtn.disabled = true;
+    lockExpDrop();
     exportBtn.textContent = copyKey ? t('copyBtnBusy', '复制中…') : t('exportBtnBusy', '导出中…');
     cancelBtn.textContent = t('btnStopExport', '停止导出'); // v2.8：导出可中止（对齐「停止采集」交互）
     setHint(copyKey ? t('hintCopying', '正在复制到剪贴板…') : t('hintGenerating', '正在生成导出文件…'), '#1976d2');

@@ -60,7 +60,8 @@
     return Number.isFinite(n) && n >= 2 ? n : null;
   }
 
-  /** 分隔符探测：该列全部非空数据值都含候选符号才预填（保守，避免误拆） */
+  /** 分隔符探测：该列全部非空数据值都含候选符号才命中（保守，避免误拆）。
+   *  结果仅用于拆分按钮 title 建议，不再预填到输入框（v2.10 起分隔符默认留空） */
   function detectDelimiter(values) {
     const vals = values.filter(v => v != null && String(v).trim() !== '');
     if (vals.length < 2) return '';
@@ -97,14 +98,16 @@
   }
 
   /** 智能预填（v2.1 起所有列默认不拆分）：多块文本列展开后预设 block（按换行拆）；
-   *  含控件列展开后预设 control（由用户确认）；其余纯文本列探测分隔符预填。
+   *  含控件列展开后预设 control（由用户确认）；其余纯文本列预设 delimiter，但分隔符
+   *  默认留空（探测结果仅作按钮 title 建议，需用户显式填写）；段数上限默认 10。
+   *  open = 配置子行展开态（v2.10.1 与「是否拆分」解耦：收起只隐藏配置，规则仍生效）。
    *  导出勾选默认全选（export: true），子列排除集默认为空，列格式默认文本 */
   function prefillDrafts(cols) {
     return cols.map(col => {
-      const base = { export: true, skipSegs: new Set(), fmt: 'text' };
-      if (col.multiBlock) return Object.assign(base, { checked: false, mode: 'block', pattern: '', limit: '' });
-      if (col.hasCtrl) return Object.assign(base, { checked: false, mode: 'control', pattern: col.delim, limit: '' });
-      return Object.assign(base, { checked: false, mode: 'delimiter', pattern: col.delim, limit: '' });
+      const base = { export: true, skipSegs: new Set(), fmt: 'text', open: false };
+      if (col.multiBlock) return Object.assign(base, { checked: false, mode: 'block', pattern: '', limit: '10' });
+      if (col.hasCtrl) return Object.assign(base, { checked: false, mode: 'control', pattern: '', limit: '10' });
+      return Object.assign(base, { checked: false, mode: 'delimiter', pattern: '', limit: '10' });
     });
   }
 
@@ -134,7 +137,8 @@
       }
       if (c < 0) continue;
       Object.assign(draft[c], {
-        checked: true, mode: rule.mode,
+        checked: true, open: true, // 已保存规则恢复为展开显示（与旧版一致；收起只是当次会话内的视图操作）
+        mode: rule.mode,
         pattern: rule.pattern || '', limit: rule.limit == null ? '' : String(rule.limit)
       });
     }
@@ -274,7 +278,7 @@
       '  .h2x-h1{width:34px;flex:none;text-align:center;}',
       '  .h2x-h2{flex:1;min-width:0;}',
       '  .h2x-h3{width:86px;flex:none;box-sizing:border-box;}',
-      '  .h2x-h4{width:92px;flex:none;text-align:center;}',
+      '  .h2x-h4{width:136px;flex:none;text-align:center;}',
       '  .h2x-col{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--c-border-2);background:var(--c-bg);}',
       '  .h2x-col.noexp .h2x-cname{color:var(--c-text-3);}',
       '  .h2x-ckw{width:34px;flex:none;display:flex;justify-content:center;}',
@@ -291,14 +295,20 @@
       '  .h2x-tag{display:inline-block;background:rgba(25,118,210,.12);color:var(--c-info);border-radius:8px;padding:0 6px;font-size:11px;font-weight:400;font-style:normal;margin-left:4px;}',
       '  @media (prefers-color-scheme: dark){.h2x-tag{background:rgba(100,181,246,.18);}}',
       '  .h2x-fmt{width:86px;flex:none;}',
-      '  .h2x-sbtn{width:92px;flex:none;padding:4px 0;border:1px solid var(--c-border);border-radius:var(--r-s);background:var(--c-bg);color:var(--c-text-2);cursor:pointer;font:12px/1.4 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;box-sizing:border-box;}',
+      // v2.10.1 拆分控件：未拆分单按钮；已拆分「取消拆分 | ▴收起/▾展开」两段等宽对齐（列宽固定 136px）
+      '  .h2x-sctl{width:136px;flex:none;display:flex;gap:6px;box-sizing:border-box;}',
+      '  .h2x-sbtn{flex:1;padding:4px 0;border:1px solid var(--c-border);border-radius:var(--r-s);background:var(--c-bg);color:var(--c-text-2);cursor:pointer;font:12px/1.4 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;box-sizing:border-box;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+      '  .h2x-sbtn.h2x-toggle{flex:0 0 66px;}',
       '  .h2x-sbtn:hover:not(:disabled){border-color:var(--c-primary);color:var(--c-primary);}',
+      '  .h2x-sbtn.h2x-cancel:hover:not(:disabled){border-color:var(--c-danger);color:var(--c-danger);}',
       '  .h2x-sbtn:disabled{color:var(--c-disable-fg);cursor:not-allowed;}',
       '  .h2x-sbtn.h2x-on{border-color:var(--c-primary);color:var(--c-primary);background:var(--c-bg-2);}',
       '  .h2x-sub{padding:8px 10px 8px 52px;background:var(--c-bg-2);border-bottom:1px solid var(--c-border-2);border-left:3px solid rgba(46,125,50,.4);}',  /* 左缘竖线：标示拆分配置从属于上方列 */
       '  @media (prefers-color-scheme: dark){.h2x-sub{border-left-color:rgba(76,175,80,.5);}}',
       '  .h2x-sub-cfg{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;}',
       '  .h2x-sub-cfg label{display:flex;align-items:center;gap:5px;color:var(--c-text-2);font-size:12px;}',
+      // 模式下拉 / 分隔符 / 段数上限统一宽度，三控件对齐（140px 兼容英文选项与占位文案）
+      '  .h2x-sub-cfg select,.h2x-sub-cfg input{width:140px;flex:none;}',
       '  .h2x-sub-cols{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;font-size:12px;color:var(--c-text-2);}',
       '  .h2x-sub-cols label{display:flex;align-items:center;gap:4px;cursor:pointer;}',
       '  .h2x-sub-cols label.noexp{color:var(--c-text-3);text-decoration:line-through;}',
@@ -485,10 +495,10 @@
     if (colsEl) colsEl.innerHTML = subColsHtmlOf(entry, c, d);
   }
 
-  /** 拆分子行增删：展开（d.checked = true）插入/替换子行；收起移除 */
+  /** 拆分子行增删：展开（d.checked && d.open）插入/替换子行；收起/取消则移除 */
   function syncSubRow(entry, c, d, row) {
     const old = panelMask.querySelector('.h2x-sub[data-c="' + c + '"]');
-    if (d.checked && !panelHasMerges()) {
+    if (d.checked && d.open && !panelHasMerges()) {
       const tmp = document.createElement('div');
       tmp.innerHTML = subHtmlOf(entry, c, d);
       if (old) old.replaceWith(tmp.firstChild);
@@ -515,7 +525,28 @@
     if (el) el.textContent = kept + '/' + total;
   }
 
-  /** 主行渲染（v2.0 收敛为 4 元素）：[导出✓][列名+徽标][格式][＋拆分按钮]；
+  /** 主行拆分控件 HTML（随状态变形，v2.10.1）：
+   *  未拆分 = 单个「＋ 拆分」（点击开启并展开）；已拆分 = 分体「取消拆分 | ▴收起/▾展开」——
+   *  左段删规则（回到未拆分），右段只控配置子行显隐（收起后拆分仍生效）。
+   *  已拆分时左段恒为「取消拆分」，故收起状态下也不会被误读为「没拆」，无需列名标记 */
+  function splitCtlHtml(col, d, hasMerges) {
+    const dis = hasMerges ? ' disabled' : '';
+    if (!d.checked) {
+      return '<span class="h2x-sctl"><button type="button" class="h2x-sbtn h2x-new"' + dis +
+        ' title="' + escapeHtml(hasMerges ? t('noSplitMerges', '含合并单元格的表格不可拆分') : splitHint(col)) + '">' +
+        t('btnExpandSplit', '＋ 拆分') + '</button></span>';
+    }
+    const toggleTxt = d.open ? t('btnCollapseCfg', '▴ 收起') : t('btnExpandCfg', '▾ 展开');
+    const toggleTitle = d.open ? t('collapseCfgTitle', '收起配置（拆分仍生效）') : t('expandCfgTitle', '展开拆分配置');
+    return '<span class="h2x-sctl">' +
+      '<button type="button" class="h2x-sbtn h2x-cancel"' + dis +
+      ' title="' + escapeHtml(hasMerges ? t('noSplitMerges', '含合并单元格的表格不可拆分') : t('cancelSplitTitle', '取消该列拆分，恢复原样导出')) + '">' +
+      t('btnCancelSplit', '取消拆分') + '</button>' +
+      '<button type="button" class="h2x-sbtn h2x-toggle h2x-on"' + dis +
+      ' title="' + escapeHtml(toggleTitle) + '">' + toggleTxt + '</button></span>';
+  }
+
+  /** 主行渲染（v2.0 收敛为 4 元素）：[导出✓][列名+徽标][格式][拆分控件]；
    *  拆分配置（模式/分隔符/上限/新列勾选）收进展开子行 subHtmlOf */
   function renderColList() {
     const entry = panelDrafts.get(panelTable);
@@ -534,8 +565,6 @@
       const d = draft[c];
       if (!col || !d) return;
       const name = col.name || t('colN', '列' + (c + 1), c + 1);
-      const sbtnTitle = hasMerges ? t('noSplitMerges', '含合并单元格的表格不可拆分')
-        : (d.checked ? t('collapseSplitTitle', '收起并取消该列拆分') : splitHint(col));
       html += '<div class="h2x-col' + (d.export ? '' : ' noexp') + '" data-c="' + c + '">' +
         (hasMerges
           ? '<span class="h2x-grip h2x-grip-off" aria-hidden="true"></span>'
@@ -546,11 +575,9 @@
         '<option value="text"' + (d.fmt !== 'number' ? ' selected' : '') + '>' + t('fmtText', '文本') + '</option>' +
         '<option value="number"' + (d.fmt === 'number' ? ' selected' : '') + '>' + t('fmtNumber', '数字') + '</option>' +
         '</select>' +
-        '<button type="button" class="h2x-sbtn' + (d.checked ? ' h2x-on' : '') + '"' +
-        (hasMerges ? ' disabled' : '') + ' title="' + escapeHtml(sbtnTitle) + '">' +
-        (d.checked ? t('btnCollapseSplit', '收起拆分') : t('btnExpandSplit', '＋ 拆分')) + '</button>' +
+        splitCtlHtml(col, d, hasMerges) +
         '</div>';
-      if (d.checked && !hasMerges) html += subHtmlOf(entry, c, d);
+      if (d.checked && d.open && !hasMerges) html += subHtmlOf(entry, c, d);
     });
     panelMask.querySelector('.h2x-cols').innerHTML = html;
     updateTools();
@@ -646,25 +673,33 @@
     renderPreview();
   }
 
-  // 点击：拆分按钮（展开/收起该列拆分配置）+ 全选/全不选快捷按钮
+  // 点击：拆分控件（新建/取消规则 + 展开收起配置）+ 全选/全不选快捷按钮
   function onColClick(e) {
-    // 拆分按钮：收起 = 取消拆分（与旧版「拆分✓」勾选同语义）
     const sbtn = e.target.closest('.h2x-sbtn');
     if (sbtn) {
       if (panelHasMerges()) return;
       const hit = draftAt(e);
       if (!hit) return;
       const { row, c, d } = hit;
-      d.checked = !d.checked;
-      sbtn.textContent = d.checked ? t('btnCollapseSplit', '收起拆分') : t('btnExpandSplit', '＋ 拆分');
-      sbtn.classList.toggle('h2x-on', d.checked);
-      sbtn.title = d.checked ? t('collapseSplitTitle', '收起并取消该列拆分') : splitHint(panelCols[c]);
+      if (sbtn.classList.contains('h2x-cancel')) {
+        d.checked = false; d.open = false;        // 取消拆分：删规则、回「＋ 拆分」
+      } else if (sbtn.classList.contains('h2x-toggle')) {
+        d.open = !d.open;                          // 收起/展开：只控配置区显隐，拆分仍生效
+      } else {
+        d.checked = true; d.open = true;           // 新建：开启拆分并展开配置
+      }
+      const ctl = row.querySelector('.h2x-sctl');
+      if (ctl) ctl.outerHTML = splitCtlHtml(panelCols[c], d, false);
       syncSubRow(panelDrafts.get(panelTable), c, d, row);
-      if (d.checked) {
+      if (d.checked && d.open) {
         // 展开后子行可能超出列区视口（38vh 滚动容器），滚入可见
         const sub = panelMask.querySelector('.h2x-sub[data-c="' + c + '"]');
         if (sub) sub.scrollIntoView({ block: 'nearest' });
       }
+      // 控件被替换，焦点回填到对应按钮（键盘可连续操作）
+      const grp = row.querySelector('.h2x-sctl');
+      const focusEl = grp && (d.checked ? grp.querySelector('.h2x-toggle') : grp.querySelector('.h2x-new'));
+      if (focusEl) focusEl.focus();
       updateTools();
       renderPreview();
       return;
@@ -936,6 +971,15 @@
       const first = errors[0];
       if (first && first.table !== panelTable) switchPanelTable(first.table);
       if (first && first.table === panelTable) {
+        const entry = panelDrafts.get(panelTable);
+        // 出错列若处于收起态，先自动展开（否则子行输入框不可见，红框标不出来）
+        let reopened = false;
+        for (const err of errors) {
+          if (err.table !== panelTable) continue;
+          const d = entry.draft[err.c];
+          if (d && !d.open) { d.open = true; reopened = true; }
+        }
+        if (reopened) renderColList();
         for (const err of errors) {
           if (err.table !== panelTable) continue;
           const fieldEl = panelMask.querySelector('.h2x-sub[data-c="' + err.c + '"] .h2x-' + err.field);

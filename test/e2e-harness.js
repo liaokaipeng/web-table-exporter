@@ -225,11 +225,14 @@
     const c = r.querySelector('.h2x-cname');
     return c && c.textContent.indexOf(prefix) === 0;
   });
-  const sbtnOf = (r) => r.querySelector('.h2x-sbtn');            // 主行拆分按钮（h2x-on = 已展开）
+  const sbtnOf = (r) => r.querySelector('.h2x-sbtn');            // 拆分控件主按钮：未拆分=「＋ 拆分」，已拆分=「取消拆分」
+  const cancelOf = (r) => r.querySelector('.h2x-sbtn.h2x-cancel'); // 已拆分：左段取消拆分
+  const toggleOf = (r) => r.querySelector('.h2x-sbtn.h2x-toggle'); // 已拆分：右段收起/展开配置
   const subOf = (r) => r.getRootNode().querySelector('.h2x-sub[data-c="' + r.dataset.c + '"]'); // 对应配置子行
   const ckxOf = (r) => r.querySelector('.h2x-ck-x');
   const modeOf = (r) => { const s = subOf(r); return s && s.querySelector('.h2x-mode'); };
   const patOf = (r) => { const s = subOf(r); return s && s.querySelector('.h2x-pattern'); };
+  const limOf = (r) => { const s = subOf(r); return s && s.querySelector('.h2x-limit'); };
   const fmtOf = (r) => r.querySelector('.h2x-fmt');
   const toastText = (h) => [...h.sr.querySelectorAll('.h2x-toast')].map(x => x.textContent).join('|');
 
@@ -353,15 +356,22 @@
     t('全列预览：新列绿色标记（标题/产品ID1/2）', [...mask.querySelectorAll('.h2x-pv-body thead th')].filter(x => x.classList.contains('new')).length === 2);
     t('全列预览：数据行取前 3 行 + 尾注行数', mask.querySelectorAll('.h2x-pv-body tbody tr').length === 3 &&
       mask.querySelector('.h2x-pv-note').textContent.indexOf('行数据') >= 0, mask.querySelector('.h2x-pv-note').textContent);
-    // 折叠循环：展开 → 预设控件值拆分 → 收起 → 子行移除 → 再展开
-    click(sbtnOf(rPrice));
+    // 折叠循环（v2.10.1：收起只隐藏配置，取消才删规则）
+    click(sbtnOf(rPrice)); // 未拆分 → 新建（开启并展开）
     t('智能预填：控件列展开后预设「控件值拆分」', modeOf(rPrice).value === 'control', modeOf(rPrice) && modeOf(rPrice).value);
-    click(sbtnOf(rPrice));
-    t('折叠循环：收起后子行移除', !subOf(rPrice));
-    click(sbtnOf(rPrice)); // 再展开（保持与旧轮次一致的最终态：5 列全拆分）
+    click(toggleOf(rPrice)); // 收起：只隐藏配置子行
+    t('收起拆分：子行隐藏但规则保留（仍为已拆分态）', !subOf(rPrice) && !!cancelOf(rPrice) && !!toggleOf(rPrice));
+    click(toggleOf(rPrice)); // 再展开
+    t('展开拆分：配置子行恢复显示', !!subOf(rPrice));
+    click(cancelOf(rPrice)); // 取消拆分：删规则、回「＋ 拆分」
+    t('取消拆分：子行移除且回「＋ 拆分」', !subOf(rPrice) && !cancelOf(rPrice));
+    click(sbtnOf(rPrice)); // 重新开启（保持与旧轮次一致的最终态：5 列全拆分）
     // 其余列展开拆分
     [rSku, rWh, rSite].forEach(r => click(sbtnOf(r)));
-    t('智能预填：纯文本列分隔符探测（、）', patOf(rSite).value === '、', patOf(rSite) && patOf(rSite).value);
+    t('智能预填：纯文本列分隔符默认留空（探测仅作按钮 title 建议）', patOf(rSite).value === '', patOf(rSite) && patOf(rSite).value);
+    t('智能预填：段数上限默认 10', limOf(rSite).value === '10', limOf(rSite) && limOf(rSite).value);
+    patOf(rSite).value = '、'; // 分隔符默认留空，显式填写以验证后续拆分
+    fire(patOf(rSite), 'input');
     t('面板预览实时刷新（新列子行出现）', h.sr.querySelectorAll('.h2x-sub').length >= 5, 'subs=' + h.sr.querySelectorAll('.h2x-sub').length);
     click(mask.querySelector('.h2x-save'));
     t('面板保存后关闭且 toast「已保存并记住」', !h.sr.querySelector('.h2x-mask') && toastText(h).indexOf('已保存') >= 0, toastText(h));
@@ -396,9 +406,9 @@
     await waitFor(() => h.sr.querySelector('.h2x-mask')); // openPanel 为 async
     const mask = h.sr.querySelector('.h2x-mask');
     [rowOf(h, '标题/产品ID'), rowOf(h, '一口价'), rowOf(h, '秒杀价/库存'), rowOf(h, '发货仓'), rowOf(h, '适用站点')].forEach(r => {
-      if (sbtnOf(r).classList.contains('h2x-on')) click(sbtnOf(r)); // 收起 = 取消拆分
+      if (cancelOf(r)) click(cancelOf(r)); // 取消拆分（已保存规则恢复为展开态，取消后清空）
     });
-    t('全部拆分收起后无子行', h.sr.querySelectorAll('.h2x-sub').length === 0, 'subs=' + h.sr.querySelectorAll('.h2x-sub').length);
+    t('全部拆分取消后无子行', h.sr.querySelectorAll('.h2x-sub').length === 0, 'subs=' + h.sr.querySelectorAll('.h2x-sub').length);
     click(mask.querySelector('.h2x-save'));
     await waitFor(() => !h.sr.querySelector('.h2x-mask')); // 面板关闭
     click(h.cancelBtn); // 主动退出（round finally 会再兜底）
@@ -593,14 +603,14 @@
     patOf(rName).value = '、';
     fire(patOf(rName), 'input');
     t('重新输入清除错误标红', !patOf(rName).classList.contains('h2x-invalid'));
-    // 保存有效配置 → 页签状态点亮；再收起保存（空配置）→ 状态点灭（零污染收尾）
+    // 保存有效配置 → 页签状态点亮；再取消保存（空配置）→ 状态点灭（零污染收尾）
     click(mask.querySelector('.h2x-save'));
     t('保存有效配置后面板关闭', !h.sr.querySelector('.h2x-mask'));
     click(h.splitBtn);
     await waitFor(() => h.sr.querySelector('.h2x-mask'));
     const mask2 = h.sr.querySelector('.h2x-mask');
     t('保存后重开面板：staff 页签状态点亮', mask2.querySelectorAll('.h2x-tab')[0].querySelector('.h2x-tab-dot').classList.contains('h2x-off') === false);
-    click(sbtnOf(rowOf(h, '姓名'))); // 收起拆分
+    click(cancelOf(rowOf(h, '姓名'))); // 取消拆分
     click(mask2.querySelector('.h2x-save'));
     click(h.splitBtn);
     await waitFor(() => h.sr.querySelector('.h2x-mask'));
@@ -703,7 +713,9 @@
     click(h.splitBtn);
     await waitFor(() => h.sr.querySelector('.h2x-mask'));
     let mask = h.sr.querySelector('.h2x-mask');
-    click(sbtnOf(rowOf(h, '适用站点'))); // 展开拆分（delimiter 预设）
+    click(sbtnOf(rowOf(h, '适用站点'))); // 展开拆分（delimiter，分隔符默认留空）
+    patOf(rowOf(h, '适用站点')).value = '、';
+    fire(patOf(rowOf(h, '适用站点')), 'input');
     click(mask.querySelector('.h2x-save'));
     await waitFor(() => !h.sr.querySelector('.h2x-mask'));
     click(h.splitBtn);

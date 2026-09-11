@@ -162,7 +162,7 @@
         return c && c.textContent.indexOf(p) === 0;
       });
       const rTitle = rowOf('标题/产品ID'), rPrice = rowOf('一口价');
-      const sbtnOf = (r) => r.querySelector('.h2x-sbtn');   // v2.0：拆分按钮（h2x-on = 已展开）
+      const sbtnOf = (r) => r.querySelector('.h2x-sbtn');   // v2.10.1：拆分控件主按钮（未拆分=＋拆分，已拆分=取消拆分）
       const modeOf = (r) => h.sr.querySelector('.h2x-sub[data-c="' + r.dataset.c + '"] .h2x-mode'); // 模式在展开子行内
       t('虚拟表面板预填：多行列默认不展开（v2.1 默认不拆分）', !!rTitle && !sbtnOf(rTitle).classList.contains('h2x-on'));
       t('虚拟表面板预填：控件列默认不展开', !!rPrice && !sbtnOf(rPrice).classList.contains('h2x-on'));

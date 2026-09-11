@@ -302,6 +302,10 @@
       '  .h2x-sub-cols{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;font-size:12px;color:var(--c-text-2);}',
       '  .h2x-sub-cols label{display:flex;align-items:center;gap:4px;cursor:pointer;}',
       '  .h2x-sub-cols label.noexp{color:var(--c-text-3);text-decoration:line-through;}',
+      // 子行行首「原列的导出勾选 + 列名」复制件（与主行同一状态）；原列不导出时整组置灰
+      '  .h2x-sub-src{font-weight:600;color:var(--c-text);}',
+      '  .h2x-sub-src.noexp{color:var(--c-text-3);text-decoration:line-through;}',
+      '  .h2x-sub-cols label.h2x-off{color:var(--c-text-3);cursor:not-allowed;}',
       '  .h2x-invalid{border-color:var(--c-danger)!important;box-shadow:0 0 0 1px var(--c-danger);}',  /* 校验错误就地标红 */
       '  .h2x-pv{border:1px solid var(--c-border-2);border-radius:var(--r);padding:10px;margin-bottom:12px;}',  /* 高度限制移至 body：标题/尾注不随滚动 */
       '  .h2x-pv-body{max-height:24vh;overflow:auto;}',  /* 限高自滚：列设置与预览始终同屏可见 */
@@ -438,13 +442,22 @@
     tabsEl.hidden = deps.selected.size < 2; // 单表不占位（聚焦逻辑回落到列勾选框）
   }
 
-  /** 拆分新列勾选区 HTML（段名与导出列名一致） */
+  /** 拆分新列勾选区 HTML（段名与导出列名一致）：行首给出「原列的导出勾选 + 列名」
+   *  复制件（h2x-ck-x2，与主行同一导出状态、双向同步），其后才是「新列：」与各新列
+   *  勾选；原列不导出时新列勾选置灰禁用（状态保留，见 syncExportUI） */
   function subColsHtmlOf(entry, c, d) {
-    let html = '<span class="h2x-sub-label">' + t('newColsLabel', '新列：') + '</span>';
-    segNames(entry, c, d).forEach((name, k) => {
+    const raw = (entry.cols[c] && entry.cols[c].name) || '';
+    const srcName = raw || t('colN', '列' + (c + 1), c + 1);
+    let html = '<label class="h2x-sub-src' + (d.export ? '' : ' noexp') + '">' +
+      '<input type="checkbox" class="h2x-ck-x2"' + (d.export ? ' checked' : '') + '>' +
+      escapeHtml(srcName) + '</label>' +
+      '<span class="h2x-sub-label">' + t('newColsLabel', '新列：') + '</span>';
+    segNames(entry, c, d).forEach((segName, k) => {
       const on = !d.skipSegs.has(k + 1);
-      html += '<label' + (on ? '' : ' class="noexp"') + '><input type="checkbox" class="h2x-ck-s" data-k="' +
-        (k + 1) + '"' + (on ? ' checked' : '') + '>' + escapeHtml(name) + '</label>';
+      let cls = on ? '' : 'noexp';
+      if (!d.export) cls += ' h2x-off';
+      html += '<label' + (cls ? ' class="' + cls.trim() + '"' : '') + '><input type="checkbox" class="h2x-ck-s" data-k="' +
+        (k + 1) + '"' + (on ? ' checked' : '') + (d.export ? '' : ' disabled') + '>' + escapeHtml(segName) + '</label>';
     });
     return html;
   }
@@ -485,7 +498,7 @@
     }
   }
 
-  /** 导出列计数：已选/全部（原列 + 拆分新列都计入） */
+  /** 导出列计数：已选/全部（原列 + 拆分新列都计入；原列不导出时其新列也不计入） */
   function updateTools() {
     const entry = panelDrafts.get(panelTable);
     if (!entry) return;
@@ -493,8 +506,10 @@
     entry.draft.forEach((d, c) => {
       const n = d.checked ? segNames(entry, c, d).length : 0;
       total += 1 + n;
-      if (d.export) kept++;
-      for (let k = 1; k <= n; k++) if (!d.skipSegs.has(k)) kept++;
+      if (d.export) {
+        kept++;
+        for (let k = 1; k <= n; k++) if (!d.skipSegs.has(k)) kept++;
+      }
     });
     const el = panelMask.querySelector('.h2x-exp-n');
     if (el) el.textContent = kept + '/' + total;
@@ -550,6 +565,28 @@
     return { row: row, c: c, d: panelDrafts.get(panelTable).draft[c] };
   }
 
+  /** 导出勾选联动：主行勾选框与子行原列勾选框（复制件 h2x-ck-x2）两处同步；原列不导出
+   *  时该列整体不导出 → 新列勾选框置灰禁用（保留原有勾选状态），预览同步划线 */
+  function syncExportUI(c, d) {
+    const mainRow = panelMask.querySelector('.h2x-col[data-c="' + c + '"]');
+    if (mainRow) {
+      mainRow.classList.toggle('noexp', !d.export);
+      const ck = mainRow.querySelector('.h2x-ck-x');
+      if (ck) ck.checked = d.export;
+    }
+    const sub = panelMask.querySelector('.h2x-sub[data-c="' + c + '"]');
+    if (!sub) return;
+    const src = sub.querySelector('.h2x-ck-x2');
+    if (src) {
+      src.checked = d.export;
+      src.closest('label').classList.toggle('noexp', !d.export);
+    }
+    sub.querySelectorAll('.h2x-ck-s').forEach(el => {
+      el.disabled = !d.export;
+      el.closest('label').classList.toggle('h2x-off', !d.export);
+    });
+  }
+
   function onColChange(e) {
     // 拆分子列的导出勾选（位于 .h2x-sub-cols 内，不在 .h2x-col 主行上）
     if (e.target.classList.contains('h2x-ck-s')) {
@@ -568,9 +605,10 @@
     if (!hit) return;
     const { c, d } = hit;
     const entry = panelDrafts.get(panelTable);
-    if (e.target.classList.contains('h2x-ck-x')) {
+    if (e.target.classList.contains('h2x-ck-x') || e.target.classList.contains('h2x-ck-x2')) {
+      // 主行 / 子行原列两处勾选同语义：原列不导出 = 该列及其拆分新列整体不导出
       d.export = e.target.checked;
-      hit.row.classList.toggle('noexp', !d.export);
+      syncExportUI(c, d);
     } else if (e.target.classList.contains('h2x-mode')) {
       d.mode = e.target.value;
       syncSubCols(entry, c, d); // 段名/段数随模式变化（只刷新新列勾选区，输入框不动）
@@ -782,7 +820,7 @@
       html += '<th' + (d.export ? '' : ' class="drop"') + '>' + escapeHtml(name) + '</th>';
       if (!d.checked) return;
       segNames(entry, c, d).forEach((segName, k) => {
-        html += '<th class="new' + (d.skipSegs.has(k + 1) ? ' drop' : '') + '">' + escapeHtml(segName) + '</th>';
+        html += '<th class="new' + ((!d.export || d.skipSegs.has(k + 1)) ? ' drop' : '') + '">' + escapeHtml(segName) + '</th>';
       });
     });
     html += '</tr></thead><tbody>';
@@ -806,18 +844,18 @@
           const vals = Array.isArray(cv) ? cv.slice() : [];
           while (vals.length < n) vals.push('');
           for (let k = 0; k < n; k++) {
-            html += '<td' + (d.skipSegs.has(k + 1) ? ' class="drop"' : '') + '>' +
+            html += '<td' + ((!d.export || d.skipSegs.has(k + 1)) ? ' class="drop"' : '') + '>' +
               escapeHtml(vals[k] == null ? '' : String(num(vals[k]))) + '</td>';
           }
           const tv = text[r] ? text[r][c] : null;
-          html += '<td' + (d.skipSegs.has(n + 1) ? ' class="drop"' : '') + '>' +
+          html += '<td' + ((!d.export || d.skipSegs.has(n + 1)) ? ' class="drop"' : '') + '>' +
             escapeHtml(tv == null ? '' : String(num(tv))) + '</td>';
         } else {
           const n = segCountOf(entry, c, d);
           const parts = partsOf(r, c, d);
           while (parts.length < n) parts.push('');
           for (let k = 0; k < n; k++) {
-            html += '<td' + (d.skipSegs.has(k + 1) ? ' class="drop"' : '') + '>' + escapeHtml(String(num(parts[k]))) + '</td>';
+            html += '<td' + ((!d.export || d.skipSegs.has(k + 1)) ? ' class="drop"' : '') + '>' + escapeHtml(String(num(parts[k]))) + '</td>';
           }
         }
       });
@@ -885,7 +923,8 @@
       let kept = 0;
       draft.forEach((d, c) => {
         if (!d) return;
-        if (d.export) kept++;
+        if (!d.export) return; // 原列不导出 → 该列及其拆分新列整体不导出，不计入
+        kept++;
         const n = d.checked ? segCountOf(entry, c, d) : 0;
         for (let k = 1; k <= n; k++) if (!d.skipSegs.has(k)) kept++;
       });
@@ -920,11 +959,17 @@
         if (d.checked) {
           rules.push({ col: keys[c], mode: d.mode, pattern: d.pattern || '', limit: parseLimit(d.limit) });
         }
-        if (!d.export) excluded.add(keys[c]);
         if (d.fmt === 'number') formats.set(keys[c], 'number');
         const n = d.checked ? segCountOf(entry, c, d) : 0;
-        for (let k = 1; k <= n; k++) {
-          if (d.skipSegs.has(k)) excluded.add(keys[c] + '#' + k);
+        if (!d.export) {
+          // 原列不导出：连同其全部拆分新列一并排除（拆分配置仍保留，仅本次导出不生效；
+          // 重新勾选导出即恢复原勾选状态）
+          excluded.add(keys[c]);
+          for (let k = 1; k <= n; k++) excluded.add(keys[c] + '#' + k);
+        } else {
+          for (let k = 1; k <= n; k++) {
+            if (d.skipSegs.has(k)) excluded.add(keys[c] + '#' + k);
+          }
         }
       });
       if (rules.length) deps.splitRules.set(table, rules);

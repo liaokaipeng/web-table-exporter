@@ -77,6 +77,7 @@ const shots = [
   { name: '1-select',      shot: 'select', dark: false, lang: 'zh', desc: '选择表格（中文）' },
   { name: '2-panel',       shot: 'panel',  dark: false, lang: 'zh', desc: '列设置面板（中文）' },
   { name: '3-panel-dark',  shot: 'panel',  dark: true,  lang: 'zh', desc: '列设置面板·深色（中文）' },
+  { name: '3-panel-dark-en', shot: 'panel', dark: true, lang: 'en', desc: '列设置面板·深色（英文）' },
   { name: '1-select-en',   shot: 'select', dark: false, lang: 'en', desc: '选择表格（英文）' },
   { name: '2-panel-en',    shot: 'panel',  dark: false, lang: 'en', desc: '列设置面板（英文）' }
 ];

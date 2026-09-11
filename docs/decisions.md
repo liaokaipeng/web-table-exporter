@@ -54,7 +54,7 @@
 
 - **虚拟采集可中止，复用 genToken（v2.0）**：采集不可中止时「取消」= 整体退出，误触须重进选择模式重选；「停止采集」只 genToken++ 作废当前任务（collectVirtual 检查点返回 null、finally 还原滚动），选择模式保留可重新点选；与退出共用同一令牌。
 
-- **视觉 token 化 + 深色模式跟随系统（v2.0）**：颜色/圆角集中为 :host CSS 变量，工具栏与面板两个 `<style>` 共享；深色模式经 prefers-color-scheme 覆写 token、无手动开关；prefers-reduced-motion 全局关动效。
+- **视觉 token 化 + 深色模式跟随系统（v2.0；视觉设计系统统一扩充）**：颜色/字体/间距/圆角/阴影/控件尺寸集中为 :host CSS 变量，工具栏、弹出菜单与面板两个 `<style>` 共享；浅/深色文字层级收敛为 --c-text/-2/-3 三级 token，color-scheme 同步原生控件（下拉/滚动条）配色、勾选框以 accent-color 取绿色主色，键盘焦点统一走 focus-visible 环形；深色模式经 prefers-color-scheme 覆写 token、无手动开关；prefers-reduced-motion 全局关动效。
 
 - **分页识别「适配器 + 手动指定」两层兜底（v2.5）**：组件分页器（el-pagination / ant-pagination / vxe-pager）特征类稳定、识别即精确到下一页按钮并可读 disabled；自建分页器千差万别——识别不到时进入「指定翻页按钮」子模式（交互与选择模式同构），可用性不依赖识别率；误报无害：认错分页器只会「连续 2 页无新行」自动停止。
 

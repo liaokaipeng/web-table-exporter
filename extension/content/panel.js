@@ -14,6 +14,10 @@
  * Alt+↑/↓ 键盘移动；列序存在 entry.order（显示序，列索引数组），列区与预览按它
  * 渲染（预览即所得），保存时映射为 colKeys 落盘（自然序不记录）；含合并单元格的
  * 表禁用（merges 按列号定位，重排会错位）。
+ * v2.10.2 拆分控件合并为单控件：勾选框（拆分/取消拆分）+ 折线 chevron 图标按钮（收起/展开配置）——
+ * 未拆分时只显示勾选框，勾选即拆分并展开配置；已拆分时勾选框旁出现 chevron 图标按钮，
+ * 只控配置子行显隐（收起后拆分仍生效）。此前「取消拆分 | 收起/展开」两个同权重文案
+ * 按钮易混淆（误把「收起」当「取消拆分」），且「取消拆分」是不可逆操作。
  * 保存时草稿回写主 UI 内存 Map，并经 persist 模块落盘（跨会话恢复）。
  * 依赖：主 UI 经 init() 注入 { host, selected, snapshots, splitRules,
  *   colFilters, colFormats, colOrders, isBusy, isAlive, updateBar, toast }（main.js 最后装配）；
@@ -99,8 +103,8 @@
 
   /** 智能预填（v2.1 起所有列默认不拆分）：多块文本列展开后预设 block（按换行拆）；
    *  含控件列展开后预设 control（由用户确认）；其余纯文本列预设 delimiter，但分隔符
-   *  默认留空（探测结果仅作按钮 title 建议，需用户显式填写）；段数上限默认 10。
-   *  open = 配置子行展开态（v2.10.1 与「是否拆分」解耦：收起只隐藏配置，规则仍生效）。
+   *  默认留空（探测结果仅作勾选框 title 建议，需用户显式填写）；段数上限默认 10。
+   *  open = 配置子行展开态（v2.10.2 与「是否拆分」解耦：收起只隐藏配置，规则仍生效）。
    *  导出勾选默认全选（export: true），子列排除集默认为空，列格式默认文本 */
   function prefillDrafts(cols) {
     return cols.map(col => {
@@ -295,14 +299,19 @@
       '  .h2x-tag{display:inline-block;background:rgba(25,118,210,.12);color:var(--c-info);border-radius:8px;padding:0 6px;font-size:11px;font-weight:400;font-style:normal;margin-left:4px;}',
       '  @media (prefers-color-scheme: dark){.h2x-tag{background:rgba(100,181,246,.18);}}',
       '  .h2x-fmt{width:86px;flex:none;}',
-      // v2.10.1 拆分控件：未拆分单按钮；已拆分「取消拆分 | ▴收起/▾展开」两段等宽对齐（列宽固定 136px）
-      '  .h2x-sctl{width:136px;flex:none;display:flex;gap:6px;box-sizing:border-box;}',
-      '  .h2x-sbtn{flex:1;padding:4px 0;border:1px solid var(--c-border);border-radius:var(--r-s);background:var(--c-bg);color:var(--c-text-2);cursor:pointer;font:12px/1.4 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;box-sizing:border-box;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-      '  .h2x-sbtn.h2x-toggle{flex:0 0 66px;}',
-      '  .h2x-sbtn:hover:not(:disabled){border-color:var(--c-primary);color:var(--c-primary);}',
-      '  .h2x-sbtn.h2x-cancel:hover:not(:disabled){border-color:var(--c-danger);color:var(--c-danger);}',
-      '  .h2x-sbtn:disabled{color:var(--c-disable-fg);cursor:not-allowed;}',
-      '  .h2x-sbtn.h2x-on{border-color:var(--c-primary);color:var(--c-primary);background:var(--c-bg-2);}',
+      // v2.10.2 拆分控件：勾选框（拆分/取消拆分）+ 折线 chevron 图标按钮（收起/展开配置）
+      // 单控件同宽对齐；未拆分时图标按钮 hidden（占位 width 由勾选框居中）
+      '  .h2x-sctl{width:136px;flex:none;display:flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box;}',
+      '  .h2x-ck-sp{flex:none;margin:0;cursor:pointer;}',
+      '  .h2x-ck-sp:disabled{cursor:not-allowed;}',
+      '  .h2x-sfold{display:inline-flex;align-items:center;justify-content:center;width:26px;height:22px;flex:none;padding:0;border:1px solid var(--c-border);border-radius:var(--r-s);background:var(--c-bg);color:var(--c-text-2);cursor:pointer;box-sizing:border-box;}',
+      '  .h2x-sfold[hidden]{display:none;}',  /* 显式声明：display:inline-flex 会盖掉 UA 的 [hidden]{display:none} */
+      '  .h2x-sfold:hover:not(:disabled){border-color:var(--c-primary);color:var(--c-primary);}',
+      '  .h2x-sfold:disabled{color:var(--c-disable-fg);cursor:not-allowed;}',
+      // 折线 chevron（两条边，非实心三角）：默认朝下（收起态 = 可展开），展开态旋转 180° 朝上
+      '  .h2x-chev{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s ease;}',
+      '  .h2x-sfold[aria-expanded="true"] .h2x-chev{transform:rotate(180deg);}',
+      '  @media (prefers-reduced-motion: reduce){.h2x-chev{transition:none;}}',
       '  .h2x-sub{padding:8px 10px 8px 52px;background:var(--c-bg-2);border-bottom:1px solid var(--c-border-2);border-left:3px solid rgba(46,125,50,.4);}',  /* 左缘竖线：标示拆分配置从属于上方列 */
       '  @media (prefers-color-scheme: dark){.h2x-sub{border-left-color:rgba(76,175,80,.5);}}',
       '  .h2x-sub-cfg{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;}',
@@ -525,25 +534,38 @@
     if (el) el.textContent = kept + '/' + total;
   }
 
-  /** 主行拆分控件 HTML（随状态变形，v2.10.1）：
-   *  未拆分 = 单个「＋ 拆分」（点击开启并展开）；已拆分 = 分体「取消拆分 | ▴收起/▾展开」——
-   *  左段删规则（回到未拆分），右段只控配置子行显隐（收起后拆分仍生效）。
-   *  已拆分时左段恒为「取消拆分」，故收起状态下也不会被误读为「没拆」，无需列名标记 */
+  /** 主行拆分控件 HTML（v2.10.2，单控件）：
+   *  勾选框 = 拆分开关（勾选=拆分并展开配置；取消=删规则、恢复原样导出）；
+   *  chevron 图标按钮 = 只控配置子行显隐（收起后拆分仍生效），未拆分时隐藏。
+   *  两者同处 .h2x-sctl：勾选/取消用系统勾选框语义，展开/收起用图标，互补歧义
+   *  图标为两条边组成的折线 chevron（非实心三角），展开态旋转 180°（见 .h2x-chev） */
   function splitCtlHtml(col, d, hasMerges) {
     const dis = hasMerges ? ' disabled' : '';
-    if (!d.checked) {
-      return '<span class="h2x-sctl"><button type="button" class="h2x-sbtn h2x-new"' + dis +
-        ' title="' + escapeHtml(hasMerges ? t('noSplitMerges', '含合并单元格的表格不可拆分') : splitHint(col)) + '">' +
-        t('btnExpandSplit', '＋ 拆分') + '</button></span>';
-    }
-    const toggleTxt = d.open ? t('btnCollapseCfg', '▴ 收起') : t('btnExpandCfg', '▾ 展开');
-    const toggleTitle = d.open ? t('collapseCfgTitle', '收起配置（拆分仍生效）') : t('expandCfgTitle', '展开拆分配置');
+    const hint = hasMerges ? t('noSplitMerges', '含合并单元格的表格不可拆分') : splitHint(col);
+    const foldTitle = d.open ? t('collapseCfgTitle', '收起配置（拆分仍生效）') : t('expandCfgTitle', '展开拆分配置');
     return '<span class="h2x-sctl">' +
-      '<button type="button" class="h2x-sbtn h2x-cancel"' + dis +
-      ' title="' + escapeHtml(hasMerges ? t('noSplitMerges', '含合并单元格的表格不可拆分') : t('cancelSplitTitle', '取消该列拆分，恢复原样导出')) + '">' +
-      t('btnCancelSplit', '取消拆分') + '</button>' +
-      '<button type="button" class="h2x-sbtn h2x-toggle h2x-on"' + dis +
-      ' title="' + escapeHtml(toggleTitle) + '">' + toggleTxt + '</button></span>';
+      '<input type="checkbox" class="h2x-ck-sp"' + (d.checked ? ' checked' : '') + dis +
+      ' title="' + escapeHtml(d.checked ? t('cancelSplitTitle', '取消勾选即取消该列拆分，恢复原样导出') : hint) + '"' +
+      ' aria-label="' + escapeHtml(t('headSplit', '拆分')) + '">' +
+      '<button type="button" class="h2x-sfold"' + (!d.checked || hasMerges ? ' hidden' : '') + dis +
+      ' title="' + escapeHtml(foldTitle) + '" aria-label="' + escapeHtml(foldTitle) + '"' +
+      ' aria-expanded="' + (d.open ? 'true' : 'false') + '">' +
+      '<svg class="h2x-chev" viewBox="0 0 16 16" aria-hidden="true"><polyline points="4 6.5 8 10.5 12 6.5"></polyline></svg>' +
+      '</button></span>';
+  }
+
+  /** 拆分控件局部同步（不重建 DOM，保住勾选框/图标按钮焦点）；
+   *  图标朝向由 `aria-expanded` 经 CSS 旋转，无需改 DOM 内容 */
+  function syncSplitCtl(col, row, d) {
+    const fold = row.querySelector('.h2x-sfold');
+    if (!fold) return;
+    const title = d.open ? t('collapseCfgTitle', '收起配置（拆分仍生效）') : t('expandCfgTitle', '展开拆分配置');
+    fold.hidden = !d.checked;
+    fold.title = title;
+    fold.setAttribute('aria-label', title);
+    fold.setAttribute('aria-expanded', d.open ? 'true' : 'false');
+    const ck = row.querySelector('.h2x-ck-sp');
+    if (ck) ck.title = d.checked ? t('cancelSplitTitle', '取消勾选即取消该列拆分，恢复原样导出') : splitHint(col);
   }
 
   /** 主行渲染（v2.0 收敛为 4 元素）：[导出✓][列名+徽标][格式][拆分控件]；
@@ -630,8 +652,22 @@
     }
     const hit = draftAt(e);
     if (!hit) return;
-    const { c, d } = hit;
+    const { row, c, d } = hit;
     const entry = panelDrafts.get(panelTable);
+    if (e.target.classList.contains('h2x-ck-sp')) {
+      // 主行拆分勾选（v2.10.2）：勾选 = 拆分并展开配置；取消 = 删规则、恢复原样导出
+      d.checked = e.target.checked;
+      d.open = e.target.checked;
+      syncSplitCtl(panelCols[c], row, d);
+      syncSubRow(entry, c, d, row);
+      if (d.checked && d.open) {
+        const sub0 = panelMask.querySelector('.h2x-sub[data-c="' + c + '"]');
+        if (sub0) sub0.scrollIntoView({ block: 'nearest' }); // 展开后子行可能超出列区视口
+      }
+      updateTools();
+      renderPreview();
+      return;
+    }
     if (e.target.classList.contains('h2x-ck-x') || e.target.classList.contains('h2x-ck-x2')) {
       // 主行 / 子行原列两处勾选同语义：原列不导出 = 该列及其拆分新列整体不导出
       d.export = e.target.checked;
@@ -673,33 +709,23 @@
     renderPreview();
   }
 
-  // 点击：拆分控件（新建/取消规则 + 展开收起配置）+ 全选/全不选快捷按钮
+  // 点击：拆分控件（▾/▴ 收起展开配置）+ 全选/全不选快捷按钮
   function onColClick(e) {
-    const sbtn = e.target.closest('.h2x-sbtn');
-    if (sbtn) {
+    const fold = e.target.closest('.h2x-sfold');
+    if (fold) {
       if (panelHasMerges()) return;
       const hit = draftAt(e);
       if (!hit) return;
       const { row, c, d } = hit;
-      if (sbtn.classList.contains('h2x-cancel')) {
-        d.checked = false; d.open = false;        // 取消拆分：删规则、回「＋ 拆分」
-      } else if (sbtn.classList.contains('h2x-toggle')) {
-        d.open = !d.open;                          // 收起/展开：只控配置区显隐，拆分仍生效
-      } else {
-        d.checked = true; d.open = true;           // 新建：开启拆分并展开配置
-      }
-      const ctl = row.querySelector('.h2x-sctl');
-      if (ctl) ctl.outerHTML = splitCtlHtml(panelCols[c], d, false);
+      if (!d.checked) return; // 未拆分无配置可收起（图标已隐藏，防御性兜底）
+      d.open = !d.open;       // 只控配置子行显隐，拆分仍生效
+      syncSplitCtl(panelCols[c], row, d);
       syncSubRow(panelDrafts.get(panelTable), c, d, row);
-      if (d.checked && d.open) {
+      if (d.open) {
         // 展开后子行可能超出列区视口（38vh 滚动容器），滚入可见
         const sub = panelMask.querySelector('.h2x-sub[data-c="' + c + '"]');
         if (sub) sub.scrollIntoView({ block: 'nearest' });
       }
-      // 控件被替换，焦点回填到对应按钮（键盘可连续操作）
-      const grp = row.querySelector('.h2x-sctl');
-      const focusEl = grp && (d.checked ? grp.querySelector('.h2x-toggle') : grp.querySelector('.h2x-new'));
-      if (focusEl) focusEl.focus();
       updateTools();
       renderPreview();
       return;

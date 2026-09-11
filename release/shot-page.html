@@ -170,9 +170,10 @@
       return n && n.textContent.indexOf(kw) >= 0;
     });
     const rGoods = findRow('商品'), rAmt = findRow('金额');
-    if (rGoods) click(rGoods.querySelector('.h2x-sbtn')); // 多行 → 预设按换行拆分
+    const setSp = (r, on) => { const ck = r && r.querySelector('.h2x-ck-sp'); if (ck && ck.checked !== on) { ck.checked = on; fire(ck, 'change'); } };
+    setSp(rGoods, true); // 多行 → 预设按换行拆分
     await sleep(80);
-    if (rAmt) click(rAmt.querySelector('.h2x-sbtn'));     // 控件 → 预设控件值拆分
+    setSp(rAmt, true);   // 控件 → 预设控件值拆分
     await sleep(250);
     window.__SHOT_READY = true;
 

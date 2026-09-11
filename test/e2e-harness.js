@@ -220,14 +220,14 @@
     }
   }
 
-  /* ---- 面板工具（v2.0：拆分勾选改「＋ 拆分」按钮，模式/分隔符收进 .h2x-sub 子行） ---- */
+  /* ---- 面板工具（v2.10.2：拆分控件 = 勾选框 + 收起/展开图标按钮，模式/分隔符收进 .h2x-sub 子行） ---- */
   const rowOf = (h, prefix) => [...h.sr.querySelectorAll('.h2x-col')].find(r => {
     const c = r.querySelector('.h2x-cname');
     return c && c.textContent.indexOf(prefix) === 0;
   });
-  const sbtnOf = (r) => r.querySelector('.h2x-sbtn');            // 拆分控件主按钮：未拆分=「＋ 拆分」，已拆分=「取消拆分」
-  const cancelOf = (r) => r.querySelector('.h2x-sbtn.h2x-cancel'); // 已拆分：左段取消拆分
-  const toggleOf = (r) => r.querySelector('.h2x-sbtn.h2x-toggle'); // 已拆分：右段收起/展开配置
+  const spOf = (r) => r.querySelector('.h2x-ck-sp');   // v2.10.2：拆分勾选框（勾选=拆分，取消=恢复原样导出）
+  const foldOf = (r) => r.querySelector('.h2x-sfold'); // v2.10.2：收起/展开配置图标按钮
+  const setSp = (r, on) => { const ck = spOf(r); if (ck.checked !== on) { ck.checked = on; fire(ck, 'change'); } };
   const subOf = (r) => r.getRootNode().querySelector('.h2x-sub[data-c="' + r.dataset.c + '"]'); // 对应配置子行
   const ckxOf = (r) => r.querySelector('.h2x-ck-x');
   const modeOf = (r) => { const s = subOf(r); return s && s.querySelector('.h2x-mode'); };
@@ -345,9 +345,9 @@
     const mask = h.sr.querySelector('.h2x-mask');
     t('列设置面板打开（role=dialog aria-modal）', !!mask && mask.getAttribute('role') === 'dialog' && mask.getAttribute('aria-modal') === 'true');
     const rTitle = rowOf(h, '标题/产品ID'), rPrice = rowOf(h, '一口价'), rSku = rowOf(h, '秒杀价/库存'), rWh = rowOf(h, '发货仓'), rSite = rowOf(h, '适用站点');
-    t('智能预填：多行文本列默认不展开（v2.1 默认不拆分）', !!rTitle && !sbtnOf(rTitle).classList.contains('h2x-on'));
-    t('智能预填：控件列默认不展开拆分', !!rPrice && !sbtnOf(rPrice).classList.contains('h2x-on'));
-    click(sbtnOf(rTitle)); // v2.1 默认不拆分：手动展开验证预设（保持后续轮次最终态不变）
+    t('智能预填：多行文本列默认不拆分（v2.1 默认不拆分）', !!rTitle && !spOf(rTitle).checked);
+    t('智能预填：控件列默认不拆分', !!rPrice && !spOf(rPrice).checked);
+    setSp(rTitle, true); // v2.1 默认不拆分：手动勾选验证预设（保持后续轮次最终态不变）
     t('智能预填：多行文本列展开后预设「按换行拆分」', modeOf(rTitle).value === 'block', modeOf(rTitle) && modeOf(rTitle).value);
     // 全列预览（默认态：6 原列全部显示 + 标题/产品ID 的 2 个新列 = 8 列）
     const pvHead = () => [...mask.querySelectorAll('.h2x-pv-body thead th')].map(x => x.textContent);
@@ -356,18 +356,18 @@
     t('全列预览：新列绿色标记（标题/产品ID1/2）', [...mask.querySelectorAll('.h2x-pv-body thead th')].filter(x => x.classList.contains('new')).length === 2);
     t('全列预览：数据行取前 3 行 + 尾注行数', mask.querySelectorAll('.h2x-pv-body tbody tr').length === 3 &&
       mask.querySelector('.h2x-pv-note').textContent.indexOf('行数据') >= 0, mask.querySelector('.h2x-pv-note').textContent);
-    // 折叠循环（v2.10.1：收起只隐藏配置，取消才删规则）
-    click(sbtnOf(rPrice)); // 未拆分 → 新建（开启并展开）
+    // 折叠循环（v2.10.2：勾选框控拆分，图标按钮控配置显隐；收起不删规则）
+    setSp(rPrice, true); // 未拆分 → 勾选（开启并展开）
     t('智能预填：控件列展开后预设「控件值拆分」', modeOf(rPrice).value === 'control', modeOf(rPrice) && modeOf(rPrice).value);
-    click(toggleOf(rPrice)); // 收起：只隐藏配置子行
-    t('收起拆分：子行隐藏但规则保留（仍为已拆分态）', !subOf(rPrice) && !!cancelOf(rPrice) && !!toggleOf(rPrice));
-    click(toggleOf(rPrice)); // 再展开
+    click(foldOf(rPrice)); // 收起：只隐藏配置子行
+    t('收起拆分：子行隐藏但规则保留（勾选框仍勾选、图标仍在）', !subOf(rPrice) && spOf(rPrice).checked && !foldOf(rPrice).hidden);
+    click(foldOf(rPrice)); // 再展开
     t('展开拆分：配置子行恢复显示', !!subOf(rPrice));
-    click(cancelOf(rPrice)); // 取消拆分：删规则、回「＋ 拆分」
-    t('取消拆分：子行移除且回「＋ 拆分」', !subOf(rPrice) && !cancelOf(rPrice));
-    click(sbtnOf(rPrice)); // 重新开启（保持与旧轮次一致的最终态：5 列全拆分）
-    // 其余列展开拆分
-    [rSku, rWh, rSite].forEach(r => click(sbtnOf(r)));
+    setSp(rPrice, false); // 取消拆分：删规则、回未拆分
+    t('取消拆分：子行移除且勾选框取消（图标隐藏）', !subOf(rPrice) && !spOf(rPrice).checked && foldOf(rPrice).hidden);
+    setSp(rPrice, true); // 重新开启（保持与旧轮次一致的最终态：5 列全拆分）
+    // 其余列勾选拆分
+    [rSku, rWh, rSite].forEach(r => setSp(r, true));
     t('智能预填：纯文本列分隔符默认留空（探测仅作按钮 title 建议）', patOf(rSite).value === '', patOf(rSite) && patOf(rSite).value);
     t('智能预填：段数上限默认 10', limOf(rSite).value === '10', limOf(rSite) && limOf(rSite).value);
     patOf(rSite).value = '、'; // 分隔符默认留空，显式填写以验证后续拆分
@@ -406,7 +406,7 @@
     await waitFor(() => h.sr.querySelector('.h2x-mask')); // openPanel 为 async
     const mask = h.sr.querySelector('.h2x-mask');
     [rowOf(h, '标题/产品ID'), rowOf(h, '一口价'), rowOf(h, '秒杀价/库存'), rowOf(h, '发货仓'), rowOf(h, '适用站点')].forEach(r => {
-      if (cancelOf(r)) click(cancelOf(r)); // 取消拆分（已保存规则恢复为展开态，取消后清空）
+      if (spOf(r).checked) setSp(r, false); // 取消拆分（已保存规则恢复为展开态，取消后清空）
     });
     t('全部拆分取消后无子行', h.sr.querySelectorAll('.h2x-sub').length === 0, 'subs=' + h.sr.querySelectorAll('.h2x-sub').length);
     click(mask.querySelector('.h2x-save'));
@@ -434,7 +434,7 @@
     const mask = h.sr.querySelector('.h2x-mask');
     const tools = () => mask.querySelector('.h2x-exp-n').textContent;
     t('列筛选默认全选（v2.1 默认不拆分：5 原列）', tools() === '5/5', tools());
-    click(sbtnOf(rowOf(h, '标题/产品ID'))); // v2.1 默认不拆分：展开（预设按换行）后进入拆分新列语境
+    setSp(rowOf(h, '标题/产品ID'), true); // v2.1 默认不拆分：勾选（预设按换行）后进入拆分新列语境
     t('列筛选默认全选（5 原列 + 拆分 2 新列 = 7/7）', tools() === '7/7', tools());
     click(mask.querySelector('.h2x-none'));
     click(mask.querySelector('.h2x-save'));
@@ -595,7 +595,7 @@
     t('页签切回第 1 表（姓名列回来）', !!rowOf(h, '姓名'));
     // 就地错误：姓名列展开（delimiter 预设空分隔符）保存 → 输入框标红 + 底部汇总
     const rName = rowOf(h, '姓名');
-    click(sbtnOf(rName));
+    setSp(rName, true);
     click(mask.querySelector('.h2x-save'));
     const errEl = mask.querySelector('.h2x-err');
     t('空分隔符保存被拦截（就地标红 + 汇总计数）', patOf(rName).classList.contains('h2x-invalid') &&
@@ -610,7 +610,7 @@
     await waitFor(() => h.sr.querySelector('.h2x-mask'));
     const mask2 = h.sr.querySelector('.h2x-mask');
     t('保存后重开面板：staff 页签状态点亮', mask2.querySelectorAll('.h2x-tab')[0].querySelector('.h2x-tab-dot').classList.contains('h2x-off') === false);
-    click(cancelOf(rowOf(h, '姓名'))); // 取消拆分
+    setSp(rowOf(h, '姓名'), false); // 取消拆分
     click(mask2.querySelector('.h2x-save'));
     click(h.splitBtn);
     await waitFor(() => h.sr.querySelector('.h2x-mask'));
@@ -713,7 +713,7 @@
     click(h.splitBtn);
     await waitFor(() => h.sr.querySelector('.h2x-mask'));
     let mask = h.sr.querySelector('.h2x-mask');
-    click(sbtnOf(rowOf(h, '适用站点'))); // 展开拆分（delimiter，分隔符默认留空）
+    setSp(rowOf(h, '适用站点'), true); // 勾选拆分（delimiter，分隔符默认留空）
     patOf(rowOf(h, '适用站点')).value = '、';
     fire(patOf(rowOf(h, '适用站点')), 'input');
     click(mask.querySelector('.h2x-save'));
@@ -725,7 +725,7 @@
       'subs=' + mask.querySelectorAll('.h2x-sub').length);
     click(mask.querySelector('.h2x-reset'));
     t('「恢复默认」后拆分全部收起', mask.querySelectorAll('.h2x-sub').length === 0 &&
-      mask.querySelectorAll('.h2x-sbtn.h2x-on').length === 0);
+      [...mask.querySelectorAll('.h2x-ck-sp')].every(ck => !ck.checked));
     click(mask.querySelector('.h2x-save'));
     await waitFor(() => !h.sr.querySelector('.h2x-mask'));
     t('恢复默认保存后提示改口径（清除记忆）', toastText(h).indexOf('已清除本页列设置记忆') >= 0, toastText(h));

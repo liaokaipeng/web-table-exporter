@@ -162,13 +162,14 @@
         return c && c.textContent.indexOf(p) === 0;
       });
       const rTitle = rowOf('标题/产品ID'), rPrice = rowOf('一口价');
-      const sbtnOf = (r) => r.querySelector('.h2x-sbtn');   // v2.10.1：拆分控件主按钮（未拆分=＋拆分，已拆分=取消拆分）
+      const spOf = (r) => r.querySelector('.h2x-ck-sp');   // v2.10.2：拆分勾选框（勾选=拆分）
+      const setSp = (r, on) => { const ck = spOf(r); if (ck.checked !== on) { ck.checked = on; fire(ck, 'change'); } };
       const modeOf = (r) => h.sr.querySelector('.h2x-sub[data-c="' + r.dataset.c + '"] .h2x-mode'); // 模式在展开子行内
-      t('虚拟表面板预填：多行列默认不展开（v2.1 默认不拆分）', !!rTitle && !sbtnOf(rTitle).classList.contains('h2x-on'));
-      t('虚拟表面板预填：控件列默认不展开', !!rPrice && !sbtnOf(rPrice).classList.contains('h2x-on'));
-      click(sbtnOf(rTitle)); // v2.1 默认不拆分：手动展开验证预设
+      t('虚拟表面板预填：多行列默认不拆分（v2.1 默认不拆分）', !!rTitle && !spOf(rTitle).checked);
+      t('虚拟表面板预填：控件列默认不拆分', !!rPrice && !spOf(rPrice).checked);
+      setSp(rTitle, true); // v2.1 默认不拆分：手动勾选验证预设
       t('虚拟表面板预填：多行列展开后预设「按换行拆分」', modeOf(rTitle).value === 'block', modeOf(rTitle) && modeOf(rTitle).value);
-      click(sbtnOf(rPrice)); // 展开验证预设（面板稍后整体取消，不保存）
+      setSp(rPrice, true); // 勾选验证预设（面板稍后整体取消，不保存）
       t('虚拟表面板预填：控件列展开后预设「控件值拆分」', modeOf(rPrice).value === 'control', modeOf(rPrice) && modeOf(rPrice).value);
       click(mask.querySelector('.h2x-pcancel')); // 关面板不保存（导出走无规则零回归）
     }

@@ -9,7 +9,7 @@
 | `fixture.html` | 普通表格、rowspan/colspan 合并（带 caption）、空单元格/长文本、控件取值（第 4 节：select 单/多选、空值/value=文本、checkbox/radio、hidden、date/textarea/output、一格多控件、ARIA switch/slider/listbox/combobox、el/ant/van 组件开关、嵌套开关、类名形似非开关回退）、列拆分（第 5 节：控件值拆分（含同格多控件各自成列，复刻店小秘秒杀价/库存双输入）、按换行拆分、分隔符拆分、智能预填、段数不足补空、合并表格禁用）、分体表格合并（第 6 节：表头/表体两个 table 复刻 Element Plus el-table，垂直+水平双向滚动裁剪（表宽 860 > 容器 620，表头 scrollLeft 同步）、gutter 占位列）、图片链接导出（第 8 节：纯图片/图片+文字/无链接图片/控件+图片/双行格含图按换行拆分）、列格式（第 9 节：文本=默认零回归、数字列数值化（千分位剥离、解析失败保原文本）、拆分新列继承、合并单元格表格仍可设置）、选择模式下链接不跳转 | 行内「预期导出」列 |
 | `virtual-fixture.html` | 60 行虚拟滚动（thead 无 tr、input/select 由 JS 属性设值模拟 Vue、el-switch 开关列）；分体表格 + 虚拟滚动组合（表头/表体两个 table 复刻 vxe-table，滚动容器在数据表上层）；采集后拆分列面板回归（预期值见页内说明） | 61 行全采集（60 数据 + 表头）；序号 1/26/41 三行内容完全相同应全部保留（重复行不误删）；发货仓「华东仓(1)/华南仓(2)」、开关「是/否」；分体表悬浮整体高亮、一次点选、采集 41 行（40 数据 + 表头）、一口价取 JS 实时值 |
 | `auto-check.html` | DOM 层自动化回归（无扩展环境，页内自判 PASS/FAIL）：控件取值（controls.controlValue：input/checkbox/radio/hidden/date/textarea/output、select 单/多选、ARIA switch/slider、el-switch 类名开关、类名形似回退 null）；单元格四通道（cell.openBatch：空白归一化、nbsp/换行/连续空格压缩、控件 merged/text/ctrl 三通道、多控件对齐、嵌套开关不重复计数、图片绝对链接、无 src 图片为空）；表格提取（table.extractTable：常规 thead、rowspan/colspan 展开+merges、多行表头、无 thead 全 th 行计表头、display:none 行过滤）；导出管线端到端（提取→block+control 拆分→列筛选→数字格式→csv/json 精确对比，JS 属性设值复刻 Vue 实时状态） | 页内 summary「37 项全部 PASS」 |
-| `e2e-harness.js` | E2E 全链路注入回归（fixture.html，无扩展环境）：桩 chrome.storage（local + sync 两个独立内存区，v2.8 跨设备同步回归）与 runtime.sendMessage（走 blob 回退），捕获导出内容逐项断言。覆盖：选择交互（v2.4 非表格点击放行、被移除已选表格自动剔除 + toast 告知）、链接拦截（preventDefault + 警示 toast + 被拦链接就地红框高亮及还原）、Esc 退出、CSV/JSON/MD/HTML/XLSX 内容（BOM/CRLF、RFC4180 转义、列N兜底、thead 归位）、merges、Sheet 名、自适应列宽（解包 zip 读 cols XML）、XLSX 全量单元格比对（值+类型逐格，含合并延续空位与数字格式 t:n）、列拆分三模式、列筛选、列格式、分体表格合并、持久化保存/恢复/重置、面板折叠与默认收起、复制到剪贴板（TSV/Markdown，桩 Clipboard API 捕获文本）、清空已选与面板「恢复默认」、导出中止（导出中点「停止导出」不产生文件且选择保留、再次导出正常）、列顺序调整（Alt+↑ 换位 + 导出列序 + 重开面板保持）、跨设备同步（保存镜像到 sync、注入时按 updatedAt 合并取更新者）、输出方式与文件名记忆（v2.9：选择即存偏好、文件名编辑后记住为模板并渲染 `{date}`、重进选择模式恢复、清空回落默认命名） | 控制台输出 `__TEST_RESULT` 数组 149/149 pass |
+| `e2e-harness.js` | E2E 全链路注入回归（fixture.html，无扩展环境）：桩 chrome.storage（local + sync 两个独立内存区，v2.8 跨设备同步回归）与 runtime.sendMessage（走 blob 回退），捕获导出内容逐项断言。覆盖：选择交互（v2.4 非表格点击放行、被移除已选表格自动剔除 + toast 告知）、链接拦截（preventDefault + 警示 toast + 被拦链接就地红框高亮及还原）、Esc 退出、CSV/JSON/MD/HTML/XLSX 内容（BOM/CRLF、RFC4180 转义、列N兜底、thead 归位）、merges、Sheet 名、自适应列宽（解包 zip 读 cols XML）、XLSX 全量单元格比对（值+类型逐格，含合并延续空位与数字格式 t:n）、列拆分三模式、列筛选（含拆分子列独立筛选、v2.10 原列不导出联动其新列整体排除与子列勾选置灰）、列格式、分体表格合并、持久化保存/恢复/重置、面板折叠与默认收起、复制到剪贴板（TSV/Markdown，桩 Clipboard API 捕获文本）、清空已选与面板「恢复默认」、导出中止（导出中点「停止导出」不产生文件且选择保留、再次导出正常）、列顺序调整（Alt+↑ 换位 + 导出列序 + 重开面板保持）、跨设备同步（保存镜像到 sync、注入时按 updatedAt 合并取更新者）、输出方式与文件名记忆（v2.9：选择即存偏好、文件名编辑后记住为模板并渲染 `{date}`、重进选择模式恢复、清空回落默认命名） | 控制台输出 `__TEST_RESULT` 数组 153/153 pass |
 | `e2e-harness-virtual.js` | E2E 注入回归（virtual-fixture.html，无扩展环境）：虚拟滚动采集 61 行、合法重复行保留、控件实时值（input/select JS 属性设值）、分体表+虚拟滚动组合 41 行、采集后面板快照与默认收起/展开预设 | 控制台输出 `__TEST_RESULT` 数组 33/33 pass |
 | `tablev2-fixture.html` | Element Plus el-table-v2 虚拟化表格（div 网格结构，无 table 元素）：500 行两例——纯主分区网格 + 固定列（left/main 双分区，滚动联动）、JS 渲染窗口模拟虚拟滚动（仅渲染可见行 ± 缓存）、表头 dynamic-header-row、控件列（input/select JS 属性设值）、行内操作按钮 | 悬浮整体高亮、一次点选自动滚动采集 501 行（500 数据 + 表头）、固定列按视觉列序拼接（固定列在前）、控件取实时值、重复行保留 |
 | `e2e-harness-tablev2.js` | E2E 注入回归（tablev2-fixture.html，无扩展环境）：网格表格识别与悬浮整体高亮、点击后自动滚动采集（500 行全量）、固定列双分区拼接列序、控件实时值、导出内容断言 | 控制台输出 `__TEST_RESULT` 数组 24/24 pass |
@@ -76,7 +76,7 @@ powershell -ExecutionPolicy Bypass -File test/gen-icon.ps1
 用 `#e2e=1`（hash）而非 `?e2e=1`：serve 等静态服务器的 cleanUrls 重定向会丢查询串，hash 不受影响（两种写法均支持）：
 
 ```
-http://localhost:3000/test/fixture.html#e2e=1          → 页底「149 项全部 PASS」
+http://localhost:3000/test/fixture.html#e2e=1          → 页底「153 项全部 PASS」
 http://localhost:3000/test/virtual-fixture.html#e2e=1  → 页底「33 项全部 PASS」
 http://localhost:3000/test/tablev2-fixture.html#e2e=1  → 页底「24 项全部 PASS」
 http://localhost:3000/test/antdv-fixture.html#e2e=1    → 页底「19 项全部 PASS」
@@ -159,5 +159,6 @@ window.__TEST_RESULT = await (0, eval)(c);
     - 下拉切换格式：点右侧「▾」打开下拉，选「CSV (.csv)」→ 主体文案变「导出 CSV」；点主体导出 .csv（文件名扩展名随之变化）
     - 启用态同源：未选表或采集/导出/面板/子模式期间，主体与「▾」整块灰置；选中表格后恢复可点
     - 语言切换：切到 EN 后主体为「Export Excel」、下拉项为英文标签
+    - 列设置联动（v2.10）：列设置展开某列拆分 → 子行行首出现原列的导出勾选 + 列名，与主行勾选双向同步；取消原列导出 → 子行新列勾选置灰禁用（原勾选状态保留）、预览中原列与新列全部划线、导出列计数把该列新列一并扣除；导出结果中该列及其全部新列均不出现；重新勾选原列导出 → 恢复原状态
 
 控件取值规则见 [docs/controls.md](../docs/controls.md)；真实页面回归：点三咪折扣活动编辑页（长列表 + 一口价 input 列）。

@@ -442,24 +442,40 @@
     t('列筛选行数不变（3 数据行）', lines.length === 4, 'rows=' + lines.length);
   });
 
-  /* ================= 轮次 H：拆分子列独立筛选 ================= */
+  /* ================= 轮次 H：拆分子列独立筛选 + 原列不导出联动 ================= */
   await round('拆分子列筛选', async (h) => {
     clickCell('#colfilter td'); // 恢复上轮保存的筛选
     click(h.splitBtn);
     await waitFor(() => h.sr.querySelector('.h2x-mask')); // openPanel 为 async
-    const mask = h.sr.querySelector('.h2x-mask');
-    const rTitle = rowOf(h, '标题/产品ID');
-    ckxOf(rTitle).checked = false; fire(ckxOf(rTitle), 'change'); // 原列不导出
+    let mask = h.sr.querySelector('.h2x-mask');
+    // 仅取消「标题/产品ID2」（k=2）：原列与「标题/产品ID1」仍导出
     const sub2 = mask.querySelector('.h2x-sub .h2x-ck-s[data-k="2"]');
-    sub2.checked = false; fire(sub2, 'change'); // 产品ID 新列不导出
+    sub2.checked = false; fire(sub2, 'change');
     click(mask.querySelector('.h2x-save'));
     h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
     click(h.exportBtn);
     const files = await waitExports(1);
     const lines = await csvLines(files[0]);
-    t('原列+子列独立筛选（3 列）', lines[0] === '订单号,标题/产品ID1,金额', lines[0]);
+    t('子列独立筛选（原列 + 新列1，4 列）', lines[0] === '订单号,标题/产品ID,标题/产品ID1,金额', lines[0]);
     const r1 = lines[1].split(',');
-    t('子列筛选后数据对齐', r1[0] === 'SO-1001' && r1[1] === 'Dress Blue Style' && r1[2] === '4722', lines[1]);
+    t('子列筛选后数据对齐', r1[0] === 'SO-1001' && r1[1] === 'Dress Blue Style 1731340859035710001' &&
+      r1[2] === 'Dress Blue Style' && r1[3] === '4722', lines[1]);
+    // 原列不导出 → 该列与其新列整体不导出（子列勾选置灰禁用、状态保留）
+    await waitFor(() => !h.splitBtn.disabled);
+    click(h.splitBtn);
+    await waitFor(() => h.sr.querySelector('.h2x-mask'));
+    mask = h.sr.querySelector('.h2x-mask');
+    const rTitle = rowOf(h, '标题/产品ID');
+    ckxOf(rTitle).checked = false; fire(ckxOf(rTitle), 'change');
+    const sub1 = mask.querySelector('.h2x-sub .h2x-ck-s[data-k="1"]');
+    t('原列不导出后子列勾选置灰禁用（状态保留）', sub1.disabled === true && sub1.checked === true, 'disabled=' + sub1.disabled + ',checked=' + sub1.checked);
+    t('原列不导出后导出列计数 2/7', mask.querySelector('.h2x-exp-n').textContent === '2/7', mask.querySelector('.h2x-exp-n').textContent);
+    click(mask.querySelector('.h2x-save'));
+    click(h.exportBtn);
+    const lines2 = await csvLines((await waitExports(2))[1]);
+    t('原列不导出＝原列与其新列整体排除（2 列）', lines2[0] === '订单号,金额', lines2[0]);
+    const r2 = lines2[1].split(',');
+    t('整体排除后数据对齐（订单号/金额）', r2[0] === 'SO-1001' && r2[1] === '4722', lines2[1]);
   });
 
   /* ================= 轮次 I：列格式（数字）CSV ================= */

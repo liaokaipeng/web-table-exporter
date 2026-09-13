@@ -10,6 +10,7 @@ Chrome MV3 扩展（原生 JS，零构建）。架构、机制与产品信息见
 - 权限最小化：改动 `extension/manifest.json` 权限需有明确理由
 - 注释与文档用中文；提交信息格式：一行标题 + 要点列表
 - 每次 git 提交须同步更新相关文档（架构/产品/控件/测试等 docs 与 test/README），保持文档与代码一致
+- 商店文案不堆砌关键词：同一卖点/格式清单在详细说明里只写一次、不在开头提前罗列、中英必须同步（Chrome Web Store「产品说明中有过多关键字」违规，参考 ID Yellow Argon）；规则细节与提交前自检见 [release/review-notes.md](release/review-notes.md)
 
 ## 验证命令（本机为 PowerShell）
 

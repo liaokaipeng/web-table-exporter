@@ -72,6 +72,20 @@ inside the user's own browser account and never reaches any third-party server.
 
 ---
 
+## 6. 商店文案合规：不堆砌关键词
+
+参考 ID「Yellow Argon」的违规「产品说明中有过多关键字」源自商店政策的元数据条款——禁止为提高排名而反复堆砌同一批关键词（v2.5.3 曾触发一次，当时处置为移除组件库名）。编写 [store-listing.md](store-listing.md) 时遵守：
+
+- **同一卖点在详细说明里只写一次**：虚拟滚动/分页采集、组件表格适配、复制到剪贴板、免费开源、不收集任何数据、可导出格式（xlsx/csv/json/md/html）等，不得在开头段与后文分节各写一遍
+- **不在开头段提前罗列后文卖点**：开头一句定位即可，卖点交给【使用方式】【列设置】【核心能力】【输出方式】【隐私与数据安全】分节承载
+- **不罗列具体组件库名**（Element Plus、AG Grid、MUI X DataGrid、Tabulator、Ant Design Vue、vxe-table 等），统一写「主流前端组件库」（v2.5.4 处置）
+- **简短说明同样是元数据**：不把多个卖点用逗号串成关键词表；它对应 manifest 的 `extDescription`（`extension/_locales/zh_CN|en/messages.json`），改动须双语同步并升 manifest 版本号
+- **中英双语同步**：中文改了，英文同样改，不得只改一侧
+
+自检：详细说明中每个卖点与格式名只出现一次；能力表述与 [../docs/product.md](../docs/product.md) 一致。
+
+---
+
 ## 提交前检查清单
 
 - [ ] 开发者账号已注册（$5 一次性费用）
@@ -79,6 +93,7 @@ inside the user's own browser account and never reaches any third-party server.
 - [ ] 商店素材：截图（1280×800；中文 `1-select`/`2-panel`/`3-panel-dark`，英文 `1-select-en`/`2-panel-en`/`3-panel-dark-en`；商店最多上传 5 张，需自行取舍），见 `release/screenshots/`
 - [ ] 宣传图 440×280（可选）
 - [ ] 商品详情双语已填写（见 `store-listing.md`）
+- [ ] 商店文案已按第 6 节自检（详细说明中每个卖点/格式名只出现一次，中英同步；简短说明与 manifest `extDescription` 一致）
 - [ ] 隐私声明已按上文勾选
 - [ ] 分发方式：公开 / 不公开 / 私有
 - [ ] 手动回归：chrome://extensions 加载扩展后在真实页面验证 xlsx 导出

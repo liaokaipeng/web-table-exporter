@@ -118,6 +118,7 @@
 - v2.8 列顺序：`entry.order`（显示序，列索引数组）驱动列区与预览渲染，手柄拖放（`onColDragStart` / `onColDragOver` / `onColDrop`，落点以内阴影标示）与手柄聚焦 Alt+↑/↓（`onColGripKey`）统一经 `applyMove()` 改序，`orderKeysOf()` 保存时把自然序折叠为 `[]`（不落记录，零回归），含 merges 表渲染占位手柄不参与拖拽
 - v2.10.1 拆分控件状态化：草稿增 `open`（配置子行展开态，与「是否有拆分规则」`checked` 解耦；`open` 不落盘，仅当次会话视图态），子行渲染条件 `checked && open`，保存校验失败自动 `open=true` 展开出错列
 - v2.10.2 主行拆分控件合并为单控件：`splitCtlHtml()` 输出勾选框 `h2x-ck-sp`（拆分开关，`onColChange`：勾选=拆分并展开、取消=删规则）+ 折线 chevron 图标按钮 `h2x-sfold`（内嵌 `<svg class="h2x-chev">` 两条边、非实心三角，朝向由 `aria-expanded` 经 CSS 旋转 180°；只控配置子行显隐，`onColClick` 处理，未拆分时 hidden），状态变化经 `syncSplitCtl(col, row, d)` 就地同步（不重建 DOM、键盘焦点保留）
+- v2.11.2 原列级导出：子行行首「原列」勾选与主行整列导出解耦，用 `skipSegs` 索引 0 表示原列（复用 `h2x-ck-s` 事件分支，`srcSkipped()` 守卫「未拆分时忽略残留标记」），取消只跳过原列、新列照常；`draftFromSaved()` 对裸列键按段数消歧（已拆分且段未全被排除 = 只跳过原列，否则整列不导出，旧记录语义不变）
 
 #### main.js（依赖：其余全部）
 

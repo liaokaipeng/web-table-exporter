@@ -488,6 +488,41 @@
     t('整体排除后数据对齐（订单号/金额）', r2[0] === 'SO-1001' && r2[1] === '4722', lines2[1]);
   });
 
+  /* ================= 轮次 H2：原列级导出（v2.11.2：子行取消「原列」只跳过原列，新列照常） ================= */
+  await round('原列级导出', async (h) => {
+    clickCell('#colfilter td'); // 恢复上轮保存的筛选（标题/产品ID 整体排除）
+    click(h.splitBtn);
+    await waitFor(() => h.sr.querySelector('.h2x-mask')); // openPanel 为 async
+    let mask = h.sr.querySelector('.h2x-mask');
+    click(mask.querySelector('.h2x-all')); // 清上轮筛选，恢复全选
+    t('原列级导出：全选恢复 7/7', mask.querySelector('.h2x-exp-n').textContent === '7/7', mask.querySelector('.h2x-exp-n').textContent);
+    const src = mask.querySelector('.h2x-sub .h2x-ck-s[data-k="0"]');
+    t('子行行首为「原列」勾选（data-k=0，已勾选）', !!src && src.checked === true, src ? String(src.checked) : 'no-src');
+    src.checked = false; fire(src, 'change');
+    t('取消原列：主行整列导出仍勾选（不联动）', ckxOf(rowOf(h, '标题/产品ID')).checked === true);
+    const sub1 = mask.querySelector('.h2x-sub .h2x-ck-s[data-k="1"]');
+    t('取消原列：新列勾选仍可用（未置灰）', sub1.disabled === false && sub1.checked === true, 'disabled=' + sub1.disabled + ',checked=' + sub1.checked);
+    t('取消原列：导出列计数 6/7', mask.querySelector('.h2x-exp-n').textContent === '6/7', mask.querySelector('.h2x-exp-n').textContent);
+    click(mask.querySelector('.h2x-save'));
+    h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
+    click(h.exportBtn);
+    const lines = await csvLines((await waitExports(1))[0]);
+    t('原列级导出：只跳过原列（订单号,标题/产品ID1,标题/产品ID2,金额,状态,操作日志）',
+      lines[0] === '订单号,标题/产品ID1,标题/产品ID2,金额,状态,操作日志', lines[0]);
+    const rr = lines[1].split(',');
+    t('原列级导出数据对齐', rr[0] === 'SO-1001' && rr[1] === 'Dress Blue Style' &&
+      rr[2] === '1731340859035710001' && rr[3] === '4722', lines[1]);
+    // 重开面板：持久化恢复「原列未勾选、主行仍勾选」
+    await waitFor(() => !h.splitBtn.disabled);
+    click(h.splitBtn);
+    await waitFor(() => h.sr.querySelector('.h2x-mask'));
+    mask = h.sr.querySelector('.h2x-mask');
+    const src2 = mask.querySelector('.h2x-sub .h2x-ck-s[data-k="0"]');
+    t('重开面板恢复「原列未勾选 + 主行仍勾选」（持久化）',
+      !!src2 && src2.checked === false && ckxOf(rowOf(h, '标题/产品ID')).checked === true,
+      src2 ? ('src=' + src2.checked + ',main=' + ckxOf(rowOf(h, '标题/产品ID')).checked) : 'no-src');
+  });
+
   /* ================= 轮次 I：列格式（数字）CSV ================= */
   await round('列格式 CSV', async (h) => {
     clickCell('#colfmt td');

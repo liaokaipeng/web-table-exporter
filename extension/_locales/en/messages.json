@@ -95,6 +95,7 @@
   "noteMerges": { "message": "This table has merged cells; split and column filtering are unavailable (column format still works)" },
   "previewMerges": { "message": "Merged cells in this table: split and filter unavailable (column format still applies)" },
   "newColsLabel": { "message": "New columns: " },
+  "srcExportTitle": { "message": "Uncheck to skip only the original column; split columns are still exported" },
   "modeLabel": { "message": "Mode" },
   "modeControl": { "message": "Control values" },
   "modeBlock": { "message": "Line breaks" },

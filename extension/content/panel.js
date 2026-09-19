@@ -105,7 +105,9 @@
    *  含控件列展开后预设 control（由用户确认）；其余纯文本列预设 delimiter，但分隔符
    *  默认留空（探测结果仅作勾选框 title 建议，需用户显式填写）；段数上限默认 10。
    *  open = 配置子行展开态（v2.10.2 与「是否拆分」解耦：收起只隐藏配置，规则仍生效）。
-   *  导出勾选默认全选（export: true），子列排除集默认为空，列格式默认文本 */
+   *  导出勾选默认全选（export: true），子列排除集默认为空，列格式默认文本。
+   *  v2.11.2：skipSegs 兼作输出列跳过集，索引 0 = 原列本身（1..n 为各拆分段），
+   *  取消原列勾选只跳过原列、新列照常导出 */
   function prefillDrafts(cols) {
     return cols.map(col => {
       const base = { export: true, skipSegs: new Set(), fmt: 'text', open: false };
@@ -117,12 +119,15 @@
 
   /** 已保存规则与列筛选 → 面板草稿（未配置的列回落到智能预填）
    *  keys：colKeys(sample) 的列标识数组；excluded：已保存的导出排除集；
-   *  fmts：已保存的列格式 Map<colKey, 'number'>（文本为默认，无需保存） */
-  function draftFromSaved(saved, cols, keys, excluded, fmts) {
+   *  fmts：已保存的列格式 Map<colKey, 'number'>（文本为默认，无需保存）；
+   *  sample：取样通道（计段数用，见下方原列消歧）。
+   *  v2.11.2：裸列键被排除既可能是「整列不导出」，也可能是「只跳过原列本身」——
+   *  按段数消歧：该列已拆分且段未全部被排除 → 跳过原列（保留新列）；否则整列不导出
+   *  （旧记录语义，导出结果一致） */
+  function draftFromSaved(saved, cols, keys, excluded, fmts, sample) {
     const draft = prefillDrafts(cols);
     if (excluded) {
       draft.forEach((d, c) => {
-        if (excluded.has(keys[c])) d.export = false;
         const pre = String(keys[c]) + '#';
         for (const k of excluded) {
           if (typeof k === 'string' && k.indexOf(pre) === 0) {
@@ -133,17 +138,32 @@
       });
     }
     if (fmts) draft.forEach((d, c) => { if (fmts.get(keys[c]) === 'number') d.fmt = 'number'; });
-    if (!saved) return draft;
-    for (const rule of saved) {
-      let c = -1;
-      for (let i = 0; i < cols.length; i++) {
-        if (keys[i] === rule.col) { c = i; break; }
+    if (saved) {
+      for (const rule of saved) {
+        let c = -1;
+        for (let i = 0; i < cols.length; i++) {
+          if (keys[i] === rule.col) { c = i; break; }
+        }
+        if (c < 0) continue;
+        Object.assign(draft[c], {
+          checked: true, open: true, // 已保存规则恢复为展开显示（与旧版一致；收起只是当次会话内的视图操作）
+          mode: rule.mode,
+          pattern: rule.pattern || '', limit: rule.limit == null ? '' : String(rule.limit)
+        });
       }
-      if (c < 0) continue;
-      Object.assign(draft[c], {
-        checked: true, open: true, // 已保存规则恢复为展开显示（与旧版一致；收起只是当次会话内的视图操作）
-        mode: rule.mode,
-        pattern: rule.pattern || '', limit: rule.limit == null ? '' : String(rule.limit)
+    }
+    // 原列排除消歧（rules 已应用，可计段数；无 sample 时回落到「整列不导出」旧语义）
+    if (excluded) {
+      const tmp = sample ? { sample: sample, cols: cols } : null;
+      draft.forEach((d, c) => {
+        if (!excluded.has(keys[c])) return;
+        const n = (tmp && d.checked) ? segCountOf(tmp, c, d) : 0;
+        let allSeg = n > 0;
+        for (let k = 1; k <= n; k++) {
+          if (!excluded.has(keys[c] + '#' + k)) { allSeg = false; break; }
+        }
+        if (n > 0 && !allSeg) d.skipSegs.add(0); // 只跳过原列本身（新列照常导出）
+        else d.export = false;                   // 整列不导出（未拆分 / 段全被排除）
       });
     }
     return draft;
@@ -416,7 +436,7 @@
       panelCols = buildPanelCols(panelSample);
       const keys = colKeys(panelSample); // 列标识（拆分规则与列筛选共用的定位基准）
       entry = {
-        draft: draftFromSaved(deps.splitRules.get(table), panelCols, keys, deps.colFilters.get(table), deps.colFormats.get(table)),
+        draft: draftFromSaved(deps.splitRules.get(table), panelCols, keys, deps.colFilters.get(table), deps.colFormats.get(table), panelSample),
         cols: panelCols, keys: keys, sample: panelSample,
         // v2.8：列顺序（显示序，列索引数组；自然序 = [0..n-1]）
         order: orderFromSaved(deps.colOrders && deps.colOrders.get(table), keys)
@@ -461,14 +481,18 @@
     tabsEl.hidden = deps.selected.size < 2; // 单表不占位（聚焦逻辑回落到列勾选框）
   }
 
-  /** 拆分新列勾选区 HTML（段名与导出列名一致）：行首给出「原列的导出勾选 + 列名」
-   *  复制件（h2x-ck-x2，与主行同一导出状态、双向同步），其后才是「新列：」与各新列
-   *  勾选；原列不导出时新列勾选置灰禁用（状态保留，见 syncExportUI） */
+  /** 拆分新列勾选区 HTML（段名与导出列名一致）：行首为「原列」自身的导出勾选 + 列名
+   *  （独立于主行整列导出：取消只跳过原列本身，拆分新列照常导出），其后才是「新列：」
+   *  与各新列勾选。原列勾选用段跳过集索引 0 表示（1..n 为各段），与子列勾选同一通道，
+   *  复用 onColChange 的 h2x-ck-s 分支；整列不导出（d.export=false）时全部置灰禁用 */
   function subColsHtmlOf(entry, c, d) {
     const raw = (entry.cols[c] && entry.cols[c].name) || '';
     const srcName = raw || t('colN', '列' + (c + 1), c + 1);
-    let html = '<label class="h2x-sub-src' + (d.export ? '' : ' noexp') + '">' +
-      '<input type="checkbox" class="h2x-ck-x2"' + (d.export ? ' checked' : '') + '>' +
+    const srcOff = srcSkipped(d);
+    let html = '<label class="h2x-sub-src' + ((srcOff || !d.export) ? ' noexp' : '') + (d.export ? '' : ' h2x-off') + '">' +
+      '<input type="checkbox" class="h2x-ck-s" data-k="0"' + (srcOff ? '' : ' checked') +
+      (d.export ? '' : ' disabled') +
+      ' title="' + escapeHtml(t('srcExportTitle', '取消勾选仅不导出原列，拆分新列照常导出')) + '">' +
       escapeHtml(srcName) + '</label>' +
       '<span class="h2x-sub-label">' + t('newColsLabel', '新列：') + '</span>';
     segNames(entry, c, d).forEach((segName, k) => {
@@ -517,7 +541,12 @@
     }
   }
 
-  /** 导出列计数：已选/全部（原列 + 拆分新列都计入；原列不导出时其新列也不计入） */
+  /** 原列是否被单独跳过（skipSegs 0）：仅在拆分生效（d.checked）时才有意义，
+   *  未拆分时忽略残留标记，避免取消拆分后误排除原列 */
+  const srcSkipped = (d) => !!(d.checked && d.skipSegs.has(0));
+
+  /** 导出列计数：已选/全部（原列 + 拆分新列都计入；整列不导出时整列不计；
+   *  v2.11.2：原列被单独跳过（skipSegs 0）时只少计原列，新列照常计入） */
   function updateTools() {
     const entry = panelDrafts.get(panelTable);
     if (!entry) return;
@@ -526,7 +555,7 @@
       const n = d.checked ? segNames(entry, c, d).length : 0;
       total += 1 + n;
       if (d.export) {
-        kept++;
+        if (!srcSkipped(d)) kept++;
         for (let k = 1; k <= n; k++) if (!d.skipSegs.has(k)) kept++;
       }
     });
@@ -614,8 +643,10 @@
     return { row: row, c: c, d: panelDrafts.get(panelTable).draft[c] };
   }
 
-  /** 导出勾选联动：主行勾选框与子行原列勾选框（复制件 h2x-ck-x2）两处同步；原列不导出
-   *  时该列整体不导出 → 新列勾选框置灰禁用（保留原有勾选状态），预览同步划线 */
+  /** 导出勾选联动：主行勾选框控制整列（原列 + 拆分新列）导出；整列不导出
+   *  （d.export=false）时子行全部勾选框置灰禁用（保留原有勾选状态，重勾即恢复）。
+   *  子行「原列」勾选框另有独立语义（仅跳过原列本身，见 subColsHtmlOf/onColChange），
+   *  其划线态随「整列是否导出 + 原列是否被跳过」 */
   function syncExportUI(c, d) {
     const mainRow = panelMask.querySelector('.h2x-col[data-c="' + c + '"]');
     if (mainRow) {
@@ -625,19 +656,16 @@
     }
     const sub = panelMask.querySelector('.h2x-sub[data-c="' + c + '"]');
     if (!sub) return;
-    const src = sub.querySelector('.h2x-ck-x2');
-    if (src) {
-      src.checked = d.export;
-      src.closest('label').classList.toggle('noexp', !d.export);
-    }
     sub.querySelectorAll('.h2x-ck-s').forEach(el => {
       el.disabled = !d.export;
       el.closest('label').classList.toggle('h2x-off', !d.export);
     });
+    const src = sub.querySelector('.h2x-sub-src');
+    if (src) src.classList.toggle('noexp', !d.export || srcSkipped(d));
   }
 
   function onColChange(e) {
-    // 拆分子列的导出勾选（位于 .h2x-sub-cols 内，不在 .h2x-col 主行上）
+    // 子行输出列勾选（data-k=0 为原列本身，k≥1 为各拆分段；不在 .h2x-col 主行上）
     if (e.target.classList.contains('h2x-ck-s')) {
       const sub = e.target.closest('.h2x-sub');
       if (!sub) return;
@@ -668,8 +696,8 @@
       renderPreview();
       return;
     }
-    if (e.target.classList.contains('h2x-ck-x') || e.target.classList.contains('h2x-ck-x2')) {
-      // 主行 / 子行原列两处勾选同语义：原列不导出 = 该列及其拆分新列整体不导出
+    if (e.target.classList.contains('h2x-ck-x')) {
+      // 主行导出勾选：整列（原列 + 拆分新列）整体不导出
       d.export = e.target.checked;
       syncExportUI(c, d);
     } else if (e.target.classList.contains('h2x-mode')) {
@@ -878,7 +906,8 @@
       if (!d) return;
       const raw = (panelCols[c] && panelCols[c].name) || '';
       const name = raw || t('colN', '列' + (c + 1), c + 1);
-      html += '<th' + (d.export ? '' : ' class="drop"') + '>' + escapeHtml(name) + '</th>';
+      // 原列 th：整列不导出或原列被单独跳过（skipSegs 0）时划线
+      html += '<th' + ((d.export && !srcSkipped(d)) ? '' : ' class="drop"') + '>' + escapeHtml(name) + '</th>';
       if (!d.checked) return;
       segNames(entry, c, d).forEach((segName, k) => {
         html += '<th class="new' + ((!d.export || d.skipSegs.has(k + 1)) ? ' drop' : '') + '">' + escapeHtml(segName) + '</th>';
@@ -895,7 +924,7 @@
         // 数字格式预览即所得：数据值经 toNumValue 展示（导出同规则数值化）
         const num = (v) => (d.fmt === 'number' && v != null && v !== '' ? toNumValue(v) : v);
         const before = (aoa[r] || [])[c];
-        html += '<td' + (d.export ? '' : ' class="drop"') + '>' +
+        html += '<td' + ((d.export && !srcSkipped(d)) ? '' : ' class="drop"') + '>' +
           escapeHtml(before == null ? '' : String(num(before))) + '</td>';
         if (!d.checked) return;
         if (d.mode === 'control') {
@@ -984,8 +1013,8 @@
       let kept = 0;
       draft.forEach((d, c) => {
         if (!d) return;
-        if (!d.export) return; // 原列不导出 → 该列及其拆分新列整体不导出，不计入
-        kept++;
+        if (!d.export) return; // 整列不导出 → 该列及其拆分新列整体不导出，不计入
+        if (!srcSkipped(d)) kept++; // 原列本身（被单独跳过时不计）
         const n = d.checked ? segCountOf(entry, c, d) : 0;
         for (let k = 1; k <= n; k++) if (!d.skipSegs.has(k)) kept++;
       });
@@ -1032,11 +1061,13 @@
         if (d.fmt === 'number') formats.set(keys[c], 'number');
         const n = d.checked ? segCountOf(entry, c, d) : 0;
         if (!d.export) {
-          // 原列不导出：连同其全部拆分新列一并排除（拆分配置仍保留，仅本次导出不生效；
+          // 整列不导出：连同其全部拆分新列一并排除（拆分配置仍保留，仅本次导出不生效；
           // 重新勾选导出即恢复原勾选状态）
           excluded.add(keys[c]);
           for (let k = 1; k <= n; k++) excluded.add(keys[c] + '#' + k);
         } else {
+          // 原列被单独跳过（skipSegs 0）：只排除原列本身，新列照常导出
+          if (srcSkipped(d)) excluded.add(keys[c]);
           for (let k = 1; k <= n; k++) {
             if (d.skipSegs.has(k)) excluded.add(keys[c] + '#' + k);
           }

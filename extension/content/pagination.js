@@ -27,8 +27,12 @@
  * 超过 NORM_MAX=10 页不自动归一——逐页回点既慢又易被守卫吞，collectPaged 直接
  * 返回 { aborted:'tooFar', page }（不采集、不写快照），由 main 侧右侧提醒框请
  * 用户手动回第一页后再点「开始采集」。③ 第七参 onNorm(page) 回调驱动 main 侧
- * 右侧提醒框：归一开始与每次翻页后回传当前页（0 = 读不到页码），归一结束/
- * 放弃传 null 收框。
+ * 右侧提醒框：归一开始与每次翻页后回传当前页（0 = 读不到页码；读数已是第 1
+ * 页时不回调——随即直断，避免提醒框瞬间闪），归一结束/放弃传 null 收框。
+ * ④ 归一后等表体真正落地再取数（waitLanded，与主循环 waitPageData 同款 6s
+ * 预算）：waitTurn 3s 预算内没落地的超慢站点（页码已回 1 但表体还是旧页），
+ * 直接取数会把旧页行当成第一页写进快照（页间重叠合并只去重相邻页，跨页旧数据
+ * 会成重复行）；没翻过页不等、预算内没换不阻塞（按当前内容继续，重叠合并兜底）。
  */
 (() => {
   'use strict';
@@ -276,8 +280,9 @@
    * onProgress(page, rows, totalPages)：totalPages 为分页器给出的总页数，
    * 0 = 未知（自建分页器等无总数字段，v2.9 起进度文案据此决定是否显示 i/N）。
    * onNorm(page)：v2.14 起点归一进度回调——归一开始与每次翻页后回传当前页
-   * （0 = 读不到页码，如手动分页器/vxe），归一结束/放弃传 null（main 侧据此
-   * 显示/收起右侧提醒框）；可选参数。
+   * （0 = 读不到页码，如手动分页器/vxe；读数已是第 1 页时不回调），归一结束/放弃
+   * 传 null（main 侧据此显示/收起右侧提醒框）；可选参数。归一后若翻过页，会先等
+   * 表体内容落地（waitLanded，6s 预算）再取第一页——防止超慢站点把旧页数据当第一页。
    * 返回 { snap, root, note, reason, pages }：snap 与 collectVirtual 快照同构
    * （不含 merges——跨页拼接的合并单元格行号无法稳定对齐，v2.5 不还原，见
    * product.md 已知限制）；root 为采集结束时的表格根（翻页中被页面重建则与入参
@@ -339,6 +344,26 @@
       return false;
     };
 
+    /** v2.14：等表体内容换成新页（数据延迟落地的站点受控分页器点击后页码先到、
+     * 表体后到，waitTurn 的 3s 预算内没落地就落回逐页回点/直断）。与 waitTurn 的
+     * 差别：不要求页码变化——调用方已确认翻页发生，剩下的只是等数据；与主循环
+     * waitPageData 同款预算（PAGE_WAIT）。预算内没换也不算失败（返回 false，调用方
+     * 按当前内容继续，页间重叠合并不受重复取数影响）；翻页触发整表重建时按指纹
+     * 重解析（与主循环同款容错——否则只会盯着失联的旧根白等） */
+    const waitLanded = async (sigBefore, budget) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < budget) {
+        if (isCancelled()) return false;
+        if (!root.isConnected) {
+          const nr = resolveRoot(key0);
+          if (nr) root = nr;
+        }
+        if (contentSig() !== sigBefore) return true;
+        await settle(POLL);
+      }
+      return false;
+    };
+
     // v2.14：距第一页超过 NORM_MAX 页——无论 prev 是否可用都不自动归一（逐页
     // 回点既慢又易被加载中守卫吞），直接交还用户手动回第一页后再点「开始采集」
     const cur0 = curPage();
@@ -347,7 +372,11 @@
     // 起点归一：不在第一页先回第一页，保证采全量
     const pv0 = pager.prev(root);
     if (pv0 && !pager.isDisabled(pv0)) {
-      if (onNorm) onNorm(cur0); // v2.14：右侧提醒框显示「正在回到第一页」（0 = 读不到页码）
+      // v2.14：读数已是第 1 页时不弹归一提醒框——随即就会走「页码已是 1 直断」，
+      // 弹了也是同一任务内瞬间闪（不规范分页器：第一页 prev 仍可用）
+      if (onNorm && cur0 !== 1) onNorm(cur0); // v2.14：右侧提醒框显示「正在回到第一页」（0 = 读不到页码）
+      const sigNorm0 = contentSig(); // v2.14：归一前表体签名（等落地对照用）
+      let normNav = false;           // v2.14：归一是否真的翻过页（没翻就不用等落地）
       // v2.14：优先直跳首页——组件分页器渲染了「1」页项时一次点击到位，免去
       // 逐页回点（≤10 页也要点至多 9 次，慢站点每击都要等翻页落地）。cur0===1
       // （已在第一页但 prev 未禁用的不规范分页器）不跳——点了也不会翻，空等
@@ -358,6 +387,7 @@
         const before = curPage();
         const sigBefore = contentSig();
         clickPaging(fb);
+        normNav = true;
         // 等「页码回到 1 + 表体换成第一页」再收工；没翻动（守卫吞点击/首页项
         // 点击无效）落回逐页回点兜底
         jumped = await waitTurn(before, sigBefore, 3000);
@@ -376,6 +406,7 @@
           const before = curPage();
           const sigBefore = contentSig();
           clickPaging(pv);
+          normNav = true;
           // v2.12：等「页码往回走 + 表体换成新页」再点下一击——慢站点 prev 点击
           // 会被加载中守卫丢弃，且页码先变数据后到，只等页码会在归一后取到旧页
           // 数据（污染整份采集）；旧版固定 200ms 连点两个坑都踩
@@ -391,6 +422,15 @@
             break;
           }
         }
+      }
+      // v2.14：归一后等表体真正落地再取数——waitTurn 3s 预算内没落地的超慢站点
+      // （页码已回 1 但表体还是旧页），直接 extractTable 会把旧页行当成第一页写进
+      // 快照（页间重叠合并只去重相邻页，跨页旧数据会成重复行）。与主循环 waitPageData
+      // 同款 6s 预算；没翻过页（cur0 读数已是 1 的不规范分页器/prev 直断）不等；
+      // 预算内没换也不阻塞（按当前内容继续，重叠合并兜底）；取消即返回 null
+      if (normNav) {
+        const landed = await waitLanded(sigNorm0, PAGE_WAIT);
+        if (!landed && isCancelled()) return null;
       }
       if (onNorm) onNorm(null); // v2.14：归一结束（成功/放弃均收框）
     } else if (!pv0) {

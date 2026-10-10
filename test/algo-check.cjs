@@ -1321,13 +1321,18 @@ try {
   if (rAFReal === undefined) delete global.requestAnimationFrame; else global.requestAnimationFrame = rAFReal;
 }
 
-/* ================= 起点归一：直跳首页 + 超过 10 页不归一（pagination.js collectPaged，v2.14） ================= */
+/* ================= 起点归一：直跳首页 + 超过 10 页不归一 + 等表体落地（pagination.js collectPaged，v2.14） ================= */
 // v2.14 起点归一：距第一页 ≤NORM_MAX(10) 页时优先直跳「1」页项（pager.first 一次
 // 点击回第一页，经 waitTurn 等「页码+表体内容」双判定确认），直跳失败/无 first
-// 钩子落回逐页回点；超过 10 页不归一、不采集——返回 { aborted:'tooFar', page }。
+// 钩子落回逐页回点；超过 10 页不归一、不采集——返回 { aborted:'tooFar', page }；
+// 翻过页后等表体真正落地再取第一页（waitLanded，waitTurn 3s 预算内没落地的超慢
+// 站点，直接取数会把旧页行当第一页写进快照）；读数已是第 1 页时不弹归一提醒框。
 // 以桩驱动 collectPaged：假分页器 12 页（next/prev/first/current 均改 pgNo），
-// root.textContent 随页码变（waitTurn 内容签名判定依赖），extractTable 每页 2 行，
-// requestAnimationFrame 桩为 setTimeout（settle 依赖它），页间停顿置 0
+// root.textContent 随页码变（waitTurn/waitLanded 内容签名判定依赖），extractTable
+// 每页 2 行；opts.landMs = 翻页后表体延迟落地毫秒（复刻受控分页器「页码先到、
+// 数据后到」，未落地期间内容签名与取数都停留在旧页）；opts.prevAtOne = 第一页
+// prev 仍可用（不规范分页器）。requestAnimationFrame 桩为 setTimeout（settle 依赖），
+// 页间停顿置 0
 const rAFReal2 = global.requestAnimationFrame;
 global.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 try {
@@ -1335,27 +1340,41 @@ try {
   /** 跑一次 collectPaged：from = 起始页；first=false 时不提供 first 钩子（模拟
    *  vxe/自建分页器）；maxPages 透传；onNorm 调用序列记入 st.norms */
   const runNorm = async (opts) => {
-    const st = { pg: opts.from, firstClicks: 0, prevClicks: 0, nextClicks: 0, norms: [] };
+    const st = { pg: opts.from, pendingFrom: opts.from, landed: true, firstClicks: 0, prevClicks: 0, nextClicks: 0, norms: [] };
+    const nav = (to) => { // 翻页：页码即更新，表体按 landMs 延迟落地（缺省 = 同步）
+      st.pendingFrom = st.pg;
+      st.pg = to;
+      if (opts.landMs) {
+        st.landed = false;
+        setTimeout(() => { st.landed = true; }, opts.landMs);
+      }
+    };
     const pager = {
       name: 'fake',
-      next: () => st.pg < PG ? { click: () => { st.nextClicks++; st.pg++; } } : null,
-      prev: () => st.pg > 1 ? { click: () => { st.prevClicks++; st.pg--; } } : null,
+      next: () => st.pg < PG ? { click: () => { st.nextClicks++; nav(st.pg + 1); } } : null,
+      prev: () => (st.pg > 1 || opts.prevAtOne) ? { click: () => { st.prevClicks++; nav(st.pg - 1); } } : null,
       total: () => PG,
       current: () => st.pg,
       isDisabled: () => false
     };
     if (opts.first !== false) {
-      pager.first = () => st.pg > 1 ? { click: () => { st.firstClicks++; st.pg = 1; } } : null;
+      pager.first = () => st.pg > 1 ? { click: () => { st.firstClicks++; nav(1); } } : null;
     }
-    const root = { isConnected: true, get textContent() { return 'page' + st.pg; } };
+    const root = {
+      isConnected: true,
+      get textContent() { return (st.landed ? 'page' + st.pg : 'page' + st.pendingFrom); }
+    };
     const { collectPaged } = loadModule('pagination.js', 'pagination', {
       persist: { tableKeyOf: () => 'K' },
       table: {
-        extractTable: () => ({
-          aoa: [['H'], ['r' + st.pg + '-1'], ['r' + st.pg + '-2']],
-          ctrl: [[null], [null], [null]], text: [[null], [null], [null]], blocks: [[null], [null], [null]],
-          headerRows: 1
-        })
+        extractTable: () => {
+          const p = st.landed ? st.pg : st.pendingFrom; // 未落地时取数拿到的是旧页行
+          return {
+            aoa: [['H'], ['r' + p + '-1'], ['r' + p + '-2']],
+            ctrl: [[null], [null], [null]], text: [[null], [null], [null]], blocks: [[null], [null], [null]],
+            headerRows: 1
+          };
+        }
       },
       virtual: { overlapLen }
     });
@@ -1396,6 +1415,22 @@ try {
     fallback.st.norms, [3, 2, 1, null]);
   check('逐页回点兜底：归一 2 击 + 回退到起始页 2 击（prevClicks=4）',
     fallback.st.prevClicks, 4);
+
+  // ⑤ 超慢站点：直跳后表体 3.5s 才落地（超过 waitTurn 3s 预算）——等落地再取数，
+  // 不把旧页（第 5 页）行当第一页写进快照
+  const slow = await runNorm({ from: 5, maxPages: 1, landMs: 3500 });
+  check('等表体落地：直跳后数据超 3s 落地仍取到第 1 页数据（非旧页 r5）',
+    slow.res.snap.rows, [['H'], ['r1-1'], ['r1-2']]);
+  check('等表体落地：直跳 1 次 + onNorm [5, null] + maxPages 收尾（reason=maxPages）',
+    [slow.st.firstClicks, slow.st.norms, slow.res.reason], [1, [5, null], 'maxPages']);
+
+  // ⑥ 不规范分页器：读数已是第 1 页但 prev 仍可用——不弹归一提醒框（onNorm 仅收框
+  // null）、不空跳直跳、零导航直接从当前页采起
+  const odd = await runNorm({ from: 1, prevAtOne: true, maxPages: 1 });
+  check('不规范分页器（第 1 页 prev 可用）：不弹归一提醒框（onNorm 仅 null）',
+    odd.st.norms, [null]);
+  check('不规范分页器：不空跳直跳（firstClicks=0）、零导航（prevClicks=0）、从当前页采 3 行',
+    [odd.st.firstClicks, odd.st.prevClicks, odd.res.snap.rows.length], [0, 0, 3]);
 } finally {
   if (rAFReal2 === undefined) delete global.requestAnimationFrame; else global.requestAnimationFrame = rAFReal2;
 }

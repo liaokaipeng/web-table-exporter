@@ -11,7 +11,9 @@
  * 守卫 / 落地后首击丢弃）仍须采全量——复现真实站点「页码先变数据后到」，
  * 旧版固定 sleep 会在第 3 页误判「连续翻页无新数据」停止。v2.14 距第一页
  * 超过 10 页不自动归一（__setPages(12) 改总页数）：右侧提醒「请先返回第一页」
- * 且不开始采集，用户手动回第 1 页后再开始即采全量（97 行）。
+ * 且不开始采集，用户手动回第 1 页后再开始即采全量（97 行）；轮次 G 超慢站点
+ * （__SLOW_MS=3500 超过 waitTurn 3s 预算）：直跳后等表体真正落地再取第一页，
+ * 不把旧页（第 3 页）行当第一页写进快照。
  * 提速：事件驱动 waitFor + 模块代码缓存。v2.13 翻页间隔：面板「翻页间隔」槽默认 0.5 秒
  * （断言默认值/标签/单位，轮次 A 端到端生效），其余轮次置 0 只测本项目关注点。
  */
@@ -316,6 +318,44 @@
         'rows=' + lines.length + ' last=' + lines[96]);
     } finally {
       window.__setPages(5); // 还原 5 页（重跑/其他轮次依赖）
+      if (activePage() !== '1') click(document.querySelectorAll('#pagerList li')[0]);
+    }
+  });
+
+  /* ================= 轮次 G：超慢站点——直跳后等表体落地再取数（v2.14） ================= */
+  /* 复刻最慢形态的「受控分页器 + 异步拉取」：点击后页码立即更新、表体 3.5s 后才
+   * 落地——超过 waitTurn 的 3s 预算。旧行为在预算耗尽后直接取数，会把仍显示旧页
+   * （第 3 页）的表体当第一页写进快照（页间重叠合并只去重相邻页，跨页旧数据会成
+   * 重复行）；v2.14 归一后追加 waitLanded（6s 预算）等表体真正换成第一页再取数。
+   * 先手动翻到第 3 页并等其落地——保证归一前的表体确实是第 3 页内容（否则「旧页」
+   * 恰是第一页，首行断言抓不到差异） */
+  await round('v2.14 超慢站点：直跳后等表体落地', async (h) => {
+    Object.assign(window, { __SLOW_MS: 3500 }); // 轮次结束由下方清理
+    try {
+      click(document.querySelectorAll('#pagerList li')[2]); // 手动翻到第 3 页
+      await waitFor(() => ((document.querySelector('#ptbody tr') || {}).textContent || '').indexOf('商品 P3-1') >= 0, 15000);
+      t('手动翻到第 3 页且表体已落地（旧页内容就位）', activePage() === '3', 'active=' + activePage());
+      clickCell('#pt tbody tr td');
+      const side = watchSide(h); // v2.14：归一长达数秒，提醒框应持续显示
+      await startCollect(h, 0, 0);
+      const hints = await waitCollect(h, 90000); // 超慢：每页等 3.5s 落地，放宽实时超时
+      side.stop();
+      t('超慢站点采集完成 41 行（含表头，不误停）',
+        toastText(h).indexOf('采集完成，共 41 行') >= 0 && toastText(h).indexOf('连续翻页无新数据') < 0, toastText(h));
+      t('等表体落地后进度从「第 1/5 页」起报', hints.some(x => x.indexOf('第 1/5 页') >= 0), hints.join(' / '));
+      t('归一期间右侧提醒框持续显示「正在回到第一页… 第 3 页」',
+        side.seen.some(x => x.indexOf('正在回到第一页') >= 0 && x.indexOf('第 3 页') >= 0), side.seen.join(' / '));
+      t('采集完成后回到第 1 页', activePage() === '1', 'active=' + activePage());
+
+      h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
+      click(h.exportBtn);
+      const files = await waitExports(1, 30000);
+      const lines = await csvLines(files[0]);
+      t('导出 41 行且首行取自第一页（1,商品 P1-1,…；未被旧页第 3 页污染）',
+        lines.length === 41 && lines[1] === '1,商品 P1-1,2007,99,下架', 'rows=' + lines.length + ' first=' + lines[1]);
+      t('末行跨页衔接到第 5 页（40,商品 P5-8,…）', lines[40] === '40,商品 P5-8,2280,92,草稿', 'last=' + lines[40]);
+    } finally {
+      delete window.__SLOW_MS;
       if (activePage() !== '1') click(document.querySelectorAll('#pagerList li')[0]);
     }
   });

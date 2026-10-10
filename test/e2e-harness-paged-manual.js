@@ -86,6 +86,7 @@
       pageBtn: sr.querySelector('.h2x-pagebtn'),
       pageMenu: sr.querySelector('.h2x-pagemenu'),
       pagesInput: sr.querySelector('.h2x-pages'),
+      sleepInput: sr.querySelector('.h2x-sleep'),
       pageGo: sr.querySelector('.h2x-pagego')
     };
   }
@@ -103,11 +104,12 @@
   const pagerMem = () => memStore['h2x.pager.v1'] || {};
   const pagerMemCount = () => Object.keys(pagerMem()).length;
 
-  /** 点开「采集全部页」下拉 →（可选）填页数上限 → 点「开始采集」 */
-  async function startCollect(h, limit) {
+  /** 点开「采集全部页」下拉 →（可选）填页数上限 →（可选）填翻页间隔（秒）→ 点「开始采集」 */
+  async function startCollect(h, limit, sleep) {
     click(h.pageBtn);
     await waitFor(() => !h.pageMenu.hidden, 1000);
     if (limit) { h.pagesInput.value = String(limit); fire(h.pagesInput, 'input'); }
+    if (sleep != null) { h.sleepInput.value = String(sleep); fire(h.sleepInput, 'input'); }
     click(h.pageGo);
   }
   /** 等采集结束（完成 toast 出现），期间用 MutationObserver 记录每一次进度文案
@@ -153,7 +155,7 @@
     t('初始无翻页按钮记忆', pagerMemCount() === 0, JSON.stringify(pagerMem()));
     clickCell('#ptbody tr td');
     t('点击选中自建分页表格（count=1）', h.count.textContent === '1', 'count=' + h.count.textContent);
-    await startCollect(h, 2);
+    await startCollect(h, 2, 0); // 间隔置 0：本轮测按钮记忆，不为停顿增加耗时
     t('识别不到分页器 → 进入「指定翻页按钮」子模式（hint 提示）',
       h.hint.textContent.indexOf('请点击「下一页」按钮') >= 0, h.hint.textContent);
     click(document.querySelector('#nextBtn')); // 子模式拦截本次点击并记为翻页按钮
@@ -180,7 +182,7 @@
   /* ================= 轮次 B：复用记忆的翻页按钮（不再要求指定） ================= */
   await round('复用记忆的翻页按钮', async (h) => {
     clickCell('#ptbody tr td');
-    await startCollect(h, 2);
+    await startCollect(h, 2, 0); // 间隔置 0：本轮测记忆复用，不为停顿增加耗时
     t('不再进入「指定翻页按钮」子模式（直接开始采集）',
       h.hint.textContent.indexOf('请点击「下一页」按钮') < 0 && h.hint.textContent.indexOf('翻页中') >= 0,
       h.hint.textContent);

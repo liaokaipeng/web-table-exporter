@@ -18,6 +18,9 @@
  * 守卫/限流）→ 重点（单页至多 RECLICK_MAX 次），单页总预算 PAGE_WAIT 内新行
  * 未落地才记一次无新行；起点归一/回退每击都等「页码真的动了 + 表体真的换了」
  * 再点下一击——只等页码会被守卫吞点击、归一后还会取到旧页数据污染整份采集。
+ * v2.13：页间停顿（pageSleep，采集面板「翻页间隔」自定义，单位秒、默认 0.5s）。
+ * 慢站点/带限流的后台连续翻页易被吞点击或封禁，每确定要翻下一页前停顿一次
+ * （末页与达页数上限不浪费间隔）；分块等待，「停止采集」可及时中断。
  */
 (() => {
   'use strict';
@@ -240,6 +243,9 @@
    * → 停止（下一页 disabled / 连续 2 页无新行 / 500 页硬上限 / 达到 maxPages
    * 页数上限）→ prev 可用时逐页回退到起始页。
    * maxPages：页数上限（≥1 生效，0/undefined 采集全部页）。
+   * pageSleep：页间停顿毫秒数（v2.13，采集面板「翻页间隔」自定义，单位秒、
+   * 默认 0.5s；undefined/负数/NaN 按默认 500ms）。每确定要翻下一页前停顿
+   * 一次（末页/达上限不停），分块等待保证「停止采集」及时中断。
    * onProgress(page, rows, totalPages)：totalPages 为分页器给出的总页数，
    * 0 = 未知（自建分页器等无总数字段，v2.9 起进度文案据此决定是否显示 i/N）。
    * 返回 { snap, root, note, reason, pages }：snap 与 collectVirtual 快照同构
@@ -253,9 +259,24 @@
    * 取消：起点归一阶段（尚无采集数据）返回 null；开始采集后返回已采集页的
    * 部分结果（note 注明「已停止」——main 据此保留快照，用户手动中止不丢已采页）。
    */
-  async function collectPaged(root, pager, onProgress, isCancelled, maxPages) {
+  async function collectPaged(root, pager, onProgress, isCancelled, maxPages, pageSleep) {
     const key0 = ns.persist.tableKeyOf(root);
     let note = '';
+
+    // v2.13：页间停顿毫秒数（采集面板自定义，单位秒；undefined/负数/NaN 按默认 0.5s）
+    const sleepMs = (typeof pageSleep === 'number' && Number.isFinite(pageSleep) && pageSleep >= 0)
+      ? pageSleep : 500;
+
+    /** v2.13：页间停顿。分块等待——长间隔下「停止采集」仍能及时中断（不分块
+     *  要等整个间隔结束才检查取消）；返回 false = 已取消（调用方按停止收尾） */
+    const pagePause = async (ms) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < ms) {
+        if (isCancelled()) return false;
+        await settle(Math.min(100, ms - (Date.now() - t0)));
+      }
+      return true;
+    };
 
     // v2.12：当前页码读取（适配器无钩子/读不到返回 0；异常按读不到处理）
     const curPage = () => {
@@ -427,6 +448,10 @@
       }
       const next = pager.next(root);
       if (!next || pager.isDisabled(next)) break; // 末页（按钮禁用/消失）
+      // v2.13：页间停顿（确定要翻页才等——末页/达上限不浪费间隔；分块可中断）
+      if (sleepMs > 0 && !(await pagePause(sleepMs))) {
+        return result(t('noteStopped', '已停止采集，保留已采集的 ' + page + ' 页', page), 'stopped');
+      }
       const cur0 = curPage();
       clickPaging(next);
       const r = await waitPageData(cur0);

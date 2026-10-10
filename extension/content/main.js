@@ -42,6 +42,9 @@
  * v2.10：输出方式下拉与导出按钮合并为分体按钮——主按钮导出当前格式（默认 Excel），
  * 右侧箭头下拉选择其他输出方式（透明原生 select 覆盖，保留原生下拉与键盘交互）；
  * 两者启用/禁用同源（未选表或忙态整体灰置），下拉位置即原导出按钮处
+ * v2.13：分页采集面板增「翻页间隔」——每采完一页、翻下一页前停顿用户指定的
+ * 秒数（默认 0.5s，留空 = 默认；慢站点/限流后台连续翻页易被吞点击），经
+ * collectPaged 第六参 pageSleep（毫秒）生效，分块等待保证「停止采集」及时
  */
 (() => {
   'use strict';
@@ -215,6 +218,7 @@
   let expWrap = null, expMenu = null; // v2.11 下拉包装（定位锚点）与自绘菜单
   let langZhBtn = null, langEnBtn = null; // v2.6.1 工具栏语言开关（中文 | EN）
   let menuTitleEl = null, menuSubEl = null, pageLimitLabelEl = null, pageUnitEl = null; // 分页面板静态文案节点（语言切换就地重取词）
+  let sleepInput = null, pageSleepLabelEl = null, sleepUnitEl = null; // v2.13 翻页间隔行节点（同上，语言切换就地重取词）
   let toastRoot = null;
   let hoverTable = null;
   let rafId = 0;
@@ -322,10 +326,10 @@
       '  .h2x-pagemenu-sub{font-size:12px;color:var(--c-text-3);margin:4px 0 12px;line-height:1.5;}',
       '  .h2x-pagemenu-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;}',
       '  .h2x-pagemenu-row label{font-size:12px;color:var(--c-text-2);flex:none;}',
-      '  .h2x-pages{flex:1;min-width:0;height:var(--h-ctl);padding:0 8px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 var(--ff);color:var(--c-text);background:var(--c-input);outline:none;box-sizing:border-box;}',
-      '  .h2x-pages:focus{border-color:var(--c-info);}',
-      '  .h2x-pages::-webkit-outer-spin-button,.h2x-pages::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}',
-      '  .h2x-pages::placeholder{color:var(--c-text-3);}',
+      '  .h2x-pages,.h2x-sleep{flex:1;min-width:0;height:var(--h-ctl);padding:0 8px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 var(--ff);color:var(--c-text);background:var(--c-input);outline:none;box-sizing:border-box;}',
+      '  .h2x-pages:focus,.h2x-sleep:focus{border-color:var(--c-info);}',
+      '  .h2x-pages::-webkit-outer-spin-button,.h2x-pages::-webkit-inner-spin-button,.h2x-sleep::-webkit-outer-spin-button,.h2x-sleep::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}',
+      '  .h2x-pages::placeholder,.h2x-sleep::placeholder{color:var(--c-text-3);}',
       '  .h2x-pageunit{font-size:12px;color:var(--c-text-2);flex:none;white-space:nowrap;}',  /* 页数单位按内容自适应宽（中文「页」短、英文 pages 长，固定宽会溢出） */
       '  .h2x-pagemenu-actions{display:flex;gap:var(--sp-2);justify-content:flex-end;}',
       '  .h2x-pagemenu-actions .h2x-btn{font-size:12px;height:var(--h-ctl-s);padding:0 12px;}',
@@ -371,6 +375,11 @@
       '          <label for="h2x-pages">' + t('pageLimitLabel', '页数上限') + '</label>',
       '          <input class="h2x-pages" id="h2x-pages" type="number" min="1" step="1" placeholder="' + t('pageLimitPh', '全部') + '" title="' + t('pageLimitTitle', '只采集前 N 页，留空 = 全部页') + '" aria-label="' + t('pageLimitAria', '采集页数上限（留空为全部页）') + '" />',
       '          <span class="h2x-pageunit">' + t('pageUnit', '页') + '</span>',
+      '        </div>',
+      '        <div class="h2x-pagemenu-row h2x-sleeprow">',
+      '          <label for="h2x-sleep">' + t('pageSleepLabel', '翻页间隔') + '</label>',
+      '          <input class="h2x-sleep" id="h2x-sleep" type="number" min="0" step="0.1" value="0.5" placeholder="' + t('pageSleepPh', '0.5') + '" title="' + t('pageSleepTitle', '每采完一页、翻下一页前停顿 N 秒（防限流/减压），留空 = 0.5 秒') + '" aria-label="' + t('pageSleepAria', '每页翻页间隔秒数（留空为 0.5 秒）') + '" />',
+      '          <span class="h2x-pageunit">' + t('pageSleepUnit', '秒') + '</span>',
       '        </div>',
       '        <div class="h2x-pagemenu-actions">',
       '          <button type="button" class="h2x-btn h2x-ghost h2x-pagecancel">' + t('btnCancelShort', '取消') + '</button>',
@@ -433,6 +442,9 @@
     menuSubEl = root.querySelector('.h2x-pagemenu-sub');
     pageLimitLabelEl = root.querySelector('.h2x-pagemenu-row label');
     pageUnitEl = root.querySelector('.h2x-pageunit');
+    sleepInput = root.querySelector('.h2x-sleep');
+    pageSleepLabelEl = root.querySelector('.h2x-sleeprow label');
+    sleepUnitEl = root.querySelector('.h2x-sleeprow .h2x-pageunit');
     langZhBtn = root.querySelector('.h2x-langzh');
     langEnBtn = root.querySelector('.h2x-langen');
     toastRoot = root.querySelector('.h2x-toasts');
@@ -454,6 +466,8 @@
     pageGoBtn.addEventListener('click', () => { closePageMenu(); onCollectAllPages(); });
     pageCancelBtn.addEventListener('click', closePageMenu);
     pagesInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); closePageMenu(); onCollectAllPages(); } });
+    // v2.13：翻页间隔槽 Enter 同效（与页数槽一致）
+    sleepInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); closePageMenu(); onCollectAllPages(); } });
     // 格式切换：导出按钮文案同步（文件名扩展名在导出时按格式追加）；
     // v2.9：选择即记住（下次进入选择模式恢复同一输出方式）
     fmtSel.addEventListener('change', applyFmt);
@@ -590,6 +604,12 @@
     pagesInput.title = t('pageLimitTitle', '只采集前 N 页，留空 = 全部页');
     pagesInput.setAttribute('aria-label', t('pageLimitAria', '采集页数上限（留空为全部页）'));
     pageUnitEl.textContent = t('pageUnit', '页');
+    // v2.13 翻页间隔行静态文案
+    pageSleepLabelEl.textContent = t('pageSleepLabel', '翻页间隔');
+    sleepInput.placeholder = t('pageSleepPh', '0.5');
+    sleepInput.title = t('pageSleepTitle', '每采完一页、翻下一页前停顿 N 秒（防限流/减压），留空 = 0.5 秒');
+    sleepInput.setAttribute('aria-label', t('pageSleepAria', '每页翻页间隔秒数（留空为 0.5 秒）'));
+    sleepUnitEl.textContent = t('pageSleepUnit', '秒');
     pageCancelBtn.textContent = t('btnCancelShort', '取消');
     pageGoBtn.textContent = t('btnStart', '开始采集');
     resetHint(); // 空闲态提示回默认引导文案（语言切换不改变状态）
@@ -1078,6 +1098,9 @@
     // 页数上限：输入框留空/非法值 = 0 = 采集全部页
     const n = parseInt(pagesInput.value, 10);
     const maxPages = (Number.isFinite(n) && n >= 1) ? n : 0;
+    // v2.13 翻页间隔：秒 → 毫秒。留空/非法 = 默认 0.5s；上限 600s 防误填天量值
+    const sv = parseFloat(sleepInput.value);
+    const pageSleep = (Number.isFinite(sv) && sv >= 0) ? Math.min(Math.round(sv * 1000), 600000) : 500;
     try {
       const res = await collectPaged(
         table, pager,
@@ -1089,7 +1112,8 @@
             : t('hintPagedN', '分页采集翻页中… 第 ' + page + ' 页，已采集 ' + rows + ' 行', page, rows), '#1976d2');
         },
         () => !active || gen !== genToken,
-        maxPages
+        maxPages,
+        pageSleep
       );
       if (!active) return; // 已退出选择模式：丢弃
       // gen !== genToken = 「停止采集」：collectPaged 返回已采集页的部分结果，照常写入快照
@@ -1145,6 +1169,7 @@
       ? t('pageBtnTitleMulti', '多表选择时不支持分页采集：请先取消其他表格，仅保留要采集的一个')
       : t('pageBtnTitleDefault', '自动翻页采集已选中表格：点开可设置页数上限，识别不到分页器时可指定翻页按钮');
     pagesInput.disabled = pageOff;
+    sleepInput.disabled = pageOff; // v2.13 翻页间隔槽与页数槽同源禁用
     if (pageOff) closePageMenu();
     // v2.6.1：语言开关随忙碌态禁用（采集中/导出/面板/子模式期间不可切换，
     // 防「切一半」——refreshTexts 只按空闲态就地重取词）

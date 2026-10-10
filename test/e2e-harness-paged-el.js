@@ -9,7 +9,8 @@
  * 控件列实时值与导出内容；v2.12 慢异步分页三态（数据延迟落地 / 加载中点击
  * 守卫 / 落地后首击丢弃）仍须采全量——复现真实站点「页码先变数据后到」，
  * 旧版固定 sleep 会在第 3 页误判「连续翻页无新数据」停止。提速：事件驱动
- * waitFor + 模块代码缓存。
+ * waitFor + 模块代码缓存。v2.13 翻页间隔：面板「翻页间隔」槽默认 0.5 秒
+ * （断言默认值/标签/单位，轮次 A 端到端生效），其余轮次置 0 只测本项目关注点。
  */
 (async () => {
   if (window.__HARNESS_STARTED) return { error: 'harness 已在运行（并发守卫）' };
@@ -87,6 +88,9 @@
       pageBtn: sr.querySelector('.h2x-pagebtn'),
       pageMenu: sr.querySelector('.h2x-pagemenu'),
       pagesInput: sr.querySelector('.h2x-pages'),
+      sleepInput: sr.querySelector('.h2x-sleep'),
+      sleepLabel: sr.querySelector('.h2x-sleeprow label'),
+      sleepUnit: sr.querySelector('.h2x-sleeprow .h2x-pageunit'),
       pageGo: sr.querySelector('.h2x-pagego')
     };
   }
@@ -102,11 +106,12 @@
   const csvLines = async (f) => (await f.blob.text()).replace(/^\uFEFF/, '').split('\r\n').filter(x => x !== '');
   const activePage = () => (document.querySelector('#pagerList li.active') || {}).textContent;
 
-  /** 点开「采集全部页」下拉 →（可选）填页数上限 → 点「开始采集」 */
-  async function startCollect(h, limit) {
+  /** 点开「采集全部页」下拉 →（可选）填页数上限 →（可选）填翻页间隔（秒）→ 点「开始采集」 */
+  async function startCollect(h, limit, sleep) {
     click(h.pageBtn);
     await waitFor(() => !h.pageMenu.hidden, 1000);
     if (limit) { h.pagesInput.value = String(limit); fire(h.pagesInput, 'input'); }
+    if (sleep != null) { h.sleepInput.value = String(sleep); fire(h.sleepInput, 'input'); }
     click(h.pageGo);
   }
   /** 等采集结束（完成 toast 出现），期间用 MutationObserver 记录每一次进度文案
@@ -155,7 +160,10 @@
     await waitFor(() => !h.pageMenu.hidden, 1000);
     t('「采集全部页」点开设置面板（页数槽默认留空 = 全部页）',
       !h.pageMenu.hidden && h.pagesInput.value === '', 'open=' + !h.pageMenu.hidden + ' value=' + h.pagesInput.value);
-    click(h.pageGo);
+    t('「翻页间隔」槽默认 0.5 秒（v2.13，留空 = 默认 0.5s）',
+      h.sleepInput.value === '0.5' && h.sleepLabel.textContent === '翻页间隔' && h.sleepUnit.textContent === '秒',
+      'value=' + h.sleepInput.value + ' label=' + h.sleepLabel.textContent + ' unit=' + h.sleepUnit.textContent);
+    click(h.pageGo); // 轮次 A 保持默认 0.5s：覆盖「默认值端到端生效」路径
     // 首帧进度：起点归一不需要（已在第 1 页），进度同步写入
     t('进度显示总页数「第 1/5 页」（末页号即总数，v2.9）',
       h.hint.textContent.indexOf('第 1/5 页') >= 0, h.hint.textContent);
@@ -180,7 +188,7 @@
     click(document.querySelectorAll('#pagerList li')[2]); // 手动翻到第 3 页（选择模式下点击放行）
     t('选择模式下页码点击放行（翻到第 3 页）', activePage() === '3', 'active=' + activePage());
     clickCell('#pt tbody tr td');
-    await startCollect(h, 2);
+    await startCollect(h, 2, 0); // 间隔置 0：本轮测页数上限，不为停顿增加耗时
     // 起点归一（回退到第 1 页）期间进度尚未写入，等首帧进度出现再断言
     await waitFor(() => h.hint.textContent.indexOf('第 1/5 页') >= 0, 3000);
     t('总页数始终取分页器末页号（第 1/5 页，不随页数上限变）',
@@ -215,6 +223,7 @@
         clickCell('#pt tbody tr td');
         click(h.pageBtn);
         await waitFor(() => !h.pageMenu.hidden, 1000);
+        h.sleepInput.value = '0'; fire(h.sleepInput, 'input'); // 慢异步轮次间隔置 0：只测 v2.12 等待逻辑
         click(h.pageGo);
         const hints = await waitCollect(h, 90000); // 慢异步：总虚拟时长拉长，放宽实时超时
         t('【' + name + '】采集完成 41 行（含表头，不误停）',

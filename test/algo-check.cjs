@@ -1258,6 +1258,69 @@ try {
   } finally {
     if (i18nRealChrome2 === undefined) delete global.chrome; else global.chrome = i18nRealChrome2;
   }
+/* ================= 分页采集引擎页间停顿（pagination.js collectPaged，v2.13） ================= */
+// 采集面板「翻页间隔」：每确定要翻下一页前停顿 pageSleep 毫秒（默认 500），
+// 末页/达上限不停；分块等待保证「停止采集」及时中断。以桩驱动 collectPaged：
+// persist.tableKeyOf / table.extractTable / virtual.overlapLen（真实加载），
+// 三页假分页器（next 点击计数、current 读页码），requestAnimationFrame 桩为
+// setTimeout（settle 依赖它）。耗时断言取「与无停顿对照的差值」——绝对耗时随
+// 机器负载波动，差值只含停顿本身
+const rAFReal = global.requestAnimationFrame;
+global.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
+try {
+  let pgNo = 1; // 假分页器当前页（next.click() 自增）
+  const pagedRoot = { isConnected: true, textContent: 'root' };
+  const pagedPager = {
+    name: 'fake',
+    next: () => pgNo < 3 ? { click: () => { pgNo++; } } : null, // 第 3 页后无下一页：自然到末页
+    prev: () => null,               // 无 prev：跳过起点归一与回退，只测主循环
+    total: () => 3,
+    current: () => pgNo,
+    isDisabled: () => false
+  };
+  const { collectPaged } = loadModule('pagination.js', 'pagination', {
+    persist: { tableKeyOf: () => 'K' },
+    table: {
+      extractTable: () => ({
+        aoa: [['H'], ['r' + pgNo + '-1'], ['r' + pgNo + '-2']],
+        ctrl: [[null], [null], [null]], text: [[null], [null], [null]], blocks: [[null], [null], [null]],
+        headerRows: 1
+      })
+    },
+    virtual: { overlapLen }
+  });
+  const runPaged = (sleep, maxPages, onProgress, isCancelled) => {
+    pgNo = 1;
+    const t0 = Date.now();
+    return collectPaged(pagedRoot, pagedPager, onProgress || (() => {}), isCancelled || (() => false), maxPages, sleep)
+      .then(res => ({ res: res, ms: Date.now() - t0 }));
+  };
+  const base = await runPaged(0, 0); // 对照：无停顿（每击仍有 FIRST_TAKE 300ms）
+  check('页间停顿：无停顿对照采集 3 页 = 7 行（表头 + 3 页 × 2 行）', base.res.snap.rows.length, 7);
+  const s400 = await runPaged(400, 0);
+  check('页间停顿：400ms × 2 次翻页显著拉长总耗时（与对照差值 ≥350ms；base=' + base.ms + 'ms sleep400=' + s400.ms + 'ms）',
+    s400.ms - base.ms >= 350, true);
+  check('页间停顿：停顿不改变采集结果（仍 7 行、自然到末页；无 prev 附注自当前页起采+停留末页）',
+    [s400.res.snap.rows.length, s400.res.reason, s400.res.note],
+    [7, '', '自当前页开始采集，页面停留在末页']);
+  const sDef = await runPaged(undefined, 0); // 缺参按默认 0.5s
+  check('页间停顿：缺参按默认 500ms（与对照差值 ≥350ms；base=' + base.ms + 'ms default=' + sDef.ms + 'ms）',
+    sDef.ms - base.ms >= 350, true);
+  // 停顿中取消：分块等待及时中断（≤100ms 粒度），保留已采页。
+  // 时序：停顿 2000 → 翻页 + 数据落地（page=2）→ 第二次停顿中置取消；
+  // 若不分块则要等满 2000ms 才检查取消（总耗时 ≈4600ms+）
+  let cancelled = false;
+  const cancelTimer = setTimeout(() => { cancelled = true; }, 2500);
+  const stopped = await runPaged(2000, 0, null, () => cancelled);
+  clearTimeout(cancelTimer);
+  check('页间停顿：停顿中「停止」及时中断（远小于第二次停顿的 2s 即返回；ms=' + stopped.ms + '）',
+    stopped.ms < 3600, true);
+  check('页间停顿：中断按停止收尾（reason=stopped、pages=2、保留已采 5 行）',
+    [stopped.res.reason, stopped.res.pages, stopped.res.snap.rows.length], ['stopped', 2, 5]);
+} finally {
+  if (rAFReal === undefined) delete global.requestAnimationFrame; else global.requestAnimationFrame = rAFReal;
+}
+
   console.log(fail === 0 ? '\n全部通过' : '\n' + fail + ' 个失败');
   process.exit(fail === 0 ? 0 : 1);
 })();

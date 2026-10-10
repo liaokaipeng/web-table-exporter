@@ -66,11 +66,11 @@
 
 - **`pagination-el-fixture.html`**
   - 覆盖：分页表格（仿 `el-pagination` 类名结构：`button.btn-prev`/`ul.el-pager`/`button.btn-next`，disabled 态类+属性双写）：5 页×8 行、翻页仅重建 `tbody`、`input` 控件列（JS 设值）、普通无分页表回归；慢异步模式（harness 置 `window.__SLOW_MS` 后翻页改为「页码立即更新、数据延迟落地」，复刻受控分页器+异步拉取；`__SLOW_GUARD` 追加加载中点击守卫，`__SLOW_DROP_FIRST` 追加落地后首击丢弃）
-  - 预期：选中表→「采集全部页」展开设置→「开始采集」（页数上限留空=全部页）直接采集：toast 41 行（含表头）、首行「商品 P1-1」末行「商品 P5-8」、一口价列取 `input` 实时值；先翻第 3 页再采集应先回第 1 页采全量、完成回第 1 页；页数上限填 2→只采前 2 页（toast 17 行+「已采集指定 2 页」，输入框 Enter 同效）；采集中「停止采集」→保留已采页（toast「已停止采集，保留已采集的 N 页」）且导出即已采部分、采集后「列设置」可取样；单表限定（v2.5.3）：再选中普通无分页表→「采集全部页」禁用、悬浮提示「多表选择时不支持分页采集」，取消后恢复；v2.9 进度带总页数（「第 1/5 页，已采集 9 行」，页数上限不改显示总页数）；v2.12 慢异步三态（纯延迟/加载中守卫/落地后首击丢弃）仍采全量 41 行、不误停、完成回第 1 页（旧版固定 sleep 会在第 3 页误判「连续翻页无新数据」停止）；v2.13「翻页间隔」槽默认 0.5 秒（标签「翻页间隔」+ 单位「秒」，轮次 A 端到端生效，其余轮次置 0 提速）
+  - 预期：选中表→「采集全部页」展开设置→「开始采集」（页数上限留空=全部页）直接采集：toast 41 行（含表头）、首行「商品 P1-1」末行「商品 P5-8」、一口价列取 `input` 实时值；先翻第 3 页再采集应先回第 1 页采全量、完成回第 1 页；页数上限填 2→只采前 2 页（toast 17 行+「已采集指定 2 页」，输入框 Enter 同效）；采集中「停止采集」→保留已采页（toast「已停止采集，保留已采集的 N 页」）且导出即已采部分、采集后「列设置」可取样；单表限定（v2.5.3）：再选中普通无分页表→「采集全部页」禁用、悬浮提示「多表选择时不支持分页采集」，取消后恢复；v2.9 进度带总页数（「第 1/5 页，已采集 9 行」，页数上限不改显示总页数）；v2.12 慢异步三态（纯延迟/加载中守卫/落地后首击丢弃）仍采全量 41 行、不误停、完成回第 1 页（旧版固定 sleep 会在第 3 页误判「连续翻页无新数据」停止）；v2.13「翻页间隔」槽默认 0.5 秒（标签「翻页间隔」+ 单位「秒」，轮次 A 端到端生效，其余轮次置 0 提速）；v2.14 起点归一（harness 置 `window.__setPages(n)` 动态改总页数）：距第一页 ≤10 页直跳「1」页项一次回第一页（归一期间右侧提醒框显示「正在回到第一页… 第 3 页」、结束收起）；第 12 页（>10 页）不自动归一——右侧提醒「请先返回第一页」并注明当前页、不开始采集（无完成 toast、主按钮恢复可用），手动回第 1 页后再开始即采全量 97 行（末行「商品 P12-8」），提醒框可手动关闭
 
 - **`e2e-harness-paged-el.js`**
-  - 覆盖：注入回归（`pagination-el-fixture.html`）：全页采集 41 行、进度逐页推进（`MutationObserver` 记录每次提示文案）、页数上限 2→17 行、起点归一（先翻第 3 页仍从第 1 页起采、完成回第 1 页）、`input` 实时值导出断言；v2.12 慢异步三态全量采集（含守卫站点点击被吞、落地后首击被丢后重点）；v2.13「翻页间隔」槽默认值/标签/单位断言 + 默认 0.5s 端到端生效
-  - 预期：`__TEST_RESULT` 数组 34/34 pass
+  - 覆盖：注入回归（`pagination-el-fixture.html`）：全页采集 41 行、进度逐页推进（`MutationObserver` 记录每次提示文案）、页数上限 2→17 行、起点归一（先翻第 3 页仍从第 1 页起采、完成回第 1 页）、`input` 实时值导出断言；v2.12 慢异步三态全量采集（含守卫站点点击被吞、落地后首击被丢后重点）；v2.13「翻页间隔」槽默认值/标签/单位断言 + 默认 0.5s 端到端生效；v2.14 直跳首页（归一期间右侧提醒框「正在回到第一页… 第 3 页」观察器断言 + 结束收起）与距第一页超过 10 页不归一（`__setPages(12)`：右侧提醒「请先返回第一页」、不开始采集、可手动关闭、手动回第 1 页后再开始采全量 97 行）
+  - 预期：`__TEST_RESULT` 数组 45/45 pass
 
 - **`pagination-ant-fixture.html`**
   - 覆盖：分页表格（仿 `ant-pagination` 类名结构：`li.ant-pagination-prev/item/next`，页码为 `a` 链接，禁用态 `aria-disabled`+`.ant-pagination-disabled`）：4 页×6 行
@@ -86,7 +86,7 @@
 
 - **`algo-check.cjs`**
   - 覆盖：纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列顺序/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具、模块清单一致性、国际化词条一致性——明细见下节
-  - 预期：全部 PASS（226 项）
+  - 预期：全部 PASS（236 项）
 
 ## algo-check 覆盖明细
 
@@ -100,7 +100,7 @@
 | 自适应列宽（split.js） | cellWidth 半角/全角/谚文宽度与内嵌换行、autoColWidths 逐列最大宽度与 6~50 钳制、空表/空行边界 |
 | 分体配对（table.js `pairSplitGroup`） | 基础配对、gutter 列容忍（列数差 1）、间隙/对齐/宽度/列数阈值、轻微重叠容忍、完整表格零回归、颠倒不配对、多候选首个命中 |
 | 网格适配器（table.js v2.2） | 注册表完整性（四适配器、五钩子齐备，rootSel 互异且单类名，GRID_ROOT_SELECTOR 组合）、rowsSortedByRowIndex 行序排序（全带 aria-rowindex 数值升序、无/部分缺失保持 DOM 序、纯函数不原地重排、数值比较非字典序）、tableKeyOf 网格分支（适配器表头格拼接、无表头格返回 null、非网格 div 回落内部 table） |
-| 分页适配器（pagination.js v2.5） | 注册表完整性（三适配器、四要素齐备，rootSel 互异，next/prev 均为单类名选择器，v2.9 总页数选择器 pageSel、v2.12 当前页码钩子 current 均可选且类型正确）；v2.13 采集引擎页间停顿（collectPaged pageSleep：无停顿对照 3 页 7 行、400ms×2 次翻页显著拉长耗时、缺参按默认 500ms、停顿不改变结果、停顿中「停止」分块及时中断且保留已采页 reason=stopped）；采集引擎页级重叠合并复用 virtual.js overlapLen 既有用例 |
+| 分页适配器（pagination.js v2.5） | 注册表完整性（三适配器、四要素齐备，rootSel 互异，next/prev 均为单类名选择器，v2.9 总页数选择器 pageSel、v2.12 当前页码钩子 current 均可选且类型正确）；v2.13 采集引擎页间停顿（collectPaged pageSleep：无停顿对照 3 页 7 行、400ms×2 次翻页显著拉长耗时、缺参按默认 500ms、停顿不改变结果、停顿中「停止」分块及时中断且保留已采页 reason=stopped）；v2.14 起点归一（collectPaged：≤10 页经 first 钩子一次点击直跳首页、从第 1 页起采且 onNorm 回传 [起始页, null]、结束后回退到起始页；超过 10 页返回 aborted:tooFar 且不点击不采集；边界第 10 页仍自动归一；无 first 钩子落回逐页回点、onNorm 序列 [3,2,1,null]）；采集引擎页级重叠合并复用 virtual.js overlapLen 既有用例 |
 | 持久化（persist.js） | pageKeyOf 忽略 query/hash、tableKeyOf 指纹（thead 无 tr 的 vxe-table 取 th 子元素而非数据行；v2.1 网格取 dynamic-header-row 表头格、优先内部 table 回退）与空值、sanitizeRecord 损坏剔除自愈（含 formats 键值对、v2.8 order 列顺序数组）与「仅 order 也保留」、evictKeys LRU 淘汰 |
 | 格式序列化（format.js） | csvCell RFC4180 转义、toCsv BOM/CRLF、tsvCell 制表符/换行转空格（v2.7 剪贴板）、toTsv 分隔与空表边界、headerKeys 列名兜底、toJson 行对象/表名嵌套、mdCell 转义与 toMarkdown 结构（含无表头生成列N）、toHtmlDocument 结构 |
 | 通用工具 | util.js sanitizeFilename/escapeHtml；table.js makeSheetName 四级兜底、非法字符、31 字符截断、重名后缀 |
@@ -142,7 +142,7 @@ http://localhost:3000/test/antdv-fixture.html#e2e=1 →「19 项全部 PASS」
 http://localhost:3000/test/aggrid-fixture.html#e2e=1 →「25 项全部 PASS」
 http://localhost:3000/test/mui-fixture.html#e2e=1 →「24 项全部 PASS」
 http://localhost:3000/test/tabulator-fixture.html#e2e=1 →「23 项全部 PASS」
-http://localhost:3000/test/pagination-el-fixture.html#e2e=1 →「33 项全部 PASS」
+http://localhost:3000/test/pagination-el-fixture.html#e2e=1 →「45 项全部 PASS」
 http://localhost:3000/test/pagination-manual-fixture.html#e2e=1 →「16 项全部 PASS」
 ```
 
@@ -169,5 +169,6 @@ window.__TEST_RESULT = await (0, eval)(c);
 8. 拆分控件单控件（v2.10.2）：未拆分行拆分列仅一个勾选框；点勾选框即拆分并展开配置子行；收起/展开用旁侧 chevron 按钮（不取消拆分）；取消勾选移除子行；不填分隔符就收起再保存→自动展开并标红输入框；已保存规则重开面板恢复展开；子行三项输入等宽。
 9. 原列级导出（v2.11.2）：拆分并展开子行→取消行首「原列」勾选→仅预览原列划线、主行仍勾选、各新列勾选保持；保存后重开该表子行仍为「原列」未勾选（导出只含新列）；主行取消整列导出→子行全部勾选置灰禁用、重勾恢复各勾选状态。
 10. 翻页间隔（v2.13）：分页页「采集全部页 ▾」→面板「翻页间隔」默认 0.5 秒（单位「秒」，留空 = 默认）→填 1 开始采集，逐页停顿约 1 秒后再翻页（toast/进度行数照常推进）；填 0 无停顿；停顿中「停止采集」立即中止并保留已采页；未选表/多选时该槽随面板禁用。
+11. 起点归一提醒（v2.14）：分页页先手动翻到第 3 页→选中表格→「采集全部页 ▾」→「开始采集」：右侧弹出提醒框「正在回到第一页… 当前第 3 页」，随即直跳第 1 页开始采集（进度从第 1 页起）、提醒框自动收起，采完回到第 1 页；翻到第 12 页（>10 页）再开始采集：不自动回退，右侧警示提醒「请先返回第一页」并注明当前页、不开始采集——手动翻回第 1 页后再点「开始采集」即采全量；提醒框可点 × 关闭。
 
 控件取值规则见 [docs/controls.md](../docs/controls.md)；真实页面回归：点三咪折扣活动编辑页（长列表+一口价 input 列）。

@@ -21,6 +21,14 @@
  * v2.13：页间停顿（pageSleep，采集面板「翻页间隔」自定义，单位秒、默认 0.5s）。
  * 慢站点/带限流的后台连续翻页易被吞点击或封禁，每确定要翻下一页前停顿一次
  * （末页与达页数上限不浪费间隔）；分块等待，「停止采集」可及时中断。
+ * v2.14：起点归一升级——① 直跳首页：组件分页器渲染了「1」页项时一次点击回
+ * 第一页（pageSel 内找文本=1 的项，经 waitTurn 等「页码+表体」双判定确认），
+ * 免去逐页回点；直跳失败（守卫吞点击/无首页项）落回逐页回点兜底。② 距第一页
+ * 超过 NORM_MAX=10 页不自动归一——逐页回点既慢又易被守卫吞，collectPaged 直接
+ * 返回 { aborted:'tooFar', page }（不采集、不写快照），由 main 侧右侧提醒框请
+ * 用户手动回第一页后再点「开始采集」。③ 第七参 onNorm(page) 回调驱动 main 侧
+ * 右侧提醒框：归一开始与每次翻页后回传当前页（0 = 读不到页码），归一结束/
+ * 放弃传 null 收框。
  */
 (() => {
   'use strict';
@@ -118,7 +126,10 @@
    *  total(root) → 总页数（0 = 未知，v2.9 供采集进度显示「第 i/N 页」）；
    *  current(root) → 当前页码（0 = 读不到，v2.12 供采集引擎判定「翻页是否真的
    *  发生」：页码先变数据后到的站点据此把等待拉长到数据落地，点击被页面丢弃时
-   *  据此重点） */
+   *  据此重点）；
+   *  first(root) → 「1」页项元素或 null（v2.14 直跳首页：pageSel 内文本/title=1
+   *  的项；无 pageSel（vxe/自建）或分页器未渲染「1」项时返回 null，由引擎落回
+   *  逐页回点） */
   function detectPager(root) {
     for (const a of PAGER_ADAPTERS) {
       if (!findPagerRoot(root, a)) continue;
@@ -131,6 +142,16 @@
           if (!a.current) return 0;
           const pr = findPagerRoot(r, a);
           return pr ? (a.current(pr) || 0) : 0;
+        },
+        first: (r) => { // v2.14：首页页码项（直跳回第一页用；无 pageSel/未渲染「1」返回 null）
+          if (!a.pageSel) return null;
+          const pr = findPagerRoot(r, a);
+          if (!pr) return null;
+          for (const el of pr.querySelectorAll(a.pageSel)) {
+            const n = parseInt(String(el.getAttribute('title') || el.textContent || '').trim(), 10);
+            if (n === 1) return el;
+          }
+          return null;
         },
         isDisabled: a.isDisabled
       };
@@ -164,10 +185,11 @@
   }
 
   /** 用户指定的翻页按钮 → pager 接口（与适配器同构）。无 prev（自定义分页器
-   *  常无规范回退按钮）：采集结束停留在末页、起点在当前页，均经 note 告知。
+   * 常无规范回退按钮）：采集结束停留在末页、起点在当前页，均经 note 告知。
    *  v2.9：额外带回 loc（定位器）供 main.js 按页面记住，下次直接复用；
    *  total 恒为 0（自建分页器无总页数字段）；v2.12：current 恒为 0（自建分页器
-   *  无规范页码态，读不到就不猜——退化为固定预算轮询且不重点） */
+   *  无规范页码态，读不到就不猜——退化为固定预算轮询且不重点）；v2.14：first
+   *  恒为 null（无规范页码项，直跳首页不可用，归一走逐页回点） */
   function manualPager(btn) {
     const loc = locatorOf(btn);
     return {
@@ -175,6 +197,7 @@
       loc: loc,
       next: () => resolveLocator(loc),
       prev: () => null,
+      first: () => null,
       total: () => 0,
       current: () => 0,
       isDisabled: (b) => b.disabled === true || b.getAttribute('aria-disabled') === 'true' ||
@@ -223,6 +246,9 @@
   const RECLICK_MAX = 3;   // 单页内最大重点次数
   const POLL = 250;        // 轮询间隔（ms）
   const FIRST_TAKE = 300;  // 点击后首次取数前的等待（同步翻页站点与旧版 350ms 同速）
+  // v2.14：起点归一页数阈值——当前页距第一页超过它就不自动归一（逐页回点既慢又
+  // 易被加载中守卫吞），交还用户手动回第一页后再点「开始采集」
+  const NORM_MAX = 10;
 
   /** 表格根失联重解析：翻页触发整表重建时，全文档候选（table / 网格根）按
    *  表头指纹匹配找回新根；找不到返回 null（调用方中止并保留已采页） */
@@ -238,7 +264,8 @@
 
   /**
    * 自动翻页采集分页表格全部行。
-   * 流程：起点归一（prev 可用且未禁用则先回第一页）→ 逐页 extractTable →
+   * 流程：距第一页超过 NORM_MAX 页 → 不归一（返回 aborted，交还用户手动回第一页）；
+   * 否则起点归一（v2.14 优先直跳「1」页项，失败落回逐页回点）→ 逐页 extractTable →
    * 数据行相邻重叠合并（表头只保留第一页的，逐页校验指纹防翻到结构不同的视图）
    * → 停止（下一页 disabled / 连续 2 页无新行 / 500 页硬上限 / 达到 maxPages
    * 页数上限）→ prev 可用时逐页回退到起始页。
@@ -248,6 +275,9 @@
    * 一次（末页/达上限不停），分块等待保证「停止采集」及时中断。
    * onProgress(page, rows, totalPages)：totalPages 为分页器给出的总页数，
    * 0 = 未知（自建分页器等无总数字段，v2.9 起进度文案据此决定是否显示 i/N）。
+   * onNorm(page)：v2.14 起点归一进度回调——归一开始与每次翻页后回传当前页
+   * （0 = 读不到页码，如手动分页器/vxe），归一结束/放弃传 null（main 侧据此
+   * 显示/收起右侧提醒框）；可选参数。
    * 返回 { snap, root, note, reason, pages }：snap 与 collectVirtual 快照同构
    * （不含 merges——跨页拼接的合并单元格行号无法稳定对齐，v2.5 不还原，见
    * product.md 已知限制）；root 为采集结束时的表格根（翻页中被页面重建则与入参
@@ -256,10 +286,12 @@
    * 'noNew' 连续两页无新行 / 页码始终不动（v2.12）/ 'tableLost' 表格失联 /
    * 'headerChanged' 表头变化 / 'stopped' 用户中止 / 'maxPages' 达页数上限 /
    * '' 正常结束）；pages 为实际翻到的页数。
+   * v2.14：距第一页超过 NORM_MAX 页时不归一、不采集，返回
+   * { aborted:'tooFar', page }（main 弹右侧提醒框请用户手动回第一页后再开始）。
    * 取消：起点归一阶段（尚无采集数据）返回 null；开始采集后返回已采集页的
    * 部分结果（note 注明「已停止」——main 据此保留快照，用户手动中止不丢已采页）。
    */
-  async function collectPaged(root, pager, onProgress, isCancelled, maxPages, pageSleep) {
+  async function collectPaged(root, pager, onProgress, isCancelled, maxPages, pageSleep, onNorm) {
     const key0 = ns.persist.tableKeyOf(root);
     let note = '';
 
@@ -307,31 +339,60 @@
       return false;
     };
 
-    // 起点归一：不在第一页（prev 可用且未禁用）先回第一页，保证采全量
+    // v2.14：距第一页超过 NORM_MAX 页——无论 prev 是否可用都不自动归一（逐页
+    // 回点既慢又易被加载中守卫吞），直接交还用户手动回第一页后再点「开始采集」
+    const cur0 = curPage();
+    if (cur0 > NORM_MAX) return { aborted: 'tooFar', page: cur0 };
+
+    // 起点归一：不在第一页先回第一页，保证采全量
     const pv0 = pager.prev(root);
     if (pv0 && !pager.isDisabled(pv0)) {
-      const t0 = Date.now();
-      for (let i = 0; i < 500; i++) {
-        const pv = pager.prev(root);
-        if (!pv || pager.isDisabled(pv)) break;
-        if (curPage() === 1) break; // 页码已回第一页（disabled 态滞后于页码时直断）
+      if (onNorm) onNorm(cur0); // v2.14：右侧提醒框显示「正在回到第一页」（0 = 读不到页码）
+      // v2.14：优先直跳首页——组件分页器渲染了「1」页项时一次点击到位，免去
+      // 逐页回点（≤10 页也要点至多 9 次，慢站点每击都要等翻页落地）。cur0===1
+      // （已在第一页但 prev 未禁用的不规范分页器）不跳——点了也不会翻，空等
+      // 一个 waitTurn 预算，直接走逐页回点的「页码已是 1 直断」
+      const fb = (cur0 !== 1 && pager.first) ? pager.first(root) : null;
+      let jumped = false;
+      if (fb) {
         const before = curPage();
         const sigBefore = contentSig();
-        clickPaging(pv);
-        // v2.12：等「页码往回走 + 表体换成新页」再点下一击——慢站点 prev 点击
-        // 会被加载中守卫丢弃，且页码先变数据后到，只等页码会在归一后取到旧页
-        // 数据（污染整份采集）；旧版固定 200ms 连点两个坑都踩
-        await waitTurn(before, sigBefore, 3000);
-        if (isCancelled()) return null;
-        if (!root.isConnected) { // 回退中表格被重建：按指纹找回
+        clickPaging(fb);
+        // 等「页码回到 1 + 表体换成第一页」再收工；没翻动（守卫吞点击/首页项
+        // 点击无效）落回逐页回点兜底
+        jumped = await waitTurn(before, sigBefore, 3000);
+        if (!jumped && isCancelled()) return null;
+        if (!root.isConnected) { // 直跳触发整表重建：按指纹找回
           const nr = resolveRoot(key0);
-          if (nr) root = nr; else break;
-        }
-        if (Date.now() - t0 > 120000) { // 2 分钟仍回不到第一页：放弃归一，从当前页采起
-          note = t('noteStartFromCurrent', '自当前页开始采集');
-          break;
+          if (nr) root = nr;
         }
       }
+      if (!jumped) {
+        const t0 = Date.now();
+        for (let i = 0; i < 500; i++) {
+          const pv = pager.prev(root);
+          if (!pv || pager.isDisabled(pv)) break;
+          if (curPage() === 1) break; // 页码已回第一页（disabled 态滞后于页码时直断）
+          const before = curPage();
+          const sigBefore = contentSig();
+          clickPaging(pv);
+          // v2.12：等「页码往回走 + 表体换成新页」再点下一击——慢站点 prev 点击
+          // 会被加载中守卫丢弃，且页码先变数据后到，只等页码会在归一后取到旧页
+          // 数据（污染整份采集）；旧版固定 200ms 连点两个坑都踩
+          await waitTurn(before, sigBefore, 3000);
+          if (onNorm) onNorm(curPage()); // v2.14：右侧提醒框同步当前页
+          if (isCancelled()) return null;
+          if (!root.isConnected) { // 回退中表格被重建：按指纹找回
+            const nr = resolveRoot(key0);
+            if (nr) root = nr; else break;
+          }
+          if (Date.now() - t0 > 120000) { // 2 分钟仍回不到第一页：放弃归一，从当前页采起
+            note = t('noteStartFromCurrent', '自当前页开始采集');
+            break;
+          }
+        }
+      }
+      if (onNorm) onNorm(null); // v2.14：归一结束（成功/放弃均收框）
     } else if (!pv0) {
       note = t('noteStartFromCurrent', '自当前页开始采集'); // 自定义分页器无规范回退按钮
     }

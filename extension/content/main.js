@@ -45,6 +45,13 @@
  * v2.13：分页采集面板增「翻页间隔」——每采完一页、翻下一页前停顿用户指定的
  * 秒数（默认 0.5s，留空 = 默认；慢站点/限流后台连续翻页易被吞点击），经
  * collectPaged 第六参 pageSleep（毫秒）生效，分块等待保证「停止采集」及时
+ * v2.14：分页采集起点归一可视化——① 右侧提醒框（toast 同款 shadow 样式体系，
+ * 右侧垂直居中）：归一进行中驻屏显示「正在回到第一页… 第 N 页」（经
+ * collectPaged 第七参 onNorm 回调驱动，结束/取消收框）；② 引擎优先直跳「1」
+ * 页项回第一页（pagination.js first 钩子），失败才逐页回点；③ 距第一页超过
+ * 10 页不自动归一——collectPaged 返回 aborted:'tooFar'，右侧提醒框（警示色）
+ * 请用户手动回第一页后再点「开始采集」，不写快照不采集；提醒框可手动关闭，
+ * 语言切换经 renderSide 按状态就地重取词
  */
 (() => {
   'use strict';
@@ -220,6 +227,10 @@
   let menuTitleEl = null, menuSubEl = null, pageLimitLabelEl = null, pageUnitEl = null; // 分页面板静态文案节点（语言切换就地重取词）
   let sleepInput = null, pageSleepLabelEl = null, sleepUnitEl = null; // v2.13 翻页间隔行节点（同上，语言切换就地重取词）
   let toastRoot = null;
+  // v2.14 右侧提醒框（起点归一进行中 / 距第一页过远需手动归一）
+  let sideBox = null, sideIcoEl = null, sideTitleEl = null, sideMsgEl = null;
+  let sideKind = '';   // '' = 隐藏 | 'norm' 归一进行中 | 'toofar' 距第一页过远待手动归一
+  let sidePage = 0;    // 提醒框关联的当前页（0 = 读不到页码）
   let hoverTable = null;
   let rafId = 0;
   let collecting = false; // 虚拟表格滚动采集中 / 分页表格翻页采集中
@@ -353,6 +364,19 @@
       '  .h2x-toast-btn:hover{border-color:var(--c-primary);color:var(--c-primary);}',
       '  .h2x-toast-x{border:none;background:none;color:var(--c-text-3);cursor:pointer;font:16px/1 var(--ff);padding:0 2px;}',
       '  .h2x-toast-x:hover{color:var(--c-text);}',
+      // v2.14 右侧提醒框：起点归一进行中 / 距第一页过远需手动归一时驻屏提示。
+      // 右侧垂直居中（与右上角 toast 错开、不挡底部工具栏），警示态用琥珀色系
+      '  .h2x-side{position:fixed;right:16px;top:50%;transform:translateY(-50%);width:min(300px,calc(100vw - 32px));box-sizing:border-box;padding:13px 14px;background:var(--c-bg);border:1px solid var(--c-border-2);border-left:4px solid var(--c-info);border-radius:var(--r-lg);box-shadow:var(--sh-3);z-index:2;pointer-events:auto;font:13px/1.5 var(--ff);color:var(--c-text);animation:h2x-slide .2s ease-out;}',
+      '  .h2x-side[hidden]{display:none;}',
+      '  .h2x-side-warn{border-left-color:var(--c-warn);}',
+      '  .h2x-side-warn .h2x-side-ico{background:var(--c-warn);}',
+      '  .h2x-side-row{display:flex;align-items:center;gap:9px;}',
+      '  .h2x-side-ico{flex:none;width:20px;height:20px;border-radius:50%;background:var(--c-info);color:#fff;display:flex;align-items:center;justify-content:center;font:700 12px/20px var(--ff);text-align:center;}',
+      '  .h2x-side-title{flex:1;min-width:0;font-weight:700;}',
+      '  .h2x-side-x{flex:none;border:none;background:none;color:var(--c-text-3);cursor:pointer;font:16px/1 var(--ff);padding:0 2px;}',
+      '  .h2x-side-x:hover{color:var(--c-text);}',
+      '  .h2x-side-msg{margin-top:6px;font-size:12px;line-height:1.6;color:var(--c-text-2);}',
+      '  @keyframes h2x-slide{from{opacity:0;transform:translate(24px,-50%);}}',
       '  input[type=checkbox],input[type=radio]{width:15px;height:15px;margin:0;accent-color:var(--c-primary);}',
       '  button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--c-info);outline-offset:1px;}',
       '  @keyframes h2x-in{from{opacity:0;transform:translateY(-8px);}}',
@@ -412,7 +436,17 @@
       '    <button type="button" class="h2x-langbtn h2x-langen" aria-pressed="false">EN</button>' +
       '  </div>',
       '</div>',
-      '<div class="h2x-toasts"></div>'
+      '<div class="h2x-toasts"></div>',
+      // v2.14 右侧提醒框（起点归一进行中 / 距第一页过远需手动归一；role 按
+      // info/warn 动态切换，文案由 renderSide 统一渲染）
+      '<div class="h2x-side" role="status" hidden>',
+      '  <div class="h2x-side-row">',
+      '    <span class="h2x-side-ico" aria-hidden="true">i</span>',
+      '    <span class="h2x-side-title"></span>',
+      '    <button type="button" class="h2x-side-x" aria-label="' + t('closeAria', '关闭') + '">×</button>',
+      '  </div>',
+      '  <div class="h2x-side-msg"></div>',
+      '</div>'
     ].join('');
 
     hoverBox = root.querySelector('.h2x-hover');
@@ -448,6 +482,15 @@
     langZhBtn = root.querySelector('.h2x-langzh');
     langEnBtn = root.querySelector('.h2x-langen');
     toastRoot = root.querySelector('.h2x-toasts');
+    // v2.14 右侧提醒框节点
+    sideBox = root.querySelector('.h2x-side');
+    sideIcoEl = root.querySelector('.h2x-side-ico');
+    sideTitleEl = root.querySelector('.h2x-side-title');
+    sideMsgEl = root.querySelector('.h2x-side-msg');
+    root.querySelector('.h2x-side-x').addEventListener('click', () => {
+      sideKind = ''; // 手动关闭：清状态（下次触发按新状态重显）
+      sideBox.hidden = true;
+    });
     exportBtn.addEventListener('click', doExport);
     clearBtn.addEventListener('click', clearSelection); // v2.7 一键清空已选（逐个取消的快捷方式）
     // v2.0：采集中「取消」变「停止采集」（只作废当前任务，不退出选择模式）
@@ -612,6 +655,9 @@
     sleepUnitEl.textContent = t('pageSleepUnit', '秒');
     pageCancelBtn.textContent = t('btnCancelShort', '取消');
     pageGoBtn.textContent = t('btnStart', '开始采集');
+    // v2.14：右侧提醒框按当前状态就地重取词（sticky 的「请先返回第一页」可跨
+    // 语言切换留存；隐藏态无状态不渲染）
+    if (sideKind) renderSide();
     resetHint(); // 空闲态提示回默认引导文案（语言切换不改变状态）
   }
 
@@ -703,6 +749,46 @@
 
   function resetHint() {
     setHint(hasTables ? t('hintSelect', '点击选择表格（可多选）') : t('hintNoTables', '页面未找到表格'));
+  }
+
+  /* ---------------- 右侧提醒框（v2.14：起点归一进行中 / 需手动归一） ----------------
+   * 与 toast 同属 shadow 样式体系但职责不同：toast 是一次性结果通知（8s 自消），
+   * 提醒框是进行中/待用户操作的驻屏提示（右侧垂直居中，不挡底部工具栏）。渲染
+   * 统一走 renderSide()——只存状态（sideKind + sidePage），语言切换时按状态
+   * 就地重取词，不留旧语言文案 */
+
+  /** 按 sideKind/sidePage 渲染提醒框（sideKind 为空 = 收起） */
+  function renderSide() {
+    if (!sideKind) { sideBox.hidden = true; return; }
+    const warn = sideKind === 'toofar';
+    sideIcoEl.textContent = warn ? '!' : 'i';
+    sideBox.classList.toggle('h2x-side-warn', warn);
+    sideBox.setAttribute('role', warn ? 'alert' : 'status');
+    sideTitleEl.textContent = warn
+      ? t('sideTooFarTitle', '请先返回第一页')
+      : t('sideNormTitle', '正在回到第一页');
+    sideMsgEl.textContent = warn
+      ? t('sideTooFarMsg', '当前在第 ' + sidePage + ' 页，距离第一页较远。请先翻到第一页，再点「开始采集」。', sidePage)
+      : (sidePage > 0
+        ? t('sideNormMsgN', '当前第 ' + sidePage + ' 页，正在自动回到第一页…', sidePage)
+        : t('sideNormMsg', '正在自动回到第一页…'));
+    sideBox.hidden = false;
+  }
+
+  /** 归一进行中（collectPaged 第七参 onNorm 回调）：page > 0 = 当前页，
+   *  0 = 读不到页码（手动分页器/vxe）；page 为 null = 归一结束/放弃，收框 */
+  function showSideNorm(page) {
+    if (page == null) { sideKind = ''; sideBox.hidden = true; return; }
+    sideKind = 'norm';
+    sidePage = page;
+    renderSide();
+  }
+
+  /** 距第一页超过 10 页：不自动归一，提醒用户手动回第一页后再点「开始采集」 */
+  function showSideTooFar(page) {
+    sideKind = 'toofar';
+    sidePage = page;
+    renderSide();
   }
 
   /* ---------------- 事件处理 ---------------- */
@@ -1113,9 +1199,19 @@
         },
         () => !active || gen !== genToken,
         maxPages,
-        pageSleep
+        pageSleep,
+        // v2.14：起点归一进度 → 右侧提醒框（回到第一页的过程中驻屏显示当前页）
+        (pg) => { if (gen === genToken) showSideNorm(pg); }
       );
       if (!active) return; // 已退出选择模式：丢弃
+      if (res && res.aborted === 'tooFar') {
+        // v2.14：距第一页超过 10 页——不自动归一，右侧提醒框请用户手动回第一页
+        // 再点「开始采集」（不写快照、不采集；按钮态由 finally 还原）
+        showSideTooFar(res.page);
+        resetHint();
+        return;
+      }
+      showSideNorm(null); // 其余路径（含停止/失败）收框
       // gen !== genToken = 「停止采集」：collectPaged 返回已采集页的部分结果，照常写入快照
       if (res) {
         const key = (res.root && res.root.isConnected) ? res.root : table;

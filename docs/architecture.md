@@ -99,6 +99,7 @@
 - v2.9：适配器增 `pageSel`（页码项选择器，末页号即总页数）与 `total(root)`（0 = 未知）；`collectPaged()` 结果增 `reason`（noNew / tableLost / headerChanged / stopped / maxPages / 空）与 `pages`；`manualPager()` 返回定位器 `loc`，新增 `pagerByLocator()`（解析不到返回 null 由主 UI 回落子模式）
 - v2.12：翻页等待改「页码变化 + 数据落地」双判定（修复慢站点误停：51 页站点采到第 3 页只剩 40 行、toast「连续翻页无新数据」）。适配器增可选 `current(root)` 读当前页码（el `.el-pager li.active` / ant `.ant-pagination-item-active`，0 = 读不到）；`collectPaged()` 点击后改轮询（`waitPageData`：单页总预算 6s、250ms 步进），页码不变超 1.2s = 点击被页面丢弃（加载中守卫/限流）→ 重新查找按钮重点（至多 3 次），新行落地即返回；起点归一/回退每击等「页码动了 + 表体内容签名换了」（`waitTurn`）再点下一击；读不到页码（手动/vxe）退化固定 200ms 且不重点。提前停止原因增 `noteNoTurn`（翻页按钮点击后页面未变化）；表头指纹/表格失联校验增瞬时容错（读不到 ≠ 变化）
 - v2.13：页间停顿 `pageSleep`（采集面板「翻页间隔」自定义，单位秒、默认 0.5s，经 `collectPaged` 第六参传毫秒；undefined/负数/NaN 按 500ms）。主循环中「下一页」按钮可用且确定要点击前停顿一次（末页/达页数上限不浪费间隔），`pagePause()` 按 ≤100ms 分块等待——「停止采集」不必等满整个间隔；停顿中被取消返回已采页部分结果（reason `stopped`）。对慢站点/限流后台连续翻页易被吞点击或封禁的场景，用户可自行加大间隔减压
+- v2.14：起点归一升级——① 统一 pager 接口增 `first(root)`（pageSel 内找文本/title=1 的页码项，直跳首页用；vxe/自建无 pageSel 返回 null），归一时优先一次点击回第一页（`waitTurn` 双判定确认），失败落回逐页回点；② 距第一页超过 `NORM_MAX=10` 页不自动归一——`collectPaged` 返回 `{ aborted:'tooFar', page }`（不采集、不写快照），交还用户手动回第一页后再点「开始采集」；③ `collectPaged` 第七参 `onNorm(page)` 回调（归一开始/每次翻页后回传当前页，0 = 读不到；结束传 null）驱动 main.js 右侧提醒框（`renderSide()` 按 sideKind/sidePage 渲染，info/warn 两态、可手动关闭、语言切换就地重取词）
 
 #### persist.js（依赖：entry）
 

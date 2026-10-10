@@ -25,6 +25,8 @@ node test/algo-check.cjs
 
 改代码后的浏览器回归：`chrome://extensions` 刷新扩展 → 刷新目标页 → 按 [test/README.md](test/README.md) 用两个 fixture 页对照页内预期值验证。控件取值规则见 [docs/controls.md](docs/controls.md)。
 
+测试范围：简单功能或小改动不必补自动化测试，至少完成上述语法检查；涉及取值、解析等核心逻辑的改动须跑 `node test/algo-check.cjs` 并做浏览器回归。
+
 ## 远程 GitHub 操作
 
 推送、打 Tag、GitHub Release 代发等全部远程操作（含凭据获取与 API 坑）集中在 [docs/github-remote.md](docs/github-remote.md)，不在此重复。

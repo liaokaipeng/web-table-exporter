@@ -1321,6 +1321,85 @@ try {
   if (rAFReal === undefined) delete global.requestAnimationFrame; else global.requestAnimationFrame = rAFReal;
 }
 
+/* ================= 起点归一：直跳首页 + 超过 10 页不归一（pagination.js collectPaged，v2.14） ================= */
+// v2.14 起点归一：距第一页 ≤NORM_MAX(10) 页时优先直跳「1」页项（pager.first 一次
+// 点击回第一页，经 waitTurn 等「页码+表体内容」双判定确认），直跳失败/无 first
+// 钩子落回逐页回点；超过 10 页不归一、不采集——返回 { aborted:'tooFar', page }。
+// 以桩驱动 collectPaged：假分页器 12 页（next/prev/first/current 均改 pgNo），
+// root.textContent 随页码变（waitTurn 内容签名判定依赖），extractTable 每页 2 行，
+// requestAnimationFrame 桩为 setTimeout（settle 依赖它），页间停顿置 0
+const rAFReal2 = global.requestAnimationFrame;
+global.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
+try {
+  const PG = 12; // 假分页器总页数
+  /** 跑一次 collectPaged：from = 起始页；first=false 时不提供 first 钩子（模拟
+   *  vxe/自建分页器）；maxPages 透传；onNorm 调用序列记入 st.norms */
+  const runNorm = async (opts) => {
+    const st = { pg: opts.from, firstClicks: 0, prevClicks: 0, nextClicks: 0, norms: [] };
+    const pager = {
+      name: 'fake',
+      next: () => st.pg < PG ? { click: () => { st.nextClicks++; st.pg++; } } : null,
+      prev: () => st.pg > 1 ? { click: () => { st.prevClicks++; st.pg--; } } : null,
+      total: () => PG,
+      current: () => st.pg,
+      isDisabled: () => false
+    };
+    if (opts.first !== false) {
+      pager.first = () => st.pg > 1 ? { click: () => { st.firstClicks++; st.pg = 1; } } : null;
+    }
+    const root = { isConnected: true, get textContent() { return 'page' + st.pg; } };
+    const { collectPaged } = loadModule('pagination.js', 'pagination', {
+      persist: { tableKeyOf: () => 'K' },
+      table: {
+        extractTable: () => ({
+          aoa: [['H'], ['r' + st.pg + '-1'], ['r' + st.pg + '-2']],
+          ctrl: [[null], [null], [null]], text: [[null], [null], [null]], blocks: [[null], [null], [null]],
+          headerRows: 1
+        })
+      },
+      virtual: { overlapLen }
+    });
+    const res = await collectPaged(root, pager, () => {}, () => false, opts.maxPages || 0, 0,
+      (pg) => st.norms.push(pg));
+    return { res: res, st: st };
+  };
+
+  // ① ≤10 页：直跳首页一次到位（不再逐页回点），采集从第 1 页起
+  const jump = await runNorm({ from: 5, maxPages: 3 });
+  check('直跳首页：第 5 页起点经 first 钩子一次点击回第 1 页（firstClicks=1）',
+    jump.st.firstClicks, 1);
+  check('直跳首页：从第 1 页起采（maxPages=3 → 7 行、reason=maxPages）',
+    [jump.res.snap.rows.length, jump.res.reason], [7, 'maxPages']);
+  check('直跳首页：onNorm 回传起始页 5 后以 null 收尾（提醒框显示即收）',
+    jump.st.norms, [5, null]);
+  check('直跳首页：结束后逐页回退到起始页=第 1 页（prevClicks=2）', jump.st.prevClicks, 2);
+
+  // ② 超过 10 页：不归一、不采集（next 一次都没点），交还用户手动归一
+  const far = await runNorm({ from: 11 });
+  check('超过 10 页不归一：返回 aborted:tooFar 且带上当前页（无 snap）',
+    far.res, { aborted: 'tooFar', page: 11 });
+  check('超过 10 页不归一：未开始采集（next/prev/first 均未点击）',
+    [far.st.nextClicks, far.st.prevClicks, far.st.firstClicks], [0, 0, 0]);
+
+  // ③ 边界：第 10 页仍自动归一（不超过 10），第 11 页才交还用户
+  const edge = await runNorm({ from: 10, maxPages: 1 });
+  check('边界：第 10 页仍自动归一（直跳后采集 1 页 = 3 行、maxPages）',
+    [edge.res.snap && edge.res.snap.rows.length, edge.res.reason, edge.st.firstClicks],
+    [3, 'maxPages', 1]);
+
+  // ④ 无 first 钩子（vxe/自建分页器）：落回逐页回点，onNorm 逐页回传
+  const fallback = await runNorm({ from: 3, first: false, maxPages: 3 });
+  check('逐页回点兜底：无 first 钩子时逐页回第 1 页再采全量（maxPages=3 → 7 行）',
+    [fallback.res.snap.rows.length, fallback.res.reason, fallback.st.firstClicks],
+    [7, 'maxPages', 0]);
+  check('逐页回点兜底：onNorm 序列为 [3, 2, 1, null]（提醒框同步当前页）',
+    fallback.st.norms, [3, 2, 1, null]);
+  check('逐页回点兜底：归一 2 击 + 回退到起始页 2 击（prevClicks=4）',
+    fallback.st.prevClicks, 4);
+} finally {
+  if (rAFReal2 === undefined) delete global.requestAnimationFrame; else global.requestAnimationFrame = rAFReal2;
+}
+
   console.log(fail === 0 ? '\n全部通过' : '\n' + fail + ' 个失败');
   process.exit(fail === 0 ? 0 : 1);
 })();

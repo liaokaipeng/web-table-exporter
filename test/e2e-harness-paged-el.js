@@ -5,11 +5,14 @@
  *   window.__TEST_RESULT = await (0, eval)(c);
  * 覆盖：el-pagination 结构分页表自动识别采集（5 页 × 8 行全量 41 行）、
  * 采集进度带总页数（v2.9「第 i/N 页」，N 取末页号）、页数上限只采前 N 页、
- * 起点归一（先翻到第 3 页再采集应回第 1 页采全量、完成后回到第 1 页）、
+ * 起点归一（先翻到第 3 页再采集应回第 1 页采全量、完成后回到第 1 页；v2.14
+ * 直跳「1」页项一次到位，期间右侧提醒框显示「正在回到第一页… 第 N 页」）、
  * 控件列实时值与导出内容；v2.12 慢异步分页三态（数据延迟落地 / 加载中点击
  * 守卫 / 落地后首击丢弃）仍须采全量——复现真实站点「页码先变数据后到」，
- * 旧版固定 sleep 会在第 3 页误判「连续翻页无新数据」停止。提速：事件驱动
- * waitFor + 模块代码缓存。v2.13 翻页间隔：面板「翻页间隔」槽默认 0.5 秒
+ * 旧版固定 sleep 会在第 3 页误判「连续翻页无新数据」停止。v2.14 距第一页
+ * 超过 10 页不自动归一（__setPages(12) 改总页数）：右侧提醒「请先返回第一页」
+ * 且不开始采集，用户手动回第 1 页后再开始即采全量（97 行）。
+ * 提速：事件驱动 waitFor + 模块代码缓存。v2.13 翻页间隔：面板「翻页间隔」槽默认 0.5 秒
  * （断言默认值/标签/单位，轮次 A 端到端生效），其余轮次置 0 只测本项目关注点。
  */
 (async () => {
@@ -91,6 +94,7 @@
       sleepInput: sr.querySelector('.h2x-sleep'),
       sleepLabel: sr.querySelector('.h2x-sleeprow label'),
       sleepUnit: sr.querySelector('.h2x-sleeprow .h2x-pageunit'),
+      sideBox: sr.querySelector('.h2x-side'), // v2.14 右侧提醒框
       pageGo: sr.querySelector('.h2x-pagego')
     };
   }
@@ -134,6 +138,23 @@
     }
     mo.disconnect();
     return hints;
+  }
+
+  /** v2.14：记录右侧提醒框（.h2x-side）的每次文本写入（起点归一驻屏提示存在
+   *  时间短，轮询会漏帧；与 waitCollect 同款 MutationObserver 记录每个文本节点
+   *  写入。attributes 观察 hidden/class 切换——r.target 为框本身，取其 textContent） */
+  function watchSide(h) {
+    const seen = [];
+    const mo = new MutationObserver((recs) => {
+      for (const r of recs) {
+        const v = r.type === 'childList'
+          ? [...r.addedNodes].map(n => n.textContent).join('')
+          : r.target.textContent;
+        if (v && seen[seen.length - 1] !== v) seen.push(v);
+      }
+    });
+    mo.observe(h.sideBox, { childList: true, characterData: true, subtree: true, attributes: true });
+    return { seen: seen, stop: () => mo.disconnect() };
   }
 
   async function round(name, fn) {
@@ -188,9 +209,14 @@
     click(document.querySelectorAll('#pagerList li')[2]); // 手动翻到第 3 页（选择模式下点击放行）
     t('选择模式下页码点击放行（翻到第 3 页）', activePage() === '3', 'active=' + activePage());
     clickCell('#pt tbody tr td');
+    const side = watchSide(h); // v2.14：归一前挂观察器（直跳很快，轮询会漏帧）
     await startCollect(h, 2, 0); // 间隔置 0：本轮测页数上限，不为停顿增加耗时
     // 起点归一（回退到第 1 页）期间进度尚未写入，等首帧进度出现再断言
     await waitFor(() => h.hint.textContent.indexOf('第 1/5 页') >= 0, 3000);
+    side.stop();
+    t('v2.14 直跳首页：归一期间右侧提醒框显示「正在回到第一页… 第 3 页」，结束后收起',
+      side.seen.some(x => x.indexOf('正在回到第一页') >= 0 && x.indexOf('第 3 页') >= 0) && h.sideBox.hidden,
+      side.seen.join(' / '));
     t('总页数始终取分页器末页号（第 1/5 页，不随页数上限变）',
       h.hint.textContent.indexOf('第 1/5 页') >= 0, h.hint.textContent);
     const hints = await waitCollect(h);
@@ -248,6 +274,51 @@
   await slowRound('慢异步：数据延迟落地（2500ms）', { __SLOW_MS: 2500 });
   await slowRound('慢异步：加载中点击守卫', { __SLOW_MS: 2500, __SLOW_GUARD: true });
   await slowRound('慢异步：落地后首击丢弃（重点）', { __SLOW_MS: 2500, __SLOW_DROP_FIRST: true });
+
+  /* ================= 轮次 F：距第一页超过 10 页——不归一，交还用户手动归一（v2.14） ================= */
+  await round('v2.14 距第一页过远：不归一交还用户', async (h) => {
+    window.__setPages(12); // 12 页站点：第 12 页距第一页 11 页 > 阈值 10
+    try {
+      click(document.querySelectorAll('#pagerList li')[11]); // 手动翻到第 12 页
+      t('翻到第 12 页（__setPages(12) 后共 12 页）', activePage() === '12', 'active=' + activePage());
+      clickCell('#pt tbody tr td');
+      await startCollect(h, 0, 0);
+      await waitFor(() => !h.sideBox.hidden, 3000);
+      t('超过 10 页不自动归一：右侧提醒「请先返回第一页」并注明当前第 12 页',
+        !h.sideBox.hidden && h.sideBox.textContent.indexOf('请先返回第一页') >= 0 &&
+        h.sideBox.textContent.indexOf('第 12 页') >= 0,
+        'hidden=' + h.sideBox.hidden + ' text=' + h.sideBox.textContent);
+      await sleep(400); // 等一拍：确认没有开始采集
+      t('未开始采集（无完成 toast、进度提示已复位、主按钮恢复可用）',
+        toastText(h).indexOf('采集完成') < 0 && h.hint.textContent.indexOf('分页采集') < 0 && !h.pageBtn.disabled,
+        'hint=' + h.hint.textContent + ' pageBtnDisabled=' + h.pageBtn.disabled);
+      // 用户按提醒手动归一：关闭提醒框 → 翻回第 1 页 → 再点开始采集 → 正常全量
+      click(h.sideBox.querySelector('.h2x-side-x'));
+      t('提醒框可手动关闭', h.sideBox.hidden, 'hidden=' + h.sideBox.hidden);
+      click(document.querySelectorAll('#pagerList li')[0]);
+      t('手动翻回第 1 页', activePage() === '1', 'active=' + activePage());
+      await startCollect(h, 0, 0);
+      // 首帧进度：onProgress(1) 在点击处理器内同步写入，startCollect 返回时已落，
+      // 用 waitFor 轮询当前值抓第一帧（观察器彼时尚未挂上）；总页数取末页号 12
+      await waitFor(() => h.hint.textContent.indexOf('第 1/12 页') >= 0, 3000);
+      t('进度带总页数「第 1/12 页」（总页数取末页号）',
+        h.hint.textContent.indexOf('第 1/12 页') >= 0, h.hint.textContent);
+      const hints = await waitCollect(h, 30000);
+      t('手动归一后采集全部 12 页（97 行含表头）', toastText(h).indexOf('采集完成，共 97 行') >= 0, toastText(h));
+      t('末页进度「第 12/12 页」', hints.some(x => x.indexOf('第 12/12 页') >= 0), hints.join(' / '));
+      t('采集完成后回到第 1 页', activePage() === '1', 'active=' + activePage());
+
+      h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
+      click(h.exportBtn);
+      const files = await waitExports(1, 30000);
+      const lines = await csvLines(files[0]);
+      t('导出 97 行且末行跨页衔接到第 12 页', lines.length === 97 && lines[96] === '96,商品 P12-8,2672,92,草稿',
+        'rows=' + lines.length + ' last=' + lines[96]);
+    } finally {
+      window.__setPages(5); // 还原 5 页（重跑/其他轮次依赖）
+      if (activePage() !== '1') click(document.querySelectorAll('#pagerList li')[0]);
+    }
+  });
 
   return { total: R.length, passed: R.filter(x => x.pass).length, results: R };
 })();

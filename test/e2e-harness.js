@@ -375,8 +375,8 @@
     t('面板预览实时刷新（新列子行出现）', h.sr.querySelectorAll('.h2x-sub').length >= 5, 'subs=' + h.sr.querySelectorAll('.h2x-sub').length);
     click(mask.querySelector('.h2x-save'));
     t('面板保存后关闭且 toast「已保存并记住」', !h.sr.querySelector('.h2x-mask') && toastText(h).indexOf('已保存') >= 0, toastText(h));
-    await sleep(2700);
-    t('成功 toast 2.5s 后自动消失', h.sr.querySelectorAll('.h2x-toast').length === 0, toastText(h));
+    await sleep(8600); // toast 自动消失时长 8s（a5e0f1c 统一，旧版 2.5s）+ 600ms 余量
+    t('成功 toast 8s 后自动消失', h.sr.querySelectorAll('.h2x-toast').length === 0, toastText(h));
   });
 
   /* ================= 轮次 E：持久化恢复 + 拆分导出校验 ================= */

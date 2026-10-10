@@ -6,7 +6,10 @@
  * 覆盖：el-pagination 结构分页表自动识别采集（5 页 × 8 行全量 41 行）、
  * 采集进度带总页数（v2.9「第 i/N 页」，N 取末页号）、页数上限只采前 N 页、
  * 起点归一（先翻到第 3 页再采集应回第 1 页采全量、完成后回到第 1 页）、
- * 控件列实时值与导出内容。提速：事件驱动 waitFor + 模块代码缓存。
+ * 控件列实时值与导出内容；v2.12 慢异步分页三态（数据延迟落地 / 加载中点击
+ * 守卫 / 落地后首击丢弃）仍须采全量——复现真实站点「页码先变数据后到」，
+ * 旧版固定 sleep 会在第 3 页误判「连续翻页无新数据」停止。提速：事件驱动
+ * waitFor + 模块代码缓存。
  */
 (async () => {
   if (window.__HARNESS_STARTED) return { error: 'harness 已在运行（并发守卫）' };
@@ -196,6 +199,46 @@
     t('导出 17 行（表头 + 第 1~2 页）', lines.length === 17 && lines[16] === '16,商品 P2-8,2112,92,草稿',
       'rows=' + lines.length + ' last=' + lines[16]);
   });
+
+  /* ================= 轮次 C/D/E：慢异步分页（v2.12，复现真实站点异步拉取） ================= */
+  /* 真实站点（Element Plus 受控分页器 + 服务端拉取）：点击「下一页」后页码立即
+   * 更新、表格数据要几百 ms~数秒后才落地。旧版采集点击后固定等 350ms+500ms 就
+   * 取数，慢站点连续两页取到的还是旧页 → 误判「连续翻页无新数据」停止
+   * （已知问题：51 页站点采到第 3 页只剩 40 行）。三态分别覆盖：
+   *   C 纯延迟        ——页码变化 + 数据落地双判定、长预算轮询
+   *   D 加载中守卫    ——拉取未返回时点击被页面丢弃（时序上不再点到）
+   *   E 落地后首击丢弃——点击完全无效（页码不变），考验超时重点 */
+  async function slowRound(name, flags) {
+    await round(name, async (h) => {
+      Object.assign(window, flags); // 置 fixture 慢异步参数（轮次结束由下方清理）
+      try {
+        clickCell('#pt tbody tr td');
+        click(h.pageBtn);
+        await waitFor(() => !h.pageMenu.hidden, 1000);
+        click(h.pageGo);
+        const hints = await waitCollect(h, 90000); // 慢异步：总虚拟时长拉长，放宽实时超时
+        t('【' + name + '】采集完成 41 行（含表头，不误停）',
+          toastText(h).indexOf('采集完成，共 41 行') >= 0, toastText(h));
+        t('【' + name + '】无「连续翻页无新数据」误停', toastText(h).indexOf('连续翻页无新数据') < 0, toastText(h));
+        t('【' + name + '】末行跨页衔接到第 5 页（商品 P5-8）',
+          hints.some(x => x.indexOf('第 5/5 页') >= 0), hints.join(' / '));
+        t('【' + name + '】完成后回到第 1 页', activePage() === '1', 'active=' + activePage());
+
+        h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
+        click(h.exportBtn);
+        const files = await waitExports(1, 30000);
+        const lines = await csvLines(files[0]);
+        t('【' + name + '】导出 41 行且首末行正确',
+          lines.length === 41 && lines[1] === '1,商品 P1-1,2007,99,下架' && lines[40] === '40,商品 P5-8,2280,92,草稿',
+          'rows=' + lines.length + ' first=' + lines[1] + ' last=' + lines[40]);
+      } finally {
+        delete window.__SLOW_MS; delete window.__SLOW_GUARD; delete window.__SLOW_DROP_FIRST;
+      }
+    });
+  }
+  await slowRound('慢异步：数据延迟落地（2500ms）', { __SLOW_MS: 2500 });
+  await slowRound('慢异步：加载中点击守卫', { __SLOW_MS: 2500, __SLOW_GUARD: true });
+  await slowRound('慢异步：落地后首击丢弃（重点）', { __SLOW_MS: 2500, __SLOW_DROP_FIRST: true });
 
   return { total: R.length, passed: R.filter(x => x.pass).length, results: R };
 })();

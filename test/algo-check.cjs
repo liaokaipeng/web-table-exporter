@@ -1153,6 +1153,9 @@ check('分页适配器：next/prev 均为单类名选择器（querySelector 可�
 check('分页适配器：总页数选择器可选且非空（v2.9 取页码项最大值为总页数，缺省 = 不显示总数）',
   PAGER_ADAPTERS.map(a => a.pageSel == null || (typeof a.pageSel === 'string' && a.pageSel.length > 0)),
   PAGER_ADAPTERS.map(() => true));
+check('分页适配器：当前页码钩子可选且为函数（v2.12 翻页是否真的发生据此判定；缺省 = 读不到页码，退化固定预算轮询且不重点）',
+  PAGER_ADAPTERS.map(a => a.current == null || typeof a.current === 'function'),
+  PAGER_ADAPTERS.map(() => true));
 
 /* ================= 国际化词条一致性（i18n，v2.6） ================= */
 

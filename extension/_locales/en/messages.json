@@ -21,6 +21,7 @@
   "noteTableLost": { "message": "table lost after paging, kept the $N$ collected page(s)", "placeholders": { "N": { "content": "$1" } } },
   "noteHeaderChanged": { "message": "table header changed after paging, kept the $N$ collected page(s)", "placeholders": { "N": { "content": "$1" } } },
   "noteNoNew": { "message": "no new data on consecutive pages, stopped" },
+  "noteNoTurn": { "message": "the paging button did not respond, kept the $N$ collected page(s)", "placeholders": { "N": { "content": "$1" } } },
   "noteStayLast": { "message": "page left on the last page" },
   "noteMaxPages": { "message": "collected the specified $N$ page(s)", "placeholders": { "N": { "content": "$1" } } },
 

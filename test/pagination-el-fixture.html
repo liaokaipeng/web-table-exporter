@@ -27,6 +27,11 @@
 <b>预期</b>：选中表格 → 点「采集全部页」→ 自动识别 el-pagination 直接翻页采集，
 toast「采集完成，共 41 行（含表头）」；首行数据「商品 P1-1」、末行「商品 P5-8」；
 一口价列为 input（JS 属性设值），导出应为实时值（如 2249）而非空。<br>
+<b>慢异步模式</b>（E2E 复现真实站点：harness 置 <code>window.__SLOW_MS</code> 后翻页改为
+「页码立即更新、数据延迟落地」——受控分页器 + 异步拉取的常态；<code>window.__SLOW_GUARD</code>
+追加加载中点击守卫（点击直接丢弃），<code>window.__SLOW_DROP_FIRST</code> 追加「每次落地后
+首个点击丢弃」）：采集仍须拿全 41 行（v2.12 翻页等待改「页码变化 + 数据落地」双判定，
+旧版固定 sleep 会在第 3 页误判「连续翻页无新数据」停止）。<br>
 <b>起点归一</b>：先手动翻到第 3 页再点「采集全部页」，应先回退到第 1 页再采集（仍 41 行），完成后页面回到第 1 页。<br>
 <b>回归</b>：第 2 页起表头不变（指纹一致），采集不中止；「停止采集」可中止（已采页不写入）；
 采集完成后「列设置」可取样（虚拟快照同构）；再次点选表格复用快照不重采。</p>
@@ -58,6 +63,8 @@ toast「采集完成，共 41 行（含表头）」；首行数据「商品 P1-1
 (function () {
   'use strict';
   var PAGES = 5, SIZE = 8, cur = 1;
+  var loading = false;    // 慢异步模式：数据拉取中（SLOW_GUARD 时点击被丢弃）
+  var justLanded = false; // 慢异步模式：数据刚落地（SLOW_DROP_FIRST 时下一击被丢弃）
   var tbody = document.getElementById('ptbody');
   var pager = document.getElementById('pager');
   var list = document.getElementById('pagerList');
@@ -75,7 +82,7 @@ toast「采集完成，共 41 行（含表头）」；首行数据「商品 P1-1
     };
   }
 
-  function render() {
+  function renderBody() {
     var html = '';
     for (var i = 1; i <= SIZE; i++) {
       var d = rowData(cur, i);
@@ -84,6 +91,9 @@ toast「采集完成，共 41 行（含表头）」；首行数据「商品 P1-1
         '<td>' + d.stock + '</td><td>' + d.status + '</td></tr>';
     }
     tbody.innerHTML = html;
+  }
+
+  function renderPager() {
     // 分页器状态（复刻 el-pagination：disabled 类 + disabled 属性双写）
     prevBtn.disabled = cur === 1;
     prevBtn.classList.toggle('disabled', cur === 1);
@@ -96,11 +106,30 @@ toast「采集完成，共 41 行（含表头）」；首行数据「商品 P1-1
     list.innerHTML = lis;
   }
 
-  prevBtn.addEventListener('click', function () { if (cur > 1) { cur--; render(); } });
-  nextBtn.addEventListener('click', function () { if (cur < PAGES) { cur++; render(); } });
+  function render() { renderBody(); renderPager(); }
+
+  /* 翻页：默认同步（重建 tbody + 分页器态）。E2E 慢异步场景由 harness 置：
+   *   window.__SLOW_MS          数据延迟毫秒数（页码立即更新、表体延迟落地，
+   *                             复刻受控分页器 + 异步拉取：旧版采集固定 sleep 必漏采）
+   *   window.__SLOW_GUARD       加载中点击守卫：拉取未返回时点击直接丢弃（站点常见）
+   *   window.__SLOW_DROP_FIRST  每次落地后的首个点击丢弃（页码不变，考验重点逻辑） */
+  function go(p) {
+    var ms = Number(window.__SLOW_MS) || 0;
+    if (!ms) { cur = p; render(); return; }
+    if (window.__SLOW_GUARD && loading) return;
+    if (window.__SLOW_DROP_FIRST && justLanded) { justLanded = false; return; }
+    justLanded = false;
+    cur = p;
+    renderPager(); // 受控分页器：点击即更新当前页码，数据随后单独落地
+    loading = true;
+    setTimeout(function () { loading = false; justLanded = true; renderBody(); }, ms);
+  }
+
+  prevBtn.addEventListener('click', function () { if (cur > 1) go(cur - 1); });
+  nextBtn.addEventListener('click', function () { if (cur < PAGES) go(cur + 1); });
   list.addEventListener('click', function (e) {
     var t = e.target;
-    if (t.tagName === 'LI') { cur = Number(t.textContent) || cur; render(); }
+    if (t.tagName === 'LI') { var p = Number(t.textContent) || cur; if (p !== cur) go(p); }
   });
   render();
 })();

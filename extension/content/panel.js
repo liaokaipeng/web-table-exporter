@@ -20,8 +20,8 @@
  * 按钮易混淆（误把「收起」当「取消拆分」），且「取消拆分」是不可逆操作。
  * 保存时草稿回写主 UI 内存 Map，并经 persist 模块落盘（跨会话恢复）。
  * 依赖：主 UI 经 init() 注入 { host, selected, snapshots, splitRules,
- *   colFilters, colFormats, colOrders, isBusy, isAlive, updateBar, toast }（main.js 最后装配）；
- *   算法层经 __h2x 命名空间（util/table/split/persist）
+ *   colFilters, colFormats, colOrders, hasColCfg, isBusy, isAlive, updateBar, toast }
+ *   （main.js 最后装配）；算法层经 __h2x 命名空间（util/table/split/persist）
  */
 (() => {
   'use strict';
@@ -50,6 +50,9 @@
   const SPACE_MARK = '␣'; // 空格分隔符在输入框中的可见标记（空格本身不可见）
   // focus trap 可聚焦控件（面板内 Tab 圈定用；disabled 已过滤，面板无 hidden 控件区）
   const FOCUSABLE_SEL = 'button:not(:disabled),select:not(:disabled),input:not(:disabled)';
+  // 列行/子行选择器（data-c = 原列号，草稿/规则/筛选的定位基准；多处拼接统一助手）
+  const colSel = (c) => '.h2x-col[data-c="' + c + '"]';
+  const subSel = (c) => '.h2x-sub[data-c="' + c + '"]';
 
   let panelOpen = false;    // 列设置面板打开中（Esc 只关面板，主工具栏导出/取消禁用）
   let panelMask = null;
@@ -460,12 +463,9 @@
     renderPreview();
   }
 
-  /** 该表是否已配置（页签状态点与保存后提示共用；colOrders 为 v2.8 新增，依赖桩可能没有） */
-  const hasCfg = (tb) => deps.splitRules.has(tb) || deps.colFilters.has(tb) || deps.colFormats.has(tb) ||
-    (deps.colOrders && deps.colOrders.has(tb));
-
   /** 页签渲染：序号 + 表名截断（title 全名）+ 已配置状态点（与主工具栏
-   *  「列设置」徽标同数据源：会话内存 Map，面板保存后关闭、重开时刷新） */
+   *  「列设置」徽标同数据源：会话内存 Map，面板保存后关闭、重开时刷新。
+   *  判定经 deps.hasColCfg——四 Map 的所有权在主 UI，单一实现经 init 注入） */
   function renderTabs() {
     const tabsEl = panelMask.querySelector('.h2x-tabs');
     const used = new Set();
@@ -473,7 +473,7 @@
     let i = 0;
     for (const t of deps.selected.keys()) {
       const name = makeSheetName(t, i, used);
-      const cfg = hasCfg(t);
+      const cfg = deps.hasColCfg(t);
       html += '<button type="button" class="h2x-tab' + (t === panelTable ? ' h2x-tab-on' : '') +
         '" data-i="' + i + '" role="tab" aria-selected="' + (t === panelTable) + '" title="' + escapeHtml(name) + '">' +
         '<i class="h2x-tab-dot' + (cfg ? '' : ' h2x-off') + '" aria-hidden="true"></i><span>' +
@@ -527,13 +527,13 @@
   /** 新列勾选区局部刷新：模式/分隔符/上限变化后段数变化，只重建勾选区不动
    *  配置区输入框（焦点保持）；展开/收起的整行增删走 syncSubRow */
   function syncSubCols(entry, c, d) {
-    const colsEl = panelMask.querySelector('.h2x-sub[data-c="' + c + '"] .h2x-sub-cols');
+    const colsEl = panelMask.querySelector(subSel(c) + ' .h2x-sub-cols');
     if (colsEl) colsEl.innerHTML = subColsHtmlOf(entry, c, d);
   }
 
   /** 拆分子行增删：展开（d.checked && d.open）插入/替换子行；收起/取消则移除 */
   function syncSubRow(entry, c, d, row) {
-    const old = panelMask.querySelector('.h2x-sub[data-c="' + c + '"]');
+    const old = panelMask.querySelector(subSel(c));
     if (d.checked && d.open && !panelHasMerges()) {
       const tmp = document.createElement('div');
       tmp.innerHTML = subHtmlOf(entry, c, d);
@@ -660,13 +660,13 @@
    *  子行「原列」勾选框另有独立语义（仅跳过原列本身，见 subColsHtmlOf/onColChange），
    *  其划线态随「整列是否导出 + 原列是否被跳过」 */
   function syncExportUI(c, d) {
-    const mainRow = panelMask.querySelector('.h2x-col[data-c="' + c + '"]');
+    const mainRow = panelMask.querySelector(colSel(c));
     if (mainRow) {
       mainRow.classList.toggle('noexp', !d.export);
       const ck = mainRow.querySelector('.h2x-ck-x');
       if (ck) ck.checked = d.export;
     }
-    const sub = panelMask.querySelector('.h2x-sub[data-c="' + c + '"]');
+    const sub = panelMask.querySelector(subSel(c));
     if (!sub) return;
     sub.querySelectorAll('.h2x-ck-s').forEach(el => {
       el.disabled = !d.export;
@@ -703,7 +703,7 @@
       syncSplitCtl(panelCols[c], row, d);
       syncSubRow(entry, c, d, row);
       if (d.checked && d.open) {
-        const sub0 = panelMask.querySelector('.h2x-sub[data-c="' + c + '"]');
+        const sub0 = panelMask.querySelector(subSel(c));
         if (sub0) sub0.scrollIntoView({ block: 'nearest' }); // 展开后子行可能超出列区视口
       }
       updateTools();
@@ -721,7 +721,7 @@
       d.fmt = e.target.value === 'number' ? 'number' : 'text'; // 子行不变（拆分新列继承列格式）
     }
     // 模式变化影响同列分隔符/上限可用性（control 无分隔符/上限，block 无分隔符）
-    const sub = panelMask.querySelector('.h2x-sub[data-c="' + c + '"]');
+    const sub = panelMask.querySelector(subSel(c));
     if (sub) {
       const pat = sub.querySelector('.h2x-pattern');
       const lim = sub.querySelector('.h2x-limit');
@@ -765,7 +765,7 @@
       syncSubRow(panelDrafts.get(panelTable), c, d, row);
       if (d.open) {
         // 展开后子行可能超出列区视口（38vh 滚动容器），滚入可见
-        const sub = panelMask.querySelector('.h2x-sub[data-c="' + c + '"]');
+        const sub = panelMask.querySelector(subSel(c));
         if (sub) sub.scrollIntoView({ block: 'nearest' });
       }
       updateTools();
@@ -886,7 +886,7 @@
   }
 
   function refocusGrip(c) {
-    const grip = panelMask.querySelector('.h2x-col[data-c="' + c + '"] .h2x-grip');
+    const grip = panelMask.querySelector(colSel(c) + ' .h2x-grip');
     if (grip) grip.focus();
   }
 
@@ -913,6 +913,8 @@
     // 段值与列名与导出共用 splitSegments / splitColName，保证预览即所得
     const partsOf = (r, c, d) => splitSegments(
       d.mode, (aoa[r] || [])[c], (blocksCh[r] || [])[c], d.pattern, parseLimit(d.limit));
+    // 数字格式预览即所得：数据值经 toNumValue 展示（导出同规则数值化）
+    const numOf = (d) => (v) => (d.fmt === 'number' && v != null && v !== '' ? toNumValue(v) : v);
     let html = '<table><thead><tr>';
     // v2.8：预览按显示序（entry.order）渲染，与导出列序一致（预览即所得）
     entry.order.forEach(c => {
@@ -935,8 +937,7 @@
       entry.order.forEach(c => {
         const d = draft[c];
         if (!d) return;
-        // 数字格式预览即所得：数据值经 toNumValue 展示（导出同规则数值化）
-        const num = (v) => (d.fmt === 'number' && v != null && v !== '' ? toNumValue(v) : v);
+        const num = numOf(d);
         const before = (aoa[r] || [])[c];
         html += '<td' + ((d.export && !srcSkipped(d)) ? '' : ' class="drop"') + '>' +
           escapeHtml(before == null ? '' : String(num(before))) + '</td>';
@@ -1043,10 +1044,10 @@
         if (reopened) renderColList();
         for (const err of errors) {
           if (err.table !== panelTable) continue;
-          const fieldEl = panelMask.querySelector('.h2x-sub[data-c="' + err.c + '"] .h2x-' + err.field);
+          const fieldEl = panelMask.querySelector(subSel(err.c) + ' .h2x-' + err.field);
           if (fieldEl) fieldEl.classList.add('h2x-invalid');
         }
-        const row = panelMask.querySelector('.h2x-col[data-c="' + first.c + '"]');
+        const row = panelMask.querySelector(colSel(first.c));
         if (row) row.scrollIntoView({ block: 'center' });
       }
       errEl.textContent = errors.length
@@ -1094,7 +1095,7 @@
     // （否则「已保存并记住」会让人以为旧配置还在）
     let anyCfg = false;
     for (const table of panelDrafts.keys()) {
-      if (hasCfg(table)) { anyCfg = true; break; }
+      if (deps.hasColCfg(table)) { anyCfg = true; break; }
     }
     closeSplitPanel();
     deps.toast(anyCfg ? t('toastSaved', '列设置已保存并记住，导出时生效')

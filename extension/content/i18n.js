@@ -69,11 +69,13 @@
     return msg;
   }
 
-  /** 拉取指定语言词表（后台消息 → service-worker 读扩展包资源；失败降级返回 null） */
+  /** 拉取指定语言词表（后台消息 → service-worker 读扩展包资源；失败降级返回 null）。
+   *  失败时复位 dictPromise——首拉失败（service worker 唤醒竞态等）不应判整个
+   *  会话死刑，后续切换/init 重试仍可再拉；成功路径的幂等由缓存保证 */
   function loadDict(langCode) {
     if (dictPromise) return dictPromise;
     dictPromise = new Promise((resolve) => {
-      const fail = () => { dict = null; resolve(null); };
+      const fail = () => { dict = null; dictPromise = null; resolve(null); };
       if (!hasRuntime()) { fail(); return; } // 无扩展上下文（Node 回归 / E2E 桩）
       try {
         chrome.runtime.sendMessage({ type: 'h2x-i18n-catalog', lang: langCode }, (resp) => {

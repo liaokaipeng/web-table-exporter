@@ -89,3 +89,7 @@
 - **手动翻页按钮记忆用「页面键 + 表指纹」+ 失效自清（v2.9）**：DOM 元素不可序列化，改存定位器（tag + 非状态特征类 + 序号 + 文本兜底）；表头变更 → 指纹不命中 → 自动失效不误用。按钮点不动时若一直复用会静默退化；故以 `collectPaged()` 的机器可读 `reason`（noNew / tableLost）判定「完全没翻动页面」并清除记忆 + 提示可重新指定，而元素暂时消失（表格重渲染）只回落子模式、保留记忆。
 
 - **虚拟采集窗口衔接用「元素身份优先、内容匹配兜底」（v2.9）**：原实现只按内容求最大公共段（`overlapLen`），「相邻多行内容完全相同」时会把合法重复行误判为窗口重叠而少采（数据 `[X,A,A,A,B]` 的中间窗口丢一行 A）。行节点复用是常态，元素身份是「同一行」的精确证据，故优先用 `refOverlapLen` 求重叠；为防元素跨数据复用误丢行，再用 `refTopsMatch` 做内容二次校验，不符即回落内容匹配；无复用（节点整窗重建）保持 v2.8 行为——三类路径各自安全，零回归。
+
+- **存储面集中 persist，UI 面留 main（重构）**：界面偏好与翻页按钮记忆原在 main.js，但其读写/校验/LRU/fire-and-forget 全是纯存储关注点，与 UI 渲染无关；迁入 persist.js 后 main.js 只留三样 UI 侧东西——模板渲染（`renderNameTpl` 依赖 document.title）、「用户已动过控件」会话守卫（fmtTouched/nameDirty，防异步回填覆盖用户操作）、加载后的 DOM 应用。同理 `hasColCfg`（四 Map 配置判定）单一实现留在数据所有权方 main.js，经 `panel.init` deps 注入面板。边界判据：碰 `chrome.storage` 的进 persist，碰 DOM/会话状态的留 main。
+
+- **工具栏静态文案单一入口 fillStaticTexts（重构）**：原 buildUI 的 innerHTML 骨架与 refreshTexts 各写一遍同一批 `t()`（约 18 处），新增控件文案漏改一处就「切换语言后不变」。改为骨架只放结构与数据驱动内容（格式选项列表），静态文案统一由 fillStaticTexts 填充，启动与语言切换共用；状态相关文案（计数/导出按钮/分页按钮 title/hint）按所有权分归 syncCount / syncExportBtn / updateBar / resetHint。教训：countEl 这类「innerHTML 重建后需重取引用」的节点，查询必须晚于首次渲染（启动时 updateBar 写 countEl.textContent 曾因骨架无 `<b>` 崩溃，E2E 抓到）。

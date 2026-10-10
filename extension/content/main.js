@@ -35,10 +35,12 @@
  * v2.8：导出可中止与列顺序——「取消」按钮在导出期变「停止导出」（exportToken
  * 作废当前任务，已落盘文件保留，不退出选择模式）；列顺序经 colOrders 传入
  * buildAoa 最后一环（reorderColumns）；剪贴板/下载成功 toast 反馈对称（均带退出动作）
- * v2.9：界面偏好与翻页按钮记忆——①输出方式与文件名模板跨会话记住（'h2x.prefs'，
- * 文件名支持 {title}/{date}/{time} 占位符，留空回落默认模板）；②分页采集进度带
+ * v2.9：界面偏好与翻页按钮记忆——① 输出方式与文件名模板跨会话记住（'h2x.prefs'，
+ * 文件名支持 {title}/{date}/{time} 占位符，留空回落默认模板；存储面已迁
+ * persist.prefs，此处只留模板渲染与「已动过控件」会话守卫）；②分页采集进度带
  * 总页数（「第 i/N 页」，见 pagination.js 适配器 totalOf）；③手动指定的翻页按钮
- * 按「页面键 + 表指纹」记住（'h2x.pager.v1'，命中直接复用，未生效自动清除）
+ * 按「页面键 + 表指纹」记住（'h2x.pager.v1'，命中直接复用，未生效自动清除；
+ * 存储面已迁 persist.pager）
  * v2.10：输出方式下拉与导出按钮合并为分体按钮——主按钮导出当前格式（默认 Excel），
  * 右侧箭头下拉选择其他输出方式（透明原生 select 覆盖，保留原生下拉与键盘交互）；
  * 两者启用/禁用同源（未选表或忙态整体灰置），下拉位置即原导出按钮处
@@ -98,19 +100,14 @@
     'copy-md': { key: 'copyMdLabel', fb: '复制为 Markdown' }
   };
 
-  /* ---------------- 界面偏好（v2.9：输出方式 + 文件名模板） ----------------
-   * 存 chrome.storage.local 'h2x.prefs'：{ fmt, name }——fmt 为输出方式下拉值
-   * （五种导出格式 + 两种剪贴板模式），name 为文件名模板（用户编辑过的原文，
-   * 空串 = 用默认模板）。文件名支持 {title}/{date}/{time} 三个占位符，
-   * 未编辑过则每次进入选择模式按当前页面标题与时间重新渲染（与 v2.8 前一致） */
-  const PREF_KEY = 'h2x.prefs';
+  /* ---------------- 界面偏好（v2.9：输出方式 + 文件名模板；存储面在 persist.prefs） ----------------
+   * fmt/name 的读写与校验已迁至 persist.js（纯存储关注点，含 fire-and-forget 落盘
+   * 与增量合并基准），此处只留 UI 侧：模板渲染（document.title）、「用户已动过
+   * 控件」的会话守卫（防异步回填覆盖用户操作）、加载后的 DOM 应用。
+   * fmt 仅认已知值（FORMATS/CLIPBOARD），name 为用户编辑过的模板原文 */
   const NAME_TPL_DEFAULT = '{title}_{date}-{time}'; // {title} 已清洗，整体与旧默认名等价
-  let prefs = { fmt: '', name: '' };
   let fmtTouched = false; // 本次会话用户改过输出方式：异步加载偏好不覆盖用户操作
   let nameDirty = false;  // 本次会话用户改过文件名：blur 时记住为模板
-
-  const hasStorage = () =>
-    typeof chrome !== 'undefined' && !!(chrome.storage && chrome.storage.local);
 
   /** 文件名模板渲染：{title} 页面标题（先清洗非法字符）/ {date} yyyymmdd /
    *  {time} hhmmss。单遍替换——标题里带「{date}」这类字样不会被二次替换 */
@@ -124,98 +121,17 @@
   /** 当前生效的文件名模板：输入框留空 = 回落默认模板（清空即恢复默认命名） */
   const nameTpl = () => (nameInput.value.trim() ? nameInput.value : NAME_TPL_DEFAULT);
 
-  /** 读取界面偏好（注入时一次）：输出方式仅认已知值，文件名回填模板渲染结果；
-   *  用户已动过对应控件则不覆盖（异步间隙保护） */
+  /** 读取界面偏好（注入时一次，存储面经 persist.prefs.load）：输出方式仅认已知值，
+   *  文件名回填模板渲染结果；用户已动过对应控件则不覆盖（异步间隙保护），
+   *  await 期间用户可能已退出选择模式（active 兜底） */
   async function loadPrefs() {
-    if (!hasStorage()) return;
-    try {
-      const data = await chrome.storage.local.get(PREF_KEY);
-      const p = data && data[PREF_KEY];
-      if (!p || typeof p !== 'object') return;
-      prefs = {
-        fmt: typeof p.fmt === 'string' ? p.fmt : '',
-        name: typeof p.name === 'string' ? p.name : ''
-      };
-    } catch (e) {
-      console.warn('[HTML2XLSX] 界面偏好读取失败（按默认值）：', e);
-      return;
-    }
-    if (!active) return;
-    if (!fmtTouched && (FORMATS[prefs.fmt] || CLIPBOARD[prefs.fmt])) {
-      fmtSel.value = prefs.fmt;
+    const p = await persist.prefs.load();
+    if (!p || !active) return;
+    if (!fmtTouched && (FORMATS[p.fmt] || CLIPBOARD[p.fmt])) {
+      fmtSel.value = p.fmt;
       syncExportBtn();
     }
-    if (!nameDirty && prefs.name) nameInput.value = renderNameTpl(prefs.name);
-  }
-
-  /** 写入界面偏好（fire-and-forget：失败降级为本次会话内有效） */
-  function savePrefs(patch) {
-    prefs = Object.assign({}, prefs, patch);
-    if (!hasStorage()) return;
-    try {
-      const p = chrome.storage.local.set({ [PREF_KEY]: prefs });
-      if (p && p.catch) p.catch(() => {});
-    } catch (e) { /* 扩展上下文失效：不影响本次会话已生效的值 */ }
-  }
-
-  /* ---------------- 手动指定的翻页按钮记忆（v2.9） ----------------
-   * 自建分页器每次采集都要手动指定一次「下一页」按钮，重复且易忘。此处把用户
-   * 指定的按钮定位器按「页面键 + 表指纹」记住（chrome.storage.local
-   * 'h2x.pager.v1'，单条记录容纳全部页面，LRU 上限 30 条），下次对同一表格点
-   * 「采集全部页」直接复用、不再进「指定翻页按钮」子模式；复用后未生效
-   * （连续两页无新行 / 表格失联）即清除记忆，避免一直踩失效按钮 */
-  const PAGER_KEY = 'h2x.pager.v1';
-  const PAGER_LIMIT = 30;      // 记忆条数上限（LRU：超出淘汰最旧）
-  const PAGER_SEP = '\u0001';  // 页面键与表指纹分隔（同 persist 表键约定）
-  let pagerMem = {};           // '<页面键>\u0001<表指纹>' -> { loc, updatedAt }
-
-  /** 记忆条目的键：页面键（origin+pathname）+ 表指纹；任一缺失返回 null（不记忆）。
-   *  表头变更 → 指纹变化 → 自动不命中（旧记忆自然失效，无需清理） */
-  function pagerEntryKey(table) {
-    const pk = (typeof location !== 'undefined') ? persist.pageKeyOf(location.href) : null;
-    const tk = persist.tableKeyOf(table);
-    return (pk && tk) ? pk + PAGER_SEP + tk : null;
-  }
-
-  /** 取本表记住的翻页按钮定位器；无记录/结构损坏返回 null */
-  function getPagerMem(table) {
-    const key = pagerEntryKey(table);
-    const loc = key && pagerMem[key] && pagerMem[key].loc;
-    if (!loc || typeof loc.sel !== 'string' || typeof loc.tag !== 'string' ||
-        !Number.isFinite(loc.idx)) return null;
-    return {
-      sel: loc.sel, idx: loc.idx, tag: loc.tag,
-      text: typeof loc.text === 'string' ? loc.text : ''
-    };
-  }
-
-  /** 记住/清除某表的翻页按钮（loc 为 null = 清除）；写入 fire-and-forget */
-  function savePagerMem(table, loc) {
-    const key = pagerEntryKey(table);
-    if (!key) return;
-    if (loc) pagerMem[key] = { loc: loc, updatedAt: Date.now() };
-    else delete pagerMem[key];
-    const keys = Object.keys(pagerMem);
-    if (keys.length > PAGER_LIMIT) {
-      keys.sort((a, b) => ((pagerMem[a] && pagerMem[a].updatedAt) || 0) - ((pagerMem[b] && pagerMem[b].updatedAt) || 0));
-      for (const k of keys.slice(0, keys.length - PAGER_LIMIT)) delete pagerMem[k];
-    }
-    if (!hasStorage()) return;
-    try {
-      const p = chrome.storage.local.set({ [PAGER_KEY]: pagerMem });
-      if (p && p.catch) p.catch(() => {});
-    } catch (e) { /* 扩展上下文失效：不影响本次会话 */ }
-  }
-
-  async function loadPagerMem() {
-    if (!hasStorage()) return;
-    try {
-      const data = await chrome.storage.local.get(PAGER_KEY);
-      const v = data && data[PAGER_KEY];
-      if (v && typeof v === 'object') pagerMem = v;
-    } catch (e) {
-      console.warn('[HTML2XLSX] 翻页按钮记忆读取失败（按未记忆处理）：', e);
-    }
+    if (!nameDirty && p.name) nameInput.value = renderNameTpl(p.name);
   }
 
   let active = true;
@@ -229,7 +145,7 @@
   let sleepInput = null, pageSleepLabelEl = null, sleepUnitEl = null; // v2.13 翻页间隔行节点（同上，语言切换就地重取词）
   let toastRoot = null;
   // v2.14 右侧提醒框（起点归一进行中 / 距第一页过远需手动归一）
-  let sideBox = null, sideIcoEl = null, sideTitleEl = null, sideMsgEl = null;
+  let sideBox = null, sideIcoEl = null, sideTitleEl = null, sideMsgEl = null, sideXBtn = null;
   let sideKind = '';   // '' = 隐藏 | 'norm' 归一进行中 | 'toofar' 距第一页过远待手动归一
   let sidePage = 0;    // 提醒框关联的当前页（0 = 读不到页码）
   let hoverTable = null;
@@ -383,52 +299,55 @@
       '  @keyframes h2x-in{from{opacity:0;transform:translateY(-8px);}}',
       '  @media (prefers-reduced-motion: reduce){:host *{animation:none!important;transition:none!important;}}',
       '</style>',
+      // 骨架只放结构与数据驱动内容（格式选项列表）；全部静态文案经
+      // fillStaticTexts() 统一填充——与语言切换的 refreshTexts 同一入口，
+      // 杜绝同一批 t() 在 buildUI / refreshTexts 双写（改一处漏一处）
       '<div class="h2x-hover" hidden></div>',
       '<div class="h2x-bar">',
       '  <span class="h2x-hint"></span>',
-      '  <span class="h2x-count">' + t('selectedCount', '已选 <b>0</b> 个', '0') + '</span>',
+      '  <span class="h2x-count"></span>',
       '  <button type="button" class="h2x-clear" hidden>✕</button>',
       '  <input class="h2x-name" type="text" spellcheck="false" />',
       '  <div class="h2x-actions">',
-      '    <button class="h2x-btn h2x-split" disabled>' + t('btnColSettings', '列设置') + '</button>',
+      '    <button class="h2x-btn h2x-split" disabled></button>',
       '    <div class="h2x-pagewrap">',
-      '      <button type="button" class="h2x-btn h2x-pagebtn" aria-haspopup="dialog" aria-expanded="false" disabled title="' + t('pageBtnTitleDefault', '自动翻页采集已选中表格：点开可设置页数上限，识别不到分页器时可指定翻页按钮') + '">' + t('btnCollectAll', '采集全部页') + '<i class="h2x-care" aria-hidden="true">▾</i></button>',
-      '      <div class="h2x-pagemenu" role="dialog" aria-label="' + t('pageMenuAria', '分页采集设置') + '" hidden>',
-      '        <div class="h2x-pagemenu-title">' + t('pageMenuTitle', '分页采集') + '</div>',
-      '        <div class="h2x-pagemenu-sub">' + t('pageMenuSub', '留空则采集全部页；识别不到分页器时会提示手动指定「下一页」按钮') + '</div>',
+      '      <button type="button" class="h2x-btn h2x-pagebtn" aria-haspopup="dialog" aria-expanded="false" disabled></button>',
+      '      <div class="h2x-pagemenu" role="dialog" hidden>',
+      '        <div class="h2x-pagemenu-title"></div>',
+      '        <div class="h2x-pagemenu-sub"></div>',
       '        <div class="h2x-pagemenu-row">',
-      '          <label for="h2x-pages">' + t('pageLimitLabel', '页数上限') + '</label>',
-      '          <input class="h2x-pages" id="h2x-pages" type="number" min="1" step="1" placeholder="' + t('pageLimitPh', '全部') + '" title="' + t('pageLimitTitle', '只采集前 N 页，留空 = 全部页') + '" aria-label="' + t('pageLimitAria', '采集页数上限（留空为全部页）') + '" />',
-      '          <span class="h2x-pageunit">' + t('pageUnit', '页') + '</span>',
+      '          <label for="h2x-pages"></label>',
+      '          <input class="h2x-pages" id="h2x-pages" type="number" min="1" step="1" />',
+      '          <span class="h2x-pageunit"></span>',
       '        </div>',
       '        <div class="h2x-pagemenu-row h2x-sleeprow">',
-      '          <label for="h2x-sleep">' + t('pageSleepLabel', '翻页间隔') + '</label>',
-      '          <input class="h2x-sleep" id="h2x-sleep" type="number" min="0" step="0.1" value="0.5" placeholder="' + t('pageSleepPh', '0.5') + '" title="' + t('pageSleepTitle', '每采完一页、翻下一页前停顿 N 秒（防限流/减压），留空 = 0.5 秒') + '" aria-label="' + t('pageSleepAria', '每页翻页间隔秒数（留空为 0.5 秒）') + '" />',
-      '          <span class="h2x-pageunit">' + t('pageSleepUnit', '秒') + '</span>',
+      '          <label for="h2x-sleep"></label>',
+      '          <input class="h2x-sleep" id="h2x-sleep" type="number" min="0" step="0.1" value="0.5" />',
+      '          <span class="h2x-pageunit"></span>',
       '        </div>',
       '        <div class="h2x-pagemenu-actions">',
-      '          <button type="button" class="h2x-btn h2x-ghost h2x-pagecancel">' + t('btnCancelShort', '取消') + '</button>',
-      '          <button type="button" class="h2x-btn h2x-primary h2x-pagego">' + t('btnStart', '开始采集') + '</button>',
+      '          <button type="button" class="h2x-btn h2x-ghost h2x-pagecancel"></button>',
+      '          <button type="button" class="h2x-btn h2x-primary h2x-pagego"></button>',
       '        </div>',
       '      </div>',
       '    </div>',
       '    <button class="h2x-btn h2x-primary h2x-exp" disabled></button>',
       // v2.11 右侧箭头按钮开合自绘菜单；隐藏 select 仅作格式状态与词条来源（不参与交互）
       '    <span class="h2x-expwrap">',
-      '      <button type="button" class="h2x-expdrop" disabled aria-haspopup="listbox" aria-expanded="false" aria-label="' + t('exportFormatTitle', '导出格式 / 复制到剪贴板') + '" title="' + t('exportFormatTitle', '导出格式 / 复制到剪贴板') + '">',
+      '      <button type="button" class="h2x-expdrop" disabled aria-haspopup="listbox" aria-expanded="false"></button>',
       '        <i class="h2x-expcare" aria-hidden="true">▾</i>',
       '      </button>',
       '      <select class="h2x-ext" hidden tabindex="-1" aria-hidden="true">' +
       Object.keys(FORMATS).map(k => '<option value="' + k + '">' + FORMATS[k].label + ' (.' + FORMATS[k].ext + ')</option>').join('') +
       Object.keys(CLIPBOARD).map(k => '<option value="' + k + '">' + t(CLIPBOARD[k].key, CLIPBOARD[k].fb) + '</option>').join('') +
       '</select>',
-      '      <div class="h2x-expmenu" role="listbox" aria-label="' + t('exportFormatTitle', '导出格式 / 复制到剪贴板') + '" hidden>' +
+      '      <div class="h2x-expmenu" role="listbox" hidden>' +
       Object.keys(FORMATS).map(k => '<button type="button" class="h2x-expopt" role="option" data-k="' + k + '" aria-selected="false">' + FORMATS[k].label + ' (.' + FORMATS[k].ext + ')</button>').join('') +
       '<div class="h2x-expsep" aria-hidden="true"></div>' +
       Object.keys(CLIPBOARD).map(k => '<button type="button" class="h2x-expopt" role="option" data-k="' + k + '" aria-selected="false">' + t(CLIPBOARD[k].key, CLIPBOARD[k].fb) + '</button>').join('') +
       '</div>',
       '    </span>',
-      '    <button class="h2x-btn h2x-ghost">' + t('btnCancel', '取消 (Esc)') + '</button>',
+      '    <button class="h2x-btn h2x-ghost"></button>',
       '  </div>',
       // v2.6.1 语言分段开关：按钮文案即语言自称（中文/EN），刻意双语恒定、不随
       // 界面语言取词——任何语言下都能自指其名；aria-pressed 标注当前生效语言
@@ -444,18 +363,15 @@
       '  <div class="h2x-side-row">',
       '    <span class="h2x-side-ico" aria-hidden="true">i</span>',
       '    <span class="h2x-side-title"></span>',
-      '    <button type="button" class="h2x-side-x" aria-label="' + t('closeAria', '关闭') + '">×</button>',
+      '    <button type="button" class="h2x-side-x">×</button>',
       '  </div>',
       '  <div class="h2x-side-msg"></div>',
       '</div>'
     ].join('');
 
     hoverBox = root.querySelector('.h2x-hover');
-    countWrap = root.querySelector('.h2x-count');
-    countEl = root.querySelector('.h2x-count b');
+    countWrap = root.querySelector('.h2x-count'); // countEl 由 syncCount 渲染后取得（<b> 才存在）
     clearBtn = root.querySelector('.h2x-clear');
-    clearBtn.title = t('btnClearTitle', '清空已选表格');
-    clearBtn.setAttribute('aria-label', clearBtn.title);
     nameInput = root.querySelector('.h2x-name');
     fmtSel = root.querySelector('.h2x-ext');        // v2.11 隐藏的原生 select：格式状态 + 词条来源
     expWrap = root.querySelector('.h2x-expwrap');   // v2.11 自绘下拉：箭头按钮 + 菜单（禁用态同步）
@@ -488,7 +404,8 @@
     sideIcoEl = root.querySelector('.h2x-side-ico');
     sideTitleEl = root.querySelector('.h2x-side-title');
     sideMsgEl = root.querySelector('.h2x-side-msg');
-    root.querySelector('.h2x-side-x').addEventListener('click', () => {
+    sideXBtn = root.querySelector('.h2x-side-x');
+    sideXBtn.addEventListener('click', () => {
       sideKind = ''; // 手动关闭：清状态（下次触发按新状态重显）
       sideBox.hidden = true;
     });
@@ -527,11 +444,60 @@
     // v2.9 文件名：编辑过即记住为模板（blur 时落盘，点导出按钮会先触发 blur）；
     // 清空输入框 = 回落默认命名
     nameInput.addEventListener('input', () => { nameDirty = true; });
-    nameInput.addEventListener('blur', () => { if (nameDirty) savePrefs({ name: nameInput.value.trim() }); });
+    nameInput.addEventListener('blur', () => { if (nameDirty) persist.prefs.save({ name: nameInput.value.trim() }); });
 
+    fillStaticTexts(); // 静态文案统一入口（语言切换经 refreshTexts 重走，杜绝双写）
+    syncCount(); // 计数含 <b> 骨架：updateBar 热路径只改 textContent，不重建 DOM
+    nameInput.value = renderNameTpl(NAME_TPL_DEFAULT);
+  }
+
+  /** 静态文案统一填充（buildUI 结尾与语言切换 refreshTexts 共用同一入口）：
+   *  工具栏 / 分页面板 / 输出方式菜单 / 提醒框的全部 t() 文案只此一处定义。
+   *  状态相关文案不在此列——计数（selected.size）、导出按钮（当前格式）、
+   *  分页按钮 title（单表/多表）、hint（引导/进行时）由 updateBar /
+   *  syncExportBtn / resetHint / renderSide 按各自状态渲染 */
+  function fillStaticTexts() {
+    clearBtn.title = t('btnClearTitle', '清空已选表格');
+    clearBtn.setAttribute('aria-label', clearBtn.title);
     nameInput.title = t('nameTplTitle', '文件名：{title} 页面标题、{date} 日期、{time} 时间；留空 = 默认命名');
     nameInput.setAttribute('aria-label', nameInput.title);
-    nameInput.value = renderNameTpl(NAME_TPL_DEFAULT);
+    splitBtn.textContent = t('btnColSettings', '列设置');
+    cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
+    // v2.11：自绘下拉——箭头按钮与菜单的 aria/title；剪贴板项文案随语言变
+    // （文件格式项文案不含语言）；隐藏 select 的 option 文本不再展示
+    expDrop.title = t('exportFormatTitle', '导出格式 / 复制到剪贴板');
+    expDrop.setAttribute('aria-label', expDrop.title);
+    expMenu.setAttribute('aria-label', expDrop.title);
+    for (const k of Object.keys(CLIPBOARD)) {
+      const opt = expMenu.querySelector('.h2x-expopt[data-k="' + k + '"]');
+      if (opt) opt.textContent = t(CLIPBOARD[k].key, CLIPBOARD[k].fb);
+    }
+    pageBtn.innerHTML = t('btnCollectAll', '采集全部页') + '<i class="h2x-care" aria-hidden="true">▾</i>';
+    // 分页面板静态行文案（当前若展开会被先收拢，此处刷新的是下次展开内容）
+    pageMenu.setAttribute('aria-label', t('pageMenuAria', '分页采集设置'));
+    menuTitleEl.textContent = t('pageMenuTitle', '分页采集');
+    menuSubEl.textContent = t('pageMenuSub', '留空则采集全部页；识别不到分页器时会提示手动指定「下一页」按钮');
+    pageLimitLabelEl.textContent = t('pageLimitLabel', '页数上限');
+    pagesInput.placeholder = t('pageLimitPh', '全部');
+    pagesInput.title = t('pageLimitTitle', '只采集前 N 页，留空 = 全部页');
+    pagesInput.setAttribute('aria-label', t('pageLimitAria', '采集页数上限（留空为全部页）'));
+    pageUnitEl.textContent = t('pageUnit', '页');
+    // v2.13 翻页间隔行静态文案
+    pageSleepLabelEl.textContent = t('pageSleepLabel', '翻页间隔');
+    sleepInput.placeholder = t('pageSleepPh', '0.5');
+    sleepInput.title = t('pageSleepTitle', '每采完一页、翻下一页前停顿 N 秒（防限流/减压），留空 = 0.5 秒');
+    sleepInput.setAttribute('aria-label', t('pageSleepAria', '每页翻页间隔秒数（留空为 0.5 秒）'));
+    sleepUnitEl.textContent = t('pageSleepUnit', '秒');
+    pageCancelBtn.textContent = t('btnCancelShort', '取消');
+    pageGoBtn.textContent = t('btnStart', '开始采集');
+    sideXBtn.setAttribute('aria-label', t('closeAria', '关闭'));
+  }
+
+  /** 已选计数渲染：innerHTML 重建 <b> 后必须重取 countEl 引用——updateBar 的
+   *  热路径只改 textContent 不重建，引用依赖本次渲染的结果 */
+  function syncCount() {
+    countWrap.innerHTML = t('selectedCount', '已选 <b>' + selected.size + '</b> 个', String(selected.size));
+    countEl = countWrap.querySelector('b');
   }
 
   // 导出按钮文案与格式下拉同步（含「导出中…」结束后的恢复）
@@ -557,7 +523,7 @@
   function applyFmt() {
     fmtTouched = true;
     syncExportBtn();
-    savePrefs({ fmt: fmtSel.value });
+    persist.prefs.save({ fmt: fmtSel.value });
   }
 
   /** 选中态同步：按隐藏 select 的当前值标记菜单项（程序化改值后仍一致） */
@@ -617,45 +583,14 @@
   }
 
   /** 工具栏静态文案就地重取词（语言切换/偏好恢复后调用；进行时文案由各流程
-   *  t() 动态取词天然生效，无需在此处理）。只在空闲态被调用——切换期间
-   *  collecting/exporting/panel/specifying 任一进行都会禁用语言开关 */
+   *  t() 动态取词天然生效，无需在此处理）。静态文案统一走 fillStaticTexts
+   *  （与 buildUI 同一入口，不双写）；此处只补状态相关文案：计数、导出按钮
+   *  文案、提醒框、hint。只在空闲态被调用——切换期间 collecting/exporting/
+   *  panel/specifying 任一进行都会禁用语言开关 */
   function refreshTexts() {
-    countWrap.innerHTML = t('selectedCount', '已选 <b>' + selected.size + '</b> 个', String(selected.size));
-    countEl = countWrap.querySelector('b'); // innerHTML 重建了 <b>，重取引用
-    // v2.11：自绘菜单文案重取词——剪贴板项随语言变（文件格式项文案不含语言）；
-    // 隐藏 select 的 option 文本不再展示，只保菜单一致
-    expDrop.title = t('exportFormatTitle', '导出格式 / 复制到剪贴板');
-    expDrop.setAttribute('aria-label', expDrop.title);
-    expMenu.setAttribute('aria-label', expDrop.title);
-    for (const k of Object.keys(CLIPBOARD)) {
-      const opt = expMenu.querySelector('.h2x-expopt[data-k="' + k + '"]');
-      if (opt) opt.textContent = t(CLIPBOARD[k].key, CLIPBOARD[k].fb);
-    }
-    clearBtn.title = t('btnClearTitle', '清空已选表格');
-    clearBtn.setAttribute('aria-label', clearBtn.title);
-    nameInput.title = t('nameTplTitle', '文件名：{title} 页面标题、{date} 日期、{time} 时间；留空 = 默认命名');
-    nameInput.setAttribute('aria-label', nameInput.title);
-    splitBtn.textContent = t('btnColSettings', '列设置');
-    cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
+    fillStaticTexts();
+    syncCount();
     syncExportBtn();
-    pageBtn.innerHTML = t('btnCollectAll', '采集全部页') + '<i class="h2x-care" aria-hidden="true">▾</i>';
-    // 分页面板静态行文案（当前若展开会被先收拢，此处刷新的是下次展开内容）
-    pageBtn.title = t('pageBtnTitleDefault', '自动翻页采集已选中表格：点开可设置页数上限，识别不到分页器时可指定翻页按钮');
-    menuTitleEl.textContent = t('pageMenuTitle', '分页采集');
-    menuSubEl.textContent = t('pageMenuSub', '留空则采集全部页；识别不到分页器时会提示手动指定「下一页」按钮');
-    pageLimitLabelEl.textContent = t('pageLimitLabel', '页数上限');
-    pagesInput.placeholder = t('pageLimitPh', '全部');
-    pagesInput.title = t('pageLimitTitle', '只采集前 N 页，留空 = 全部页');
-    pagesInput.setAttribute('aria-label', t('pageLimitAria', '采集页数上限（留空为全部页）'));
-    pageUnitEl.textContent = t('pageUnit', '页');
-    // v2.13 翻页间隔行静态文案
-    pageSleepLabelEl.textContent = t('pageSleepLabel', '翻页间隔');
-    sleepInput.placeholder = t('pageSleepPh', '0.5');
-    sleepInput.title = t('pageSleepTitle', '每采完一页、翻下一页前停顿 N 秒（防限流/减压），留空 = 0.5 秒');
-    sleepInput.setAttribute('aria-label', t('pageSleepAria', '每页翻页间隔秒数（留空为 0.5 秒）'));
-    sleepUnitEl.textContent = t('pageSleepUnit', '秒');
-    pageCancelBtn.textContent = t('btnCancelShort', '取消');
-    pageGoBtn.textContent = t('btnStart', '开始采集');
     // v2.14：右侧提醒框按当前状态就地重取词（sticky 的「请先返回第一页」可跨
     // 语言切换留存；隐藏态无状态不渲染）
     if (sideKind) renderSide();
@@ -1052,8 +987,13 @@
     resetHint();
   }
 
-  async function startCollect(table) {
-    if (collecting) return;
+  /** 采集任务公共骨架（虚拟滚动 startCollect / 分页翻页 startPagedCollect 共用）：
+   *  进入置忙态（collecting 互斥 + 按钮组禁用 + 「停止采集」），退出在 finally
+   *  无条件还原。fn 接收本次代际 gen（检查点比对用）；label 用于错误日志区分
+   *  两条路径。进行中提示由 fn 自行 setHint（虚拟/分页文案不同），采集中需要
+   *  的额外 UI 收敛（收拢分页面板等）也写在 fn 开头——同步段先于首个 await 执行 */
+  async function withCollecting(fn, label) {
+    if (collecting) return; // 互斥（按钮已禁用，防御性兜底）
     collecting = true;
     const gen = ++genToken;
     hoverBox.hidden = true;
@@ -1061,8 +1001,22 @@
     lockExpDrop();
     splitBtn.disabled = true;
     cancelBtn.textContent = t('btnStop', '停止采集'); // v2.0：采集中可中止（不退出选择模式）
-    setHint(t('hintVirtual', '虚拟表格采集滚动中…'), '#1976d2');
     try {
+      await fn(gen);
+    } catch (err) {
+      console.error('[HTML2XLSX] ' + label + '采集失败：', err);
+      toast(t('toastCollectFail', '采集失败：' + (err && err.message ? err.message : err), err && err.message ? err.message : err), { type: 'error' });
+      resetHint();
+    } finally {
+      collecting = false;
+      cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
+      updateBar();
+    }
+  }
+
+  function startCollect(table) {
+    return withCollecting(async (gen) => {
+      setHint(t('hintVirtual', '虚拟表格采集滚动中…'), '#1976d2');
       const snap = await collectVirtual(
         table,
         (n) => { if (gen === genToken) setHint(t('hintVirtualN', '虚拟表格采集滚动中… 已采集 ' + n + ' 行', n), '#1976d2'); },
@@ -1073,15 +1027,7 @@
       addSelected(table);
       toast(t('toastCollectDone', '采集完成，共 ' + snap.rows.length + ' 行（含表头）', snap.rows.length), { type: 'success' });
       resetHint();
-    } catch (err) {
-      console.error('[HTML2XLSX] 虚拟表格采集失败：', err);
-      toast(t('toastCollectFail', '采集失败：' + (err && err.message ? err.message : err), err && err.message ? err.message : err), { type: 'error' });
-      resetHint();
-    } finally {
-      collecting = false;
-      cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
-      updateBar();
-    }
+    }, '虚拟表格');
   }
 
   /** v2.0：停止当前虚拟采集——genToken 作废进行中任务（collectVirtual 回 null、
@@ -1137,7 +1083,7 @@
     }
     const pager = detectPager(table);
     if (pager) { startPagedCollect(table, pager, false); return; }
-    const remembered = getPagerMem(table);
+    const remembered = persist.pager.get(table);
     const reused = remembered && pagerByLocator(remembered);
     if (reused) { // v2.9：复用记忆的翻页按钮（元素已不在页面/解析失败时回落指定子模式）
       toast(t('toastPagerReused', '已复用上次指定的翻页按钮'), { type: 'info' });
@@ -1173,26 +1119,18 @@
    *  v2.9：fromMemory = 复用记忆的翻页按钮；手动指定（含复用）时把定位器写入
    *  记忆，复用后未生效（连续两页无新行 / 表格失联）即清除，避免一直踩失效按钮 */
   async function startPagedCollect(table, pager, fromMemory) {
-    if (collecting) return;
-    collecting = true;
-    const gen = ++genToken;
-    hoverBox.hidden = true;
-    exportBtn.disabled = true;
-    lockExpDrop();
-    splitBtn.disabled = true;
-    closePageMenu(); // v2.5.2 采集中收拢下拉并禁用主按钮（updateBar 同步）
-    pageBtn.disabled = true;
-    cancelBtn.textContent = t('btnStop', '停止采集'); // 复用虚拟采集的中止交互
-    setHint(t('hintPaged', '分页采集翻页中…'), '#1976d2');
-    const manual = pager.name === 'manual' && pager.loc; // 手动指定/记忆复用的翻页按钮
-    if (manual) savePagerMem(table, pager.loc); // 记住用户指定的按钮（复用路径写入最新定位器，索引漂移自愈）
-    // 页数上限：输入框留空/非法值 = 0 = 采集全部页
-    const n = parseInt(pagesInput.value, 10);
-    const maxPages = (Number.isFinite(n) && n >= 1) ? n : 0;
-    // v2.13 翻页间隔：秒 → 毫秒。留空/非法 = 默认 0.5s；上限 600s 防误填天量值
-    const sv = parseFloat(sleepInput.value);
-    const pageSleep = (Number.isFinite(sv) && sv >= 0) ? Math.min(Math.round(sv * 1000), 600000) : 500;
-    try {
+    await withCollecting(async (gen) => {
+      closePageMenu(); // v2.5.2 采集中收拢下拉并禁用主按钮（updateBar 同步）
+      pageBtn.disabled = true;
+      setHint(t('hintPaged', '分页采集翻页中…'), '#1976d2');
+      const manual = pager.name === 'manual' && pager.loc; // 手动指定/记忆复用的翻页按钮
+      if (manual) persist.pager.save(table, pager.loc); // 记住用户指定的按钮（复用路径写入最新定位器，索引漂移自愈）
+      // 页数上限：输入框留空/非法值 = 0 = 采集全部页
+      const n = parseInt(pagesInput.value, 10);
+      const maxPages = (Number.isFinite(n) && n >= 1) ? n : 0;
+      // v2.13 翻页间隔：秒 → 毫秒。留空/非法 = 默认 0.5s；上限 600s 防误填天量值
+      const sv = parseFloat(sleepInput.value);
+      const pageSleep = (Number.isFinite(sv) && sv >= 0) ? Math.min(Math.round(sv * 1000), 600000) : 500;
       const res = await collectPaged(
         table, pager,
         // v2.9：分页器给出总页数时显示「第 i/N 页」，否则只显示当前页（0 = 未知）
@@ -1225,7 +1163,7 @@
         if (!selected.has(key)) addSelected(key);
         // v2.9：手动翻页按钮没翻动（连续两页无新行 / 表格失联）→ 清除记忆，别让下次继续踩
         if (manual && (res.reason === 'noNew' || res.reason === 'tableLost')) {
-          savePagerMem(key, null);
+          persist.pager.save(key, null);
           if (fromMemory) {
             toast(t('toastPagerForgotten', '上次记住的翻页按钮未生效，已清除记忆；再点「采集全部页」可重新指定'), { type: 'warn' });
           }
@@ -1234,15 +1172,7 @@
           (res.note ? t('noteSep', '，') + res.note : ''), { type: res.note ? 'info' : 'success' });
       }
       resetHint();
-    } catch (err) {
-      console.error('[HTML2XLSX] 分页采集失败：', err);
-      toast(t('toastCollectFail', '采集失败：' + (err && err.message ? err.message : err), err && err.message ? err.message : err), { type: 'error' });
-      resetHint();
-    } finally {
-      collecting = false;
-      cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
-      updateBar();
-    }
+    }, '分页');
   }
 
   function updateBar() {
@@ -1545,13 +1475,13 @@
       //    v2.0：多文件时 toast 实时进度「正在下载 i/n」
       let pt = null;
       if (files.length > 1) pt = toast(t('toastDownloading', '正在下载 1/' + files.length + '…', 1, files.length), { type: 'info', sticky: true });
-      for (let fi = 0; fi < files.length; fi++) {
+      for (const [fi, file] of files.entries()) {
         if (!active || gen !== exportToken) { // 编码间隙用户已退出 / 已停止导出，放弃剩余下载
           if (pt) pt.close();
           return;
         }
         if (pt) pt.update(t('toastDownloading', '正在下载 ' + (fi + 1) + '/' + files.length + '…', fi + 1, files.length));
-        await downloadFile(await arrayBufferToBase64(files[fi].buf), files[fi]);
+        await downloadFile(await arrayBufferToBase64(file.buf), file);
         done++;
         await yieldToMain();
       }
@@ -1621,15 +1551,16 @@
     colFilters: colFilters,
     colFormats: colFormats,
     colOrders: colOrders,
+    hasColCfg: hasColCfg, // 配置判定单一实现（面板页签点/保存提示与主工具栏徽标共用）
     isBusy: () => collecting,
     isAlive: () => active,
     updateBar: updateBar,
     toast: toast
   });
   syncLangUI(); // 工具栏语言开关初始高亮（默认按浏览器语言，见 i18n.js）
-  // v2.9：异步读界面偏好（输出方式 + 文件名模板）与手动翻页按钮记忆
+  // v2.9：异步读界面偏好（输出方式 + 文件名模板）与手动翻页按钮记忆（存储面在 persist）
   loadPrefs();
-  loadPagerMem();
+  persist.pager.load();
   // v2.6.1：异步读取存储里的手动语言偏好；与初始（浏览器语言）不一致才就地重取词
   if (ns.i18n) {
     const langBefore = ns.i18n.langOf();

@@ -1,6 +1,8 @@
 /**
- * 拆分规则/列筛选/列格式/列顺序持久化（v1.7 起，v1.9 增列格式，v2.8 增列顺序与
- * 跨设备同步）：chrome.storage.local（真相源）+ chrome.storage.sync（镜像）
+ * 持久化模块：拆分规则/列筛选/列格式/列顺序（v1.7 起，v1.9 增列格式，v2.8 增列顺序与
+ * 跨设备同步）+ 界面偏好（v2.9）与手动翻页按钮记忆（v2.9）——后两者原在 main.js，
+ * 因其纯存储面（无 DOM 应用逻辑）迁入本模块集中管理，main.js 只留渲染与会话守卫
+ * - 列设置：chrome.storage.local（真相源）+ chrome.storage.sync（镜像）
  * - 页面键 = origin + pathname（忽略 query/hash：分页/筛选参数不拆散同一份配置）
  * - 表指纹 = 表头单元格文本归一化后以 \u0001 拼接（thead 无 tr 的组件库写法兼容；
  *   指纹绝不取数据行——虚拟滚动数据行动态渲染会不稳定）；保存与恢复同用本函数
@@ -305,6 +307,108 @@
     return out;
   }
 
+  /* ---------------- 界面偏好（v2.9 起，自 main.js 迁入） ----------------
+   * chrome.storage.local 'h2x.prefs'：{ fmt, name }——fmt 为输出方式下拉值
+   * （五种导出格式 + 两种剪贴板模式），name 为文件名模板（用户编辑过的原文，
+   * 空串 = 用默认模板）。文件名支持 {title}/{date}/{time} 三个占位符。
+   * 本模块只存不渲染：模板渲染（document.title）与「用户已动过控件」的会话
+   * 守卫（fmtTouched/nameDirty）属 UI 关注点，留在 main.js */
+  const PREF_KEY = 'h2x.prefs';
+  let prefs = { fmt: '', name: '' };
+
+  /** 读取界面偏好（注入时一次）：返回归一化补丁 { fmt, name } 或 null（无记录/
+   *  无存储/读取失败）。同时合并进模块内 prefs——后续 save 的增量补丁以此为
+   *  基准，避免只存一个字段时丢掉另一个（如改了 fmt 不丢 name 模板） */
+  async function prefsLoad() {
+    if (!hasStorage()) return null;
+    try {
+      const data = await chrome.storage.local.get(PREF_KEY);
+      const p = data && data[PREF_KEY];
+      if (!p || typeof p !== 'object') return null;
+      prefs = {
+        fmt: typeof p.fmt === 'string' ? p.fmt : '',
+        name: typeof p.name === 'string' ? p.name : ''
+      };
+      return { fmt: prefs.fmt, name: prefs.name };
+    } catch (e) {
+      console.warn('[HTML2XLSX] 界面偏好读取失败（按默认值）：', e);
+      return null;
+    }
+  }
+
+  /** 写入界面偏好（fire-and-forget：失败降级为本次会话内有效） */
+  function prefsSave(patch) {
+    prefs = Object.assign({}, prefs, patch);
+    if (!hasStorage()) return;
+    try {
+      const p = chrome.storage.local.set({ [PREF_KEY]: prefs });
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* 扩展上下文失效：不影响本次会话已生效的值 */ }
+  }
+
+  /* ---------------- 手动指定的翻页按钮记忆（v2.9 起，自 main.js 迁入） ----------------
+   * 自建分页器每次采集都要手动指定一次「下一页」按钮，重复且易忘。此处把用户
+   * 指定的按钮定位器按「页面键 + 表指纹」记住（chrome.storage.local
+   * 'h2x.pager.v1'，单条记录容纳全部页面，LRU 上限 30 条），下次对同一表格点
+   * 「采集全部页」直接复用、不再进「指定翻页按钮」子模式；复用后未生效
+   * （连续两页无新行 / 表格失联）即清除记忆，避免一直踩失效按钮 */
+  const PAGER_KEY = 'h2x.pager.v1';
+  const PAGER_LIMIT = 30;      // 记忆条数上限（LRU：超出淘汰最旧）
+  const PAGER_SEP = '\u0001';  // 页面键与表指纹分隔（同表键约定）
+  let pagerMem = {};           // '<页面键>\u0001<表指纹>' -> { loc, updatedAt }
+
+  /** 记忆条目的键：页面键（origin+pathname）+ 表指纹；任一缺失返回 null（不记忆）。
+   *  表头变更 → 指纹变化 → 自动不命中（旧记忆自然失效，无需清理）。
+   *  页面键每次现算（与迁移前 main.js 语义一致：SPA 改址后按新页面键记忆） */
+  function pagerEntryKey(table) {
+    let pk = null;
+    try { pk = pageKeyOf(location.href); } catch (e) { /* 无 location 环境 */ }
+    const tk = tableKeyOf(table);
+    return (pk && tk) ? pk + PAGER_SEP + tk : null;
+  }
+
+  /** 取本表记住的翻页按钮定位器；无记录/结构损坏返回 null */
+  function pagerGet(table) {
+    const key = pagerEntryKey(table);
+    const loc = key && pagerMem[key] && pagerMem[key].loc;
+    if (!loc || typeof loc.sel !== 'string' || typeof loc.tag !== 'string' ||
+        !Number.isFinite(loc.idx)) return null;
+    return {
+      sel: loc.sel, idx: loc.idx, tag: loc.tag,
+      text: typeof loc.text === 'string' ? loc.text : ''
+    };
+  }
+
+  /** 记住/清除某表的翻页按钮（loc 为 null = 清除）；写入 fire-and-forget */
+  function pagerSave(table, loc) {
+    const key = pagerEntryKey(table);
+    if (!key) return;
+    if (loc) pagerMem[key] = { loc: loc, updatedAt: Date.now() };
+    else delete pagerMem[key];
+    const keys = Object.keys(pagerMem);
+    if (keys.length > PAGER_LIMIT) {
+      keys.sort((a, b) => ((pagerMem[a] && pagerMem[a].updatedAt) || 0) - ((pagerMem[b] && pagerMem[b].updatedAt) || 0));
+      for (const k of keys.slice(0, keys.length - PAGER_LIMIT)) delete pagerMem[k];
+    }
+    if (!hasStorage()) return;
+    try {
+      const p = chrome.storage.local.set({ [PAGER_KEY]: pagerMem });
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* 扩展上下文失效：不影响本次会话 */ }
+  }
+
+  /** 注入时预载翻页按钮记忆（fire-and-forget；失败按未记忆处理） */
+  async function pagerLoad() {
+    if (!hasStorage()) return;
+    try {
+      const data = await chrome.storage.local.get(PAGER_KEY);
+      const v = data && data[PAGER_KEY];
+      if (v && typeof v === 'object') pagerMem = v;
+    } catch (e) {
+      console.warn('[HTML2XLSX] 翻页按钮记忆读取失败（按未记忆处理）：', e);
+    }
+  }
+
   loadRecords();
 
   ns.persist = {
@@ -314,6 +418,8 @@
     evictKeys: evictKeys,
     getSaved: getSaved,
     save: save,
-    ready: ready
+    ready: ready,
+    prefs: { load: prefsLoad, save: prefsSave },
+    pager: { get: pagerGet, save: pagerSave, load: pagerLoad }
   };
 })();

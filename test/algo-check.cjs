@@ -22,7 +22,7 @@ function loadModule(relPath, modName, preNs) {
 const { overlapLen, refOverlapLen, refTopsMatch } = loadModule('virtual.js', 'virtual');
 const {
   splitByDelimiter, splitBlocks, limitBlocks, splitSegments, splitColName,
-  resolveRuleCol, colKeys, columnLayout, filterColumns, reorderColumns, applyColumnSplits,
+  resolveRuleCol, colKeys, columnLayout, keepColIdx, filterColumns, reorderColumns, applyColumnSplits,
   toNumValue, formatColumns, applyColFormats, cellWidth, autoColWidths
 } = loadModule('split.js', 'split');
 const { pairSplitGroup, makeSheetName, gridHeaderCellsOf, rowsSortedByRowIndex,
@@ -562,6 +562,15 @@ check('filter 全排除防御原样',
 check('filter 短行补空',
   filterColumns([['A', 'A1', 'A2', 'B'], ['x']], layoutF, new Set(['A#2'])),
   [['A', 'A1', 'B'], ['x', '', '']]);
+
+// 43b. keepColIdx：三处保留判定（filter/reorder/format）的共用纯函数
+check('keepColIdx 部分排除返回保留列号',
+  keepColIdx(layoutF, new Set(['A', 'A#1'])), [2, 3]);
+check('keepColIdx 无排除 / null / 空集 / 不存在的 key 均返回 null（调用方原样短路）',
+  [keepColIdx(layoutF, null), keepColIdx(layoutF, new Set()), keepColIdx(layoutF, new Set(['不存在']))],
+  [null, null, null]);
+check('keepColIdx 全排除返回 null（防御：UI 已阻止全排除）',
+  keepColIdx(layoutF, new Set(['A', 'A#1', 'A#2', 'B'])), null);
 
 // 44. 端到端：拆分 + 筛选组合（导出主链路）：拆分结果与 layout 列号严格对齐
 const chE2E = {

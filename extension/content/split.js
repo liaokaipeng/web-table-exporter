@@ -171,14 +171,23 @@
     return layout;
   }
 
+  /** 列筛选保留列号（filterColumns / reorderColumns / formatColumns 共用）：
+   *  无排除 / 全部被排除 / 无实际排除时返回 null（调用方按「原样」短路）；
+   *  否则返回保留列在 layout 中的下标数组。三处保留判定同源，避免列号漂移 */
+  function keepColIdx(layout, excluded) {
+    if (!excluded || !excluded.size) return null;
+    const keep = [];
+    layout.forEach((col, i) => { if (!excluded.has(col.key)) keep.push(i); });
+    if (!keep.length || keep.length === layout.length) return null;
+    return keep;
+  }
+
   /** 按排除集过滤输出列（导出列筛选）：excluded 为 Set<列标识>（原列 key 或 key#k）。
    *  未排除任何实际存在的列时原样返回；全部被排除时也原样返回（防御，UI 已阻止全排除）。
    *  返回新数组（不改入参行）；参差短行缺值补 '' */
   function filterColumns(aoa, layout, excluded) {
-    if (!excluded || !excluded.size) return aoa;
-    const keep = [];
-    layout.forEach((col, i) => { if (!excluded.has(col.key)) keep.push(i); });
-    if (!keep.length || keep.length === layout.length) return aoa;
+    const keep = keepColIdx(layout, excluded);
+    if (!keep) return aoa;
     return aoa.map(row => {
       const r = row || [];
       return keep.map(i => (r[i] == null ? '' : r[i]));
@@ -194,12 +203,8 @@
    *  结果顺序与自然序相同时返回原数组（零回归，不改引用） */
   function reorderColumns(aoa, layout, excluded, order) {
     if (!order || !order.length) return aoa;
-    let keep = layout.map((_, i) => i);
-    if (excluded && excluded.size) {
-      const k = [];
-      layout.forEach((col, i) => { if (!excluded.has(col.key)) k.push(i); });
-      if (k.length && k.length < layout.length) keep = k;
-    }
+    const filtered = keepColIdx(layout, excluded);
+    let keep = filtered || layout.map((_, i) => i);
     // 保留列按原列归组（段列紧随其原列），并记录自然序。
     // 注意：入参 aoa 是 filterColumns 之后的结果，故这里一律用「过滤后位置 p」
     // 而非过滤前列号，才能真正重排到手（无筛选时两者等价）
@@ -250,13 +255,8 @@
    *  仅 'number' 需要记录 */
   function formatColumns(layout, keys, excluded, formats) {
     if (!formats || !formats.size) return [];
-    let keep = null;
-    if (excluded && excluded.size) {
-      const k = [];
-      layout.forEach((col, i) => { if (!excluded.has(col.key)) k.push(i); });
-      if (k.length && k.length < layout.length) keep = k;
-    }
-    const idxs = keep || layout.map((_, i) => i);
+    const filtered = keepColIdx(layout, excluded);
+    const idxs = filtered || layout.map((_, i) => i);
     const plan = [];
     idxs.forEach((li, out) => {
       const fmt = formats.get(keys[layout[li].srcCol]);
@@ -437,6 +437,7 @@
     splitSegments: splitSegments, splitColName: splitColName,
     ctrlCountOf: ctrlCountOf, ctrlColNames: ctrlColNames,
     resolveRuleCol: resolveRuleCol, colKeys: colKeys, columnLayout: columnLayout,
+    keepColIdx: keepColIdx,
     filterColumns: filterColumns, reorderColumns: reorderColumns, toNumValue: toNumValue,
     formatColumns: formatColumns, applyColFormats: applyColFormats,
     cellWidth: cellWidth, autoColWidths: autoColWidths,

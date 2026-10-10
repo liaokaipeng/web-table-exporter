@@ -64,7 +64,7 @@
 
 #### split.js（依赖：—）
 
-- 列拆分 / 列筛选 / 列顺序 / 列格式 / 列宽纯函数 18 个（v2.8 增 `reorderColumns()`）
+- 列拆分 / 列筛选 / 列顺序 / 列格式 / 列宽纯函数 19 个（v2.8 增 `reorderColumns()`；`keepColIdx()` 为 filterColumns / reorderColumns / formatColumns 三处共用的保留列判定，无排除/全排除/不存在的 key 均返回 null 由调用方原样短路）
 - 零依赖（algo-check.cjs 整文件加载回归，不得引用其他模块）
 
 #### cell.js（依赖：controls, split）
@@ -105,6 +105,7 @@
 
 - 拆分规则 / 列筛选 / 列格式 / 列顺序持久化（v2.8 增列顺序与跨设备同步）：`tableKeyOf()` 表指纹 + `getSaved()` / `save()` 恢复与落盘 + `ready()` 就绪兜底
 - 页面键 = origin+pathname，`chrome.storage.local` 为真相源（单页一条，LRU 上限 50 页）并镜像到 `chrome.storage.sync`（≤20 页、单项 ≤7KB，随 Chrome 账号跨设备）；注入时两侧按表取 `updatedAt` 更新者合并
+- 界面偏好（`h2x.prefs`：输出方式 + 文件名模板）与手动翻页按钮记忆（`h2x.pager.v1`，LRU 30 条）的存储面：`prefs.load()` / `prefs.save()` / `pager.get()` / `pager.save()` / `pager.load()`——原在 main.js，因其纯存储关注点（校验、合并基准、fire-and-forget 落盘）迁入本模块集中管理；main.js 只留模板渲染（document.title）、「已动过控件」会话守卫与 DOM 应用
 - 纯函数可离线回归
 
 #### format.js（依赖：util）
@@ -115,7 +116,7 @@
 #### panel.js（依赖：util, table, split, persist）
 
 - 「列设置」面板（导出列筛选 + 拆分配置 + 列格式）
-- 依赖经 `panel.init({ host, selected, snapshots, splitRules, colFilters, colFormats, colOrders, isBusy, isAlive, updateBar, toast })` 注入；面板样式自持，按钮样式共用主 UI 的 `<style>`；保存经 `ns.persist.save()` 落盘
+- 依赖经 `panel.init({ host, selected, snapshots, splitRules, colFilters, colFormats, colOrders, hasColCfg, isBusy, isAlive, updateBar, toast })` 注入；面板样式自持，按钮样式共用主 UI 的 `<style>`；保存经 `ns.persist.save()` 落盘
 - v2.0 重构：列行折叠式（拆分配置收进展开子行，模式/分隔符键入只局部刷新新列勾选区）、多表页签（带已配置状态点）、最终输出全列预览、校验错误就地标红 + 底部汇总、focus trap + `role="dialog"`
 - v2.7：底部「恢复默认」显式重置入口（`resetDraft()` 只回默认草稿 + 清校验态，落盘仍走「保存」，空配置即删记忆）
 - v2.8 列顺序：`entry.order`（显示序，列索引数组）驱动列区与预览渲染，手柄拖放（`onColDragStart` / `onColDragOver` / `onColDrop`，落点以内阴影标示）与手柄聚焦 Alt+↑/↓（`onColGripKey`）统一经 `applyMove()` 改序，`orderKeysOf()` 保存时把自然序折叠为 `[]`（不落记录，零回归），含 merges 表渲染占位手柄不参与拖拽
@@ -137,7 +138,7 @@
 - v2.6.1：工具栏「中文 | EN」语言分段开关——忙态（采集/导出/面板/子模式）禁用，`pickLang()` 切换后 `refreshTexts()` 就地重取词 + `syncLangUI()` 高亮，启动经 `ns.i18n.init()` 恢复存储偏好；工具栏宽度自适应（`width:max-content`：单行恰包内容、仅超 96vw 上限才折行，折行各行两端贴边）
 - v2.7：`CLIPBOARD` 输出方式注册表（`copy-tsv` / `copy-md`，与 `FORMATS` 同列于下拉），`doExport()` 取数后按模式分流——剪贴板经 `writeClipboard()`（Clipboard API 优先、execCommand 兜底）写文本并 toast 行数，不落盘；已选计数旁 `clearSelection()` 一键清空
 - v2.8：`exportToken` 导出代际令牌 + `abortExport()`（导出中「取消」变「停止导出」；`doExport()` 各 yield 检查点比对令牌，`finally` 按 `aborted && active` 提示已下载文件数，剪贴板成功路径以 `copied` 排除双 toast）；`colOrders` Map 经 `buildAoa()` 最后一环 `reorderColumns()` 生效；剪贴板与下载成功 toast 均带「退出」动作
-- v2.9：界面偏好与翻页按钮记忆——`loadPrefs()` / `savePrefs()`（存储键 `h2x.prefs` 存输出方式 + 文件名模板，`renderNameTpl()` 单遍渲染 `{title}` / `{date}` / `{time}`，`fmtTouched` / `nameDirty` 防异步回填覆盖用户操作，文件名 blur 时记住、清空即回落默认模板）、分页进度带总页数（collectPaged 第三参，0 = 未知则退回「第 i 页」）、`getPagerMem()` / `savePagerMem()` / `loadPagerMem()`（存储键 `h2x.pager.v1`，键 = 页面键 + 表指纹，值 = 定位器，LRU 30 条；命中即直接采集并 toast 复用，复用后 reason 为 noNew/tableLost 即清除记忆并提示重新指定）
+- v2.9：界面偏好与翻页按钮记忆——`loadPrefs()`（存储读写经 `persist.prefs`；main 侧只留 `renderNameTpl()` 单遍渲染 `{title}` / `{date}` / `{time}`、`fmtTouched` / `nameDirty` 防异步回填覆盖用户操作，文件名 blur 时记住、清空即回落默认模板）、分页进度带总页数（collectPaged 第三参，0 = 未知则退回「第 i 页」）、翻页按钮记忆经 `persist.pager`（存储键 `h2x.pager.v1`，键 = 页面键 + 表指纹，值 = 定位器，LRU 30 条；命中即直接采集并 toast 复用，复用后 reason 为 noNew/tableLost 即清除记忆并提示重新指定）
 - v2.10：输出方式下拉与导出按钮合并为分体按钮（主按钮 `.h2x-exp` 导出当前格式，右侧 `.h2x-expdrop` 内为透明原生 select `.h2x-ext` 覆盖箭头，保留原生下拉与键盘交互、E2E 桩零改动），二者启用/禁用同源（`updateBar()` 中 `expOff = busy || selected.size === 0` 同时作用于按钮、select 与下拉区灰显 class），进行时经 `lockExpDrop()` 就地灰置、结束后统一恢复
 - v2.11：输出方式下拉改自绘菜单（原生 select 弹层内容贴边且无法定制）——`.h2x-expwrap` 内 `.h2x-expdrop` 由 span 改箭头 `<button>`，新增 `.h2x-expmenu`（`role="listbox"`，项 `.h2x-expopt[data-k]`），`openExpMenu()` / `closeExpMenu()` / `toggleExpMenu()` / `pickFmt()` / `syncExpMenu()` / `onExpMenuKey()`（↑/↓ 首尾循环）；菜单点选与原生 select 的 change 共用 `applyFmt()`（`fmtTouched` + `syncExportBtn` + `savePrefs`）；原生 select `.h2x-ext` 保留于 DOM 但 `hidden`（仅作格式状态与词条来源，`fmtSel.value` + change 的 E2E 契约不变）；禁用改经 `expDrop.disabled`（样式走 `:disabled`）；收拢路径：点项、点工具栏其他处、点页面处（`onClickCapture`）、Esc（优先于分页面板，收拢后回焦箭头）、焦点移出（`focusout`）、菜单失效时
 - v2.13：分采面板「页数上限」行下增「翻页间隔」行（`h2x-sleep` 数字槽，默认 0.5、step 0.1、placeholder 0.5，单位「秒」与页数单位共用 `h2x-pageunit` 样式类）——`startPagedCollect()` 读取后转毫秒传入 `collectPaged`（留空/非法 = 500ms，上限 600s 防误填）；槽内 Enter 同效采集；与页数槽同源禁用（`updateBar()` 的 `pageOff`）；语言切换经 `refreshTexts()` 就地重取词（label/placeholder/title/aria/单位）
@@ -147,9 +148,9 @@
 
 - 语言包：`en/messages.json`（内容脚本运行时词条全量）、`zh_CN/messages.json`（manifest 三词条；运行时词条缺省，靠代码内中文回落，zh 界面取词失败即回落原文、零差异）。新增语言只加目录 + 补词条
 
-- `t(key, fb, ...subs)` 各内容脚本**就地定义**（同构拷贝；v2.6.1 起先经 `ns.i18n.t()`——i18n.js 的手动语言统一入口，未注入/不可用（algo-check.cjs 伪 window、E2E 桩）时回落内置 `chrome.i18n` 分支，Node 回归与既有 E2E 断言零改动）：词条缺失或无环境回落 `fb` 中文。静态 HTML 文案在 `root.innerHTML` 数组项内拼 `t()`；进行时文案（hint/按钮/title）动态取词，语言切换后天然生效，仅工具栏 buildUI 一次成型静态项需 `refreshTexts()` 重取词
+- `t(key, fb, ...subs)` 各内容脚本**就地定义**（同构拷贝；v2.6.1 起先经 `ns.i18n.t()`——i18n.js 的手动语言统一入口，未注入/不可用（algo-check.cjs 伪 window、E2E 桩）时回落内置 `chrome.i18n` 分支，Node 回归与既有 E2E 断言零改动）：词条缺失或无环境回落 `fb` 中文。buildUI 的 `root.innerHTML` 骨架**不拼** `t()`——只放结构与数据驱动内容（格式选项列表），静态文案经 `fillStaticTexts()` 统一填充（启动与语言切换 `refreshTexts()` 共用同一入口，同一批文案只定义一处）；进行时文案（hint/按钮/title）动态取词，语言切换后天然生效；计数 `syncCount()` / 导出按钮 `syncExportBtn()` / 分页按钮 title（`updateBar()`）等状态相关文案按各自状态渲染，不进 fillStaticTexts
 
-- 语言解析三层（i18n.js `t()`）：① 手动 zh → 回落代码内中文（zh 无独立词表）② 手动 en → 按 en 词表取词——词表经后台消息 `h2x-i18n-catalog` 拉取 `_locales/en/messages.json`（词表就绪前生效语言不变）③ auto（默认；`chrome.storage.local` 偏好键 `h2x.uiLang` 缺省/删除即 auto）→ `chrome.i18n.getMessage` 按浏览器 UI 语言，v2.6 语义零回归。占位符替换按 placeholders.content 的 `$1/$2` 序号（与 chrome.i18n 一致），非声明顺序
+- 语言解析三层（i18n.js `t()`）：① 手动 zh → 回落代码内中文（zh 无独立词表）② 手动 en → 按 en 词表取词——词表经后台消息 `h2x-i18n-catalog` 拉取 `_locales/en/messages.json`（词表就绪前生效语言不变；拉取失败时复位加载 Promise，后续切换/init 可重试，不判整会话死刑）③ auto（默认；`chrome.storage.local` 偏好键 `h2x.uiLang` 缺省/删除即 auto）→ `chrome.i18n.getMessage` 按浏览器 UI 语言，v2.6 语义零回归。占位符替换按 placeholders.content 的 `$1/$2` 序号（与 chrome.i18n 一致），非声明顺序
 
 - 切换控件在工具栏最右（「中文 | EN」分段按钮，main.js `pickLang()`）：按钮文案即语言自称（双语恒定、不随界面语言取词），`aria-pressed` 标注生效语言（`syncLangUI()`）；点未激活语言 = 切换并持久化，再点当前**手动**语言 = 回到跟随浏览器（auto），auto 模式点当前语言无操作。忙态禁用开关——`refreshTexts()` 只在空闲态重取词（`updateBar()` 单一状态源同步禁用态）
 

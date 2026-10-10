@@ -94,7 +94,7 @@
 |---|---|
 | 采集算法（virtual.js） | 滑动窗口去重、合法重复行保留、非虚拟误报无损、渲染延迟、5000 行性能、超 200 行窗口（回归）；v2.9 元素身份重叠（refOverlapLen 对齐/整窗/无复用边界、refTopsMatch 内容二次校验）、行节点复用+相邻重复不误并、同批节点换绑不整窗吞、无复用+相邻全同既有限制（用例固化） |
 | 列拆分（split.js） | 三模式（control/block/delimiter，control 含多控件各自成列/参差补齐/空值占位）、段数上限、从右到左多规则、块内空格不拆（对照 delimiter）、多行表头、含 merges 禁用、规则解析不到原样返回 |
-| 列筛选（split.js） | colKeys 唯一表头/重名/空表头兜底、columnLayout 段列映射与短路、filterColumns 排除/全排除防御/短行补空、拆分+筛选端到端 |
+| 列筛选（split.js） | colKeys 唯一表头/重名/空表头兜底、columnLayout 段列映射与短路、keepColIdx 保留列判定（部分排除/null/空集/不存在的 key/全排除边界）、filterColumns 排除/全排除防御/短行补空、拆分+筛选端到端 |
 | 列顺序（split.js v2.8） | reorderColumns 原列整体重排、自然序/空/缺省 order 原引用零回归、未命中键忽略+自然序补齐、拆分新列跟随原列、与列筛选组合（按过滤后位置重排防列号错位）、数字列键（无表头兜底）重排 |
 | 列格式（split.js） | toNumValue 千分位剥离/解析失败保原值、formatColumns 输出列号映射（拆分新列继承、筛选后对齐）、applyColFormats 表头不动/同引用短路、拆分+筛选+数字格式端到端 |
 | 自适应列宽（split.js） | cellWidth 半角/全角/谚文宽度与内嵌换行、autoColWidths 逐列最大宽度与 6~50 钳制、空表/空行边界 |

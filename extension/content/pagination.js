@@ -299,6 +299,9 @@
   async function collectPaged(root, pager, onProgress, isCancelled, maxPages, pageSleep, onNorm) {
     const key0 = ns.persist.tableKeyOf(root);
     let note = '';
+    // 附注拼接（noteStartFromCurrent / noteStayLast / result 的 extra 多处复用，
+    // 集中一处保证「，」分隔口径一致；返回拼接后的完整 note）
+    const addNote = (extra) => (note = note ? note + t('noteSep', '，') + extra : extra);
 
     // v2.13：页间停顿毫秒数（采集面板自定义，单位秒；undefined/负数/NaN 按默认 0.5s）
     const sleepMs = (typeof pageSleep === 'number' && Number.isFinite(pageSleep) && pageSleep >= 0)
@@ -465,6 +468,7 @@
     };
 
     const result = (extra, reason) => {
+      if (extra) addNote(extra);
       const all = headers.concat(data);
       return {
         snap: {
@@ -477,7 +481,7 @@
         root: root,
         pages: page,             // v2.9：实际采集的页数
         reason: reason || '',    // v2.9：机器可读停止原因（note 供展示，reason 供判定）
-        note: extra ? (note ? note + t('noteSep', '，') + extra : extra) : note
+        note: note
       };
     };
 
@@ -604,8 +608,7 @@
         }
       }
     } else if (page > 1) {
-      note = note ? note + t('noteSep', '，') + t('noteStayLast', '页面停留在末页')
-        : t('noteStayLast', '页面停留在末页');
+      addNote(t('noteStayLast', '页面停留在末页'));
     }
     return result(limitHit ? t('noteMaxPages', '已采集指定 ' + maxPages + ' 页', maxPages) : '', limitHit ? 'maxPages' : '');
   }

@@ -4,7 +4,7 @@
 
 ## 关键机制
 
-- **UI/事件**（main.js）：单 Shadow DOM host（`all:initial`），含悬浮高亮层、已选覆盖层、底部工具栏、toast 容器。`mouseover` 委托找 table，`hitRoot()` 解析逻辑根（分体取包装容器；v2.1 无 table 命中回落网格表格根，v2.2 `gridRootOf()` 分发，内嵌 table 优先内层）；`click` v2.4 起捕获阶段放行：非表格点击不拦截（`pruneDetached()` 剔除被替换的选中表格，`exporting` 跳过），仅表格点选与链接 `a[href]` 拦截（红框 1s + toast）；采集中全拦截（2s 节流 toast）；`keydown` Esc 退出 / Enter 导出（焦点在页面元素时放行；拆分面板打开时关面板 / 保存）；`scroll`/`resize` rAF 节流重定位。v2.0：`toast()` 句柄、进度型复用同一条；hint 留引导/进行时、结果性通知走 toast；采集中「取消」变「停止采集」（`stopCollect()` 仅 genToken++）；选中徽标贴边翻内侧（flip-x/y）。v2.4：toast 语义色图标 + 浅底 + 加粗，warn 停留 4s；`doExport()` 迭代前快照表格列表（`yieldToMain()` 期间 prune 不影响导出范围与列设置）
+- **UI/事件**（main.js）：单 Shadow DOM host（`all:initial`），含悬浮高亮层、已选覆盖层、底部工具栏、toast 容器。`mouseover` 委托找 table，`hitRoot()` 解析逻辑根（分体取包装容器；v2.1 无 table 命中回落网格表格根，v2.2 `gridRootOf()` 分发，内嵌 table 优先内层）；`click` v2.4 起捕获阶段放行：非表格点击不拦截（`pruneDetached()` 剔除被替换的选中表格，`exporting` 跳过），仅表格点选与链接 `a[href]` 拦截（红框 1s + toast）；采集中全拦截（2s 节流 toast）；`keydown` Esc 退出 / Enter 导出（焦点在页面元素时放行；拆分面板打开时关面板 / 保存）；`scroll`/`resize` rAF 节流重定位。v2.0：`toast()` 句柄、进度型复用同一条；hint 留引导/进行时、结果性通知走 toast；采集中「取消」变「停止采集」（`stopCollect()` 仅 genToken++）；选中徽标贴边翻内侧（flip-x/y）。v2.4：toast 语义色图标 + 浅底 + 加粗，warn 停留 8s；`doExport()` 迭代前快照表格列表（`yieldToMain()` 期间 prune 不影响导出范围与列设置）
 
 - **分体表格合并**（table.js `splitGroupOf()`）：组件库（Element Plus el-table / vxe-table 等）把表头、表体渲染为两个独立 `<table>`。识别：成员须为片段（纯表头 / 纯数据），自最紧祖先向上找容器（首个命中即返回、深度 ≤12、容器顶层 table ≤8）；配对 = 纯表头表 + 纯数据表**视觉纵向拼接**（间隙 -10\~10px、左对齐、宽度相近、列数差 ≤1 容忍 gutter 列）。`visualRect`：数据表被垂直滚动容器裁剪时 top 取容器顶边，left/width 取 table 本身；水平滚动（scrollable-x）时表头/表体同步平移，容器宽度被裁剪不能用于宽度比较。`pairSplitGroup()` 纯函数（描述符入参不碰 DOM，algo-check.cjs 离线回归）。悬浮/点选/导出以包装容器为键（`hitRoot()`），`getRows()` 合并两表行（表头行在前），空 `gutter` 列跳过
 

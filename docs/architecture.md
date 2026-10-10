@@ -124,7 +124,7 @@
 #### main.js（依赖：其余全部）
 
 - 主 UI / 事件 / 选中管理 / 导出 / 退出清理 / 启动装配
-- v2.0：toast 反馈系统（结果性通知迁出 hint，成功/信息 2.5s 自动消失、错误常驻可关、同屏 3 条上限）、虚拟采集可中止（「停止采集」genToken 作废当前任务）、导出后保留选择（toast「退出」动作）、设计 token + 深色模式（prefers-color-scheme）+ 动效（prefers-reduced-motion）
+- v2.0：toast 反馈系统（结果性通知迁出 hint，成功/信息/警示 8s 自动消失、错误常驻可关、同屏 6 条上限）、虚拟采集可中止（「停止采集」genToken 作废当前任务）、导出后保留选择（toast「退出」动作）、设计 token + 深色模式（prefers-color-scheme）+ 动效（prefers-reduced-motion）
 - v2.1：`hitRoot()` 与表格存在性检查支持 div 网格表格
 - v2.2：经 `gridRootOf()` / `GRID_ROOT_SELECTOR` 适配器分发，覆盖全部注册组件
 - v2.4：选择模式点击放行（非表格点击不拦截 + `pruneDetached()` 剔除被页面交互替换的选中表格，链接拦截改 toast 提示）

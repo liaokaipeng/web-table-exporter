@@ -618,8 +618,8 @@
 
   /* ---------------- Toast 反馈系统（v2.0） ---------------- */
 
-  /** 结果性通知：成功/信息 2.5s 自动消失（可经 duration 覆盖，如链接拦截提示 4s），
-   *  警示（warn）琥珀色，错误常驻 + 关闭钮；同屏最多 3 条。
+  /** 结果性通知：成功/信息/警示 8s 自动消失（可经 duration 覆盖），
+   *  警示（warn）琥珀色，错误常驻 + 关闭钮；同屏最多 6 条。
    *  v2.4 视觉强化：语义色圆形图标徽标 + 底色浅色渲染 + 文案加粗（远比纯白底
    *  小字醒目）；返回句柄 { update(msg), close() } 供进度型 toast 复用同一条。
    *  hint 只保留引导与进行时文案（默认提示、采集进度、导出中），结果全部走 toast */
@@ -665,9 +665,9 @@
       box.appendChild(x);
     }
     toastRoot.appendChild(box);
-    while (toastRoot.children.length > 3) toastRoot.firstElementChild.remove();
+    while (toastRoot.children.length > 6) toastRoot.firstElementChild.remove();
     if (type !== 'error' && !opts.sticky) {
-      timer = setTimeout(close, opts.duration || 2500);
+      timer = setTimeout(close, opts.duration || 8000);
     }
     return {
       update: (m) => { if (!closed) msgEl.textContent = m; },
@@ -763,7 +763,7 @@
       e.stopPropagation();
       // 就地红框高亮被拦的链接（用户视线在点击处，右上角 toast 单独出现易被忽略）
       flashLink(link);
-      toast(t('toastLinkBlocked', '选择模式下链接已停用，Esc 退出后可跳转'), { type: 'warn', duration: 4000 });
+      toast(t('toastLinkBlocked', '选择模式下链接已停用，Esc 退出后可跳转'), { type: 'warn' });
       return;
     }
     pruneDetached(); // 放行的点击可能触发翻页/筛选替换 DOM，同步剔除断开的选中项
@@ -1102,7 +1102,7 @@
         if (manual && (res.reason === 'noNew' || res.reason === 'tableLost')) {
           savePagerMem(key, null);
           if (fromMemory) {
-            toast(t('toastPagerForgotten', '上次记住的翻页按钮未生效，已清除记忆；再点「采集全部页」可重新指定'), { type: 'warn', duration: 4000 });
+            toast(t('toastPagerForgotten', '上次记住的翻页按钮未生效，已清除记忆；再点「采集全部页」可重新指定'), { type: 'warn' });
           }
         }
         toast(t('toastCollectDone', '采集完成，共 ' + res.snap.rows.length + ' 行（含表头）', res.snap.rows.length) +
@@ -1487,7 +1487,7 @@
   resetHint();
   if (!hasTables) {
     // v2.4：无表格页面只在底部 hint 留小字不够醒目，补一条警示 toast
-    toast(t('toastNoTables', '页面未找到表格，无法选择导出'), { type: 'warn', duration: 4000 });
+    toast(t('toastNoTables', '页面未找到表格，无法选择导出'), { type: 'warn' });
   }
   // 装配列设置面板依赖（host/Maps 为稳定引用；可变状态经 getter 读取）
   panel.init({

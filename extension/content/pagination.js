@@ -323,12 +323,18 @@
       try { return (pager.current && pager.current(root)) || 0; } catch (e) { return 0; }
     };
 
-    /** v2.12：表体内容签名（长度 + 尾部采样）——数据延迟落地的站点页码先变、
-     *  表体后到，翻页是否「真的完成」以内容变化为准（尾部采样防同长度碰撞，
-     *  实在等不到由调用方预算兜底：按当前内容继续） */
+    /** v2.12：表体内容签名（行数 + 首末行文本采样）——数据延迟落地的站点页码先变、
+     *  表体后到，翻页是否「真的完成」以内容变化为准。行级采样替代整根 textContent：
+     *  万行表的全量文本序列化在 150~250ms 轮询里反复执行过重，而行节点替换必然改变
+     *  首/末行文本，采样足以判定落地（采样碰撞的极端情形由调用方预算兜底：按当前
+     *  内容继续，页间重叠合并不受重复取数影响）。无行元素（网格尚未渲染）回落文本长度 */
     const contentSig = () => {
-      const s = root.textContent || '';
-      return s.length + '|' + s.slice(-64);
+      const rows = root.querySelectorAll('tr, [role=row]');
+      const n = rows.length;
+      if (!n) return '0|' + (root.textContent || '').length;
+      const head = rows[0].textContent || '';
+      const tail = rows[n - 1].textContent || '';
+      return n + '|' + head.slice(0, 32) + '|' + tail.slice(-32);
     };
 
     /** v2.12：等一次翻页真正完成（页码变化 + 表体内容变化）。before = 点击前

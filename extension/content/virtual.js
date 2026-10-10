@@ -19,8 +19,8 @@
     if (el.querySelector('[class*="virtual"]')) return true;
     const group = ns.table.splitGroupOf(el);
     const tables = group ? [group.headerTable, group.bodyTable] : (el.tBodies ? [el] : []);
-    for (const t of tables) {
-      for (const tb of t.tBodies) {
+    for (const tbl of tables) {
+      for (const tb of tbl.tBodies) {
         for (const tr of tb.rows) {
           if (!tr.cells.length && tr.getBoundingClientRect().height > 0) return true;
         }

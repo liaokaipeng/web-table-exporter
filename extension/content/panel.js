@@ -20,7 +20,7 @@
  * 按钮易混淆（误把「收起」当「取消拆分」），且「取消拆分」是不可逆操作。
  * 保存时草稿回写主 UI 内存 Map，并经 persist 模块落盘（跨会话恢复）。
  * 依赖：主 UI 经 init() 注入 { host, selected, snapshots, splitRules,
- *   colFilters, colFormats, colOrders, hasColCfg, isBusy, isAlive, updateBar, toast }
+ *   colFilters, colFormats, colOrders, hasColCfg, isBusy, updateBar, toast }
  *   （main.js 最后装配）；算法层经 __h2x 命名空间（util/table/split/persist）
  */
 (() => {
@@ -28,12 +28,12 @@
   const ns = window.__h2x;
   const { escapeHtml } = ns.util;
   const { extractTable, makeSheetName } = ns.table;
-  const { splitSegments, splitColName, colKeys, ctrlCountOf, ctrlColNames, toNumValue } = ns.split;
+  const { splitSegments, splitColName, colKeys, ctrlCountOf, ctrlColNames, toNumValue, maxColsOf } = ns.split;
 
   // i18n 取词（各内容脚本同构，见 architecture.md「国际化」节）：优先经 ns.i18n
   // （i18n.js 手动中英文统一入口）；词条缺失或无 chrome.i18n 环境（Node 回归 /
   // E2E 桩未注入）→ 回落代码内中文，测试断言零改动。
-  // 就地定义：renderTabs 既有循环变量 t 不调用取词，遮蔽无害
+  // 就地定义：局部变量不与 t 同名（消除遮蔽，见 table.js/main.js 同款约定）
   const t = (key, fb, ...subs) => {
     if (ns.i18n) return ns.i18n.t(key, fb, subs); // v2.6.1 手动语言开关优先
     if (typeof chrome !== 'undefined' && chrome.i18n && chrome.i18n.getMessage) {
@@ -82,8 +82,7 @@
   function buildPanelCols(sample) {
     const aoa = sample.aoa || sample.rows;
     const headerRows = sample.headerRows || 0;
-    let maxCols = 0;
-    for (const row of aoa) if (row) maxCols = Math.max(maxCols, row.length);
+    const maxCols = maxColsOf(aoa);
     const cols = [];
     for (let c = 0; c < maxCols; c++) {
       const name = headerRows > 0 ? String((aoa[0] && aoa[0][c]) || '').trim() : '';
@@ -447,9 +446,7 @@
       panelDrafts.set(table, entry);
     }
     // v2.0：切表清除上一表的就地错误态（标红与汇总不再适用于新表，保存时重新校验）
-    clearInvalidMarks();
-    const errEl = panelMask && panelMask.querySelector('.h2x-err');
-    if (errEl) errEl.textContent = '';
+    clearErrors();
     renderPanel();
   }
 
@@ -471,11 +468,11 @@
     const used = new Set();
     let html = '';
     let i = 0;
-    for (const t of deps.selected.keys()) {
-      const name = makeSheetName(t, i, used);
-      const cfg = deps.hasColCfg(t);
-      html += '<button type="button" class="h2x-tab' + (t === panelTable ? ' h2x-tab-on' : '') +
-        '" data-i="' + i + '" role="tab" aria-selected="' + (t === panelTable) + '" title="' + escapeHtml(name) + '">' +
+    for (const tbl of deps.selected.keys()) {
+      const name = makeSheetName(tbl, i, used);
+      const cfg = deps.hasColCfg(tbl);
+      html += '<button type="button" class="h2x-tab' + (tbl === panelTable ? ' h2x-tab-on' : '') +
+        '" data-i="' + i + '" role="tab" aria-selected="' + (tbl === panelTable) + '" title="' + escapeHtml(name) + '">' +
         '<i class="h2x-tab-dot' + (cfg ? '' : ' h2x-off') + '" aria-hidden="true"></i><span>' +
         (i + 1) + '. ' + escapeHtml(name) + '</span></button>';
       i++;
@@ -978,6 +975,13 @@
     panelMask.querySelectorAll('.h2x-invalid').forEach(el => el.classList.remove('h2x-invalid'));
   }
 
+  /** 清除就地错误态（标红 + 底部汇总）：切表 / 保存重校 / 恢复默认三处共用 */
+  function clearErrors() {
+    clearInvalidMarks();
+    const errEl = panelMask && panelMask.querySelector('.h2x-err');
+    if (errEl) errEl.textContent = '';
+  }
+
   /** v2.8 保存用列顺序键数组：面板显示序（列索引）→ colKeys；与自然序相同则返回 []
    *  （不落记录，未拖动过的表零回归；表头变更时未命中的键由 reorderColumns 静默忽略） */
   function orderKeysOf(entry) {
@@ -997,17 +1001,14 @@
     entry.draft = prefillDrafts(entry.cols);
     entry.segCache = null;
     entry.order = entry.keys.map((_, i) => i); // v2.8：列顺序一并回自然序
-    clearInvalidMarks();
-    const errEl = panelMask.querySelector('.h2x-err');
-    if (errEl) errEl.textContent = '';
+    clearErrors();
     renderColList();
     renderPreview();
   }
 
   function saveSplitPanel() {
-    const errEl = panelMask.querySelector('.h2x-err');
-    errEl.textContent = '';
-    clearInvalidMarks();
+    const errEl = panelMask.querySelector('.h2x-err'); // 下文写校验结果复用同一引用
+    clearErrors();
     // 硬校验：分隔符非空；段数上限为空（不限）或 ≥2 的整数；至少保留一个导出列
     const errors = []; // { table, c, field: 'pattern'|'limit' }
     let keptErr = null;

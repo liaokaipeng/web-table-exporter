@@ -10,8 +10,8 @@
 
   // i18n 取词（各内容脚本同构，见 architecture.md「国际化」节）：优先经 ns.i18n
   // （i18n.js 手动中英文统一入口）；词条缺失或无 chrome.i18n 环境（algo-check.cjs
-  // 伪 window）→ 回落代码内中文，Node 回归断言零改动。就地定义：本文件被整文件
-  // 独立加载，不依赖其他模块（本文件既有的 t 形参均不调用取词，遮蔽无害）
+  // 伪 window）→ 回落代码内中文，Node 回归断言零改动。就地定义，不依赖其他模块
+  // （本文件被 algo-check.cjs 整文件独立加载；局部变量不与 t 同名，消除遮蔽）
   const t = (key, fb, ...subs) => {
     if (ns.i18n) return ns.i18n.t(key, fb, subs); // v2.6.1 手动语言开关优先
     if (typeof chrome !== 'undefined' && chrome.i18n && chrome.i18n.getMessage) {
@@ -24,11 +24,11 @@
   /* ---------- 组件库分体表格：表头/表体被渲染成两个独立 <table>（如 Element Plus el-table） ---------- */
 
   /** thead 行数（兼容 thead 直接嵌 th 无 tr 的写法） */
-  function headerRowCount(t) {
-    if (!t.tHead) return 0;
+  function headerRowCount(tbl) {
+    if (!tbl.tHead) return 0;
     let n = 0;
-    for (const tr of t.tHead.querySelectorAll('tr')) if (tr.cells.length) n++;
-    if (!n) for (const el of t.tHead.children) if (el.tagName === 'TH' || el.tagName === 'TD') n++;
+    for (const tr of tbl.tHead.querySelectorAll('tr')) if (tr.cells.length) n++;
+    if (!n) for (const el of tbl.tHead.children) if (el.tagName === 'TH' || el.tagName === 'TD') n++;
     return n;
   }
 
@@ -41,9 +41,9 @@
 
   /** 容器内顶层 table 列表（排除嵌套在容器内其它 table 里的、以及隐藏的） */
   function topLevelTables(el) {
-    return [...el.querySelectorAll('table')].filter(t => {
-      if (getComputedStyle(t).display === 'none') return false;
-      const outer = t.parentElement.closest('table');
+    return [...el.querySelectorAll('table')].filter(tb => {
+      if (getComputedStyle(tb).display === 'none') return false;
+      const outer = tb.parentElement.closest('table');
       return !outer || !el.contains(outer);
     });
   }
@@ -51,9 +51,9 @@
   /** 视觉矩形：数据表被垂直滚动容器裁剪时（滚动会移动 table 本身），top 取容器顶边；
    *  left/width 仍取 table 本身——水平滚动时组件库同步平移表头/表体（天然对齐），
    *  而容器宽度被水平裁剪（scrollable-x 时表宽 > 容器宽），不能用于宽度比较 */
-  function visualRect(t, root) {
-    const r = t.getBoundingClientRect();
-    let el = t;
+  function visualRect(tbl, root) {
+    const r = tbl.getBoundingClientRect();
+    let el = tbl;
     while (el && el !== root) {
       const s = getComputedStyle(el);
       if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 4) {
@@ -65,9 +65,9 @@
     return r;
   }
 
-  function maxCols(t) {
+  function maxCols(tbl) {
     let n = 0;
-    for (const tr of t.rows) n = Math.max(n, tr.cells.length);
+    for (const tr of tbl.rows) n = Math.max(n, tr.cells.length);
     return n;
   }
 
@@ -102,10 +102,10 @@
   /** 容器内寻找分体配对：DOM table → 描述符（结构 + visualRect 视觉矩形）
    *  → 纯函数 pairSplitGroup 配对。首个纯表头表 + 与之纵向拼接的首个纯数据表 */
   function matchSplitGroup(root, tables) {
-    const descs = tables.map(t => {
-      const r = visualRect(t, root);
+    const descs = tables.map(tb => {
+      const r = visualRect(tb, root);
       return {
-        headerRows: headerRowCount(t), bodyRows: bodyRowCount(t), cols: maxCols(t),
+        headerRows: headerRowCount(tb), bodyRows: bodyRowCount(tb), cols: maxCols(tb),
         top: r.top, bottom: r.bottom, left: r.left, width: r.width
       };
     });

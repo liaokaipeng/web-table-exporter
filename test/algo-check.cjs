@@ -7,24 +7,25 @@
 //   其余 DOM 侧取证走浏览器回归）
 // - 持久化纯函数直接加载 extension/content/persist.js（chrome/location 引用有守卫，
 //   Node 下自动降级；tableKeyOf 以对象桩模拟 DOM）
-// - 导出格式序列化直接加载 extension/content/format.js（依赖 util.escapeHtml，
-//   加载时预注入 util 命名空间）
+// - 导出格式序列化直接加载 extension/content/format.js（依赖 util.escapeHtml 与
+//   split.maxColsOf，加载时预注入 util/split 命名空间）
 const fs = require('fs');
 const path = require('path');
 
 // 以伪 window 加载内容脚本模块（模块均为 IIFE，挂载到 window.__h2x.*）
-// preNs：预置命名空间成员（供有命名空间内依赖的模块使用，如 format 依赖 util）
+// preNs：预置命名空间成员（供有命名空间内依赖的模块使用，如 format 依赖 util/split）
 function loadModule(relPath, modName, preNs) {
   const src = fs.readFileSync(path.join(__dirname, '..', 'extension', 'content', relPath), 'utf8');
   return new Function('window', src + '\n;return window.__h2x.' + modName + ';')({ __h2x: preNs || {} });
 }
 
 const { overlapLen, refOverlapLen, refTopsMatch } = loadModule('virtual.js', 'virtual');
+const splitMod = loadModule('split.js', 'split');
 const {
   splitByDelimiter, splitBlocks, limitBlocks, splitSegments, splitColName,
   resolveRuleCol, colKeys, columnLayout, keepColIdx, filterColumns, reorderColumns, applyColumnSplits,
   toNumValue, formatColumns, applyColFormats, cellWidth, autoColWidths
-} = loadModule('split.js', 'split');
+} = splitMod;
 const { pairSplitGroup, makeSheetName, gridHeaderCellsOf, rowsSortedByRowIndex,
   adapters: GRID_ADAPTERS, GRID_ROOT_SELECTOR } = loadModule('table.js', 'table');
 // persist 的 tableKeyOf 经 ns.table.gridHeaderCellsOf 分发（浏览器由注入序保证
@@ -34,7 +35,7 @@ const { pageKeyOf, tableKeyOf, sanitizeRecord, evictKeys } = loadModule('persist
 });
 const util = loadModule('util.js', 'util');
 const { csvCell, toCsv, tsvCell, toTsv, headerKeys, rowObjects, toJson, mdCell, toMarkdown, toHtmlDocument } =
-  loadModule('format.js', 'format', { util });
+  loadModule('format.js', 'format', { util, split: splitMod });
 
 // 模拟 takeWindow 完整逻辑（含「同批节点」判定 + 重叠合并），与 virtual.js 同构：
 // 重叠数优先按 DOM 行元素身份判定（refOverlapLen，行节点复用组件精确），无复用或
@@ -1197,7 +1198,7 @@ check('i18n：占位符词条的 en 消息含对应 $XXX$', i18nPhBad, []);
 // 占位符注入路径（t() 回归）：t() 曾用 arguments 取第 3+ 参，箭头函数无自身
 // arguments → subs 恒空、占位符不替换（英文界面显示字面 $N$）。以 en 语言包桩
 // chrome.i18n 驱动公共函数验证 $1 替换，无 chrome.i18n 环境的回落分支不受影响
-const i18nFmt = loadModule('format.js', 'format', { util }); // 复用 format 模块取 headerKeys
+const i18nFmt = loadModule('format.js', 'format', { util, split: splitMod }); // 复用 format 模块取 headerKeys
 const i18nRealChrome = global.chrome;
 global.chrome = {
   i18n: {
@@ -1278,7 +1279,10 @@ const rAFReal = global.requestAnimationFrame;
 global.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 0);
 try {
   let pgNo = 1; // 假分页器当前页（next.click() 自增）
-  const pagedRoot = { isConnected: true, textContent: 'root' };
+  const pagedRoot = {
+    isConnected: true, textContent: 'root',
+    querySelectorAll: () => [{ textContent: 'root' }] // 行采样桩：签名恒定（本组不测内容判定）
+  };
   const pagedPager = {
     name: 'fake',
     next: () => pgNo < 3 ? { click: () => { pgNo++; } } : null, // 第 3 页后无下一页：自然到末页
@@ -1337,7 +1341,7 @@ try {
 // 翻过页后等表体真正落地再取第一页（waitLanded，waitTurn 3s 预算内没落地的超慢
 // 站点，直接取数会把旧页行当第一页写进快照）；读数已是第 1 页时不弹归一提醒框。
 // 以桩驱动 collectPaged：假分页器 12 页（next/prev/first/current 均改 pgNo），
-// root.textContent 随页码变（waitTurn/waitLanded 内容签名判定依赖），extractTable
+// root 行采样签名随页码/落地态变（waitTurn/waitLanded 内容签名判定依赖），extractTable
 // 每页 2 行；opts.landMs = 翻页后表体延迟落地毫秒（复刻受控分页器「页码先到、
 // 数据后到」，未落地期间内容签名与取数都停留在旧页）；opts.prevAtOne = 第一页
 // prev 仍可用（不规范分页器）。requestAnimationFrame 桩为 setTimeout（settle 依赖），
@@ -1371,6 +1375,13 @@ try {
     }
     const root = {
       isConnected: true,
+      // 行采样桩（contentSig 的 querySelectorAll 路径）：首末行文本随「页码 + 落地态」
+      // 变——翻页未落地时与旧页同文（waitTurn/waitLanded 判定「内容没换」），落地即换；
+      // textContent getter 保留供「无行元素」回落路径
+      querySelectorAll: () => {
+        const txt = st.landed ? 'page' + st.pg : 'page' + st.pendingFrom;
+        return [{ textContent: txt }, { textContent: txt }];
+      },
       get textContent() { return (st.landed ? 'page' + st.pg : 'page' + st.pendingFrom); }
     };
     const { collectPaged } = loadModule('pagination.js', 'pagination', {

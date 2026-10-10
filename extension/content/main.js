@@ -71,8 +71,8 @@
 
   // i18n 取词（各内容脚本同构，见 architecture.md「国际化」节）：优先经 ns.i18n
   // （i18n.js 手动中英文统一入口）；词条缺失或无 chrome.i18n 环境（Node 回归 /
-  // E2E 桩未注入）→ 回落代码内中文，测试断言零改动。就地定义：hitRoot/onMouseOver
-  // 等既有局部变量 t 均不调用取词，遮蔽无害
+  // E2E 桩未注入）→ 回落代码内中文，测试断言零改动。就地定义：局部变量不与 t
+  // 同名（消除遮蔽，见 table.js/panel.js 同款约定）
   const t = (key, fb, ...subs) => {
     if (ns.i18n) return ns.i18n.t(key, fb, subs); // v2.6.1 手动语言开关优先
     if (typeof chrome !== 'undefined' && chrome.i18n && chrome.i18n.getMessage) {
@@ -735,10 +735,10 @@
    *  AG Grid / MUI DataGrid / Tabulator，无 table 元素）经 ns.table.gridRootOf
    *  返回组件根（单元格内嵌传统 table 时优先命中内层 table，可独立选中） */
   function hitRoot(target) {
-    const t = target.closest('table');
-    if (t) {
-      const g = splitGroupOf(t);
-      return g ? g.root : t;
+    const tbl = target.closest('table');
+    if (tbl) {
+      const g = splitGroupOf(tbl);
+      return g ? g.root : tbl;
     }
     return gridRootOf(target);
   }
@@ -1331,11 +1331,11 @@
     if (typeof XLSX === 'undefined') throw new Error(t('errXlsxMissing', 'XLSX 库未加载'));
     const fmt = FORMATS.xlsx;
     const wb = XLSX.utils.book_new();
-    for (const t of tables) {
-      const ws = XLSX.utils.aoa_to_sheet(t.aoa);
-      if (t.merges) ws['!merges'] = t.merges;
-      ws['!cols'] = autoColWidths(t.aoa); // 列宽随内容自适应（上下限钳制，见 split.js）
-      XLSX.utils.book_append_sheet(wb, ws, t.name);
+    for (const tb of tables) {
+      const ws = XLSX.utils.aoa_to_sheet(tb.aoa);
+      if (tb.merges) ws['!merges'] = tb.merges;
+      ws['!cols'] = autoColWidths(tb.aoa); // 列宽随内容自适应（上下限钳制，见 split.js）
+      XLSX.utils.book_append_sheet(wb, ws, tb.name);
     }
     return {
       name: fileNamed(base, fmt, ''),
@@ -1350,10 +1350,10 @@
     const fmt = FORMATS[fmtKey];
     const enc = new TextEncoder();
     if (fmtKey === 'csv') {
-      return tables.map(t => ({
-        name: fileNamed(base, fmt, tables.length > 1 ? t.name : ''),
+      return tables.map(tb => ({
+        name: fileNamed(base, fmt, tables.length > 1 ? tb.name : ''),
         mime: fmt.mime,
-        buf: enc.encode(toCsv(t.aoa))
+        buf: enc.encode(toCsv(tb.aoa))
       }));
     }
     let text;
@@ -1552,8 +1552,7 @@
     colFormats: colFormats,
     colOrders: colOrders,
     hasColCfg: hasColCfg, // 配置判定单一实现（面板页签点/保存提示与主工具栏徽标共用）
-    isBusy: () => collecting,
-    isAlive: () => active,
+    isBusy: () => collecting || exporting || specifying, // 与 updateBar 的 busy 同源（面板开闭由面板自身持有）
     updateBar: updateBar,
     toast: toast
   });

@@ -56,21 +56,21 @@
    *  非空行兜底。与 table.js rowsOfTable 的表头语义一致（指纹绝不能落在数据行：
    *  虚拟滚动表格数据行动态渲染，保存与恢复时首行不同会导致指纹不稳定），
    *  但本模块保持零依赖不引 table.js，故内联等价实现 */
-  function headerCellsOf(t) {
-    if (t.tHead) {
-      const trs = t.tHead.querySelectorAll('tr');
+  function headerCellsOf(tbl) {
+    if (tbl.tHead) {
+      const trs = tbl.tHead.querySelectorAll('tr');
       if (trs.length) {
         for (const tr of trs) if (tr.cells.length) return tr.cells;
       } else {
         const cells = [];
-        for (const el of t.tHead.children) {
+        for (const el of tbl.tHead.children) {
           if (el.tagName === 'TH' || el.tagName === 'TD') cells.push(el);
         }
         if (cells.length) return cells;
       }
     }
-    for (let i = 0; i < t.rows.length; i++) {
-      if (t.rows[i].cells.length) return t.rows[i].cells;
+    for (let i = 0; i < tbl.rows.length; i++) {
+      if (tbl.rows[i].cells.length) return tbl.rows[i].cells;
     }
     return null;
   }
@@ -94,8 +94,8 @@
         if (gridCells && gridCells.length) cells = gridCells;
       }
       if (!cells && typeof root.querySelector === 'function') {
-        const t = root.querySelector('table');
-        if (t && t.rows) cells = headerCellsOf(t);
+        const tbl = root.querySelector('table');
+        if (tbl && tbl.rows) cells = headerCellsOf(tbl);
       }
     }
     if (!cells) return null;
@@ -149,8 +149,8 @@
       let latest = 0;
       if (page && typeof page === 'object') {
         for (const key in page) {
-          const t = (page[key] && Number(page[key].updatedAt)) || 0;
-          if (t > latest) latest = t;
+          const ts = (page[key] && Number(page[key].updatedAt)) || 0;
+          if (ts > latest) latest = ts;
         }
       }
       pages.push({ k: k, latest: latest });
@@ -217,7 +217,8 @@
   }
 
   /** 保存某表配置（面板「保存」后调用）：同步更新会话内存（本会话恢复源），异步
-   *  落盘 fire-and-forget。rules / excluded / formats / order 均空 = 重置：删除该表记录 */
+   *  落盘 fire-and-forget。rules / excluded / formats / order 均空 = 重置：删除该表记录。
+   *  字段规整复用 sanitizeRecord（与读取路径同一套归一化，不再各写一遍规则映射） */
   function save(table, rules, excluded, formats, order) {
     const key = tableKeyOf(table);
     if (!key || !pageKey) return;
@@ -225,24 +226,12 @@
     for (const [k, v] of (formats || new Map())) {
       if (FMT_VALUES.indexOf(v) >= 0) fmtPairs.push([k, v]);
     }
-    const ord = (Array.isArray(order) ? order : [])
-      .filter(k => (typeof k === 'string' && k !== '') || typeof k === 'number');
-    if ((rules && rules.length) || (excluded && excluded.size) || fmtPairs.length || ord.length) {
-      records.set(key, {
-        rules: (rules || []).map(r => ({
-          col: r.col,
-          mode: r.mode,
-          pattern: r.pattern == null ? '' : String(r.pattern),
-          limit: (typeof r.limit === 'number' && r.limit >= 2) ? r.limit : null
-        })),
-        excluded: Array.from(excluded || []),
-        formats: fmtPairs,
-        order: ord,
-        updatedAt: Date.now()
-      });
-    } else {
-      records.delete(key);
-    }
+    // sanitizeRecord 全空时返回 null（即重置路径：删记录）；有内容则盖为当前时间戳
+    const rec = sanitizeRecord({
+      rules: rules, excluded: Array.from(excluded || []), formats: fmtPairs, order: order
+    });
+    if (rec) records.set(key, Object.assign(rec, { updatedAt: Date.now() }));
+    else records.delete(key);
     scheduleWrite();
   }
 

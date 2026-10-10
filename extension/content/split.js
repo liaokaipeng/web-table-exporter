@@ -20,6 +20,14 @@
     return fb;
   };
 
+  /** 行数组的最大列数（跳过空行）：colKeys / applyColumnSplits 与
+   *  format.headerKeys / panel.buildPanelCols 共用的列数基准 */
+  function maxColsOf(rows) {
+    let n = 0;
+    for (const row of rows || []) if (row) n = Math.max(n, row.length);
+    return n;
+  }
+
   /** 分隔符拆值：各段去首尾空白；limit（≥2）生效时超限段连同分隔符并入末段 */
   function splitByDelimiter(value, pattern, limit) {
     const s = value == null ? '' : String(value);
@@ -108,8 +116,7 @@
   function colKeys(ch) {
     const src = ch.aoa || ch.rows;
     const header = (ch.headerRows || 0) > 0 ? (src[0] || []) : [];
-    let maxCols = 0;
-    for (const row of src) if (row) maxCols = Math.max(maxCols, row.length);
+    const maxCols = maxColsOf(src);
     const keys = [];
     for (let c = 0; c < maxCols; c++) {
       const name = String(header[c] || '');
@@ -353,8 +360,7 @@
     const blocksCh = ch.blocks || [];
 
     // 按最大列数补齐行（各通道同形状），便于按索引读写
-    let maxCols = 0;
-    for (const row of src) if (row) maxCols = Math.max(maxCols, row.length);
+    const maxCols = maxColsOf(src);
     const pad = (row) => {
       const r = Array.from(row || [], v => (v === undefined ? null : v));
       while (r.length < maxCols) r.push(null);
@@ -433,6 +439,7 @@
   }
 
   ns.split = {
+    maxColsOf: maxColsOf,
     splitByDelimiter: splitByDelimiter, splitBlocks: splitBlocks, limitBlocks: limitBlocks,
     splitSegments: splitSegments, splitColName: splitColName,
     ctrlCountOf: ctrlCountOf, ctrlColNames: ctrlColNames,

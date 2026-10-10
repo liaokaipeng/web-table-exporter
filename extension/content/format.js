@@ -4,12 +4,14 @@
  *   tables = [{ name, aoa, headerRows }]（name 与 Sheet 名同源，多表唯一）
  * 文本格式不还原合并单元格（aoa 为平面数据）；CSV 多表由调用方拆多文件；
  * TSV（v2.7）仅用于剪贴板输出（粘贴进表格软件），不落盘
- * 依赖：util.escapeHtml；算法层模块，经 __h2x.format 挂载
+ * 依赖：util.escapeHtml、split.maxColsOf（列数计算与 split 共用，注入序 split 先于
+ * 本文件）；算法层模块，经 __h2x.format 挂载
  */
 (() => {
   'use strict';
   const ns = window.__h2x;
   const { escapeHtml } = ns.util;
+  const { maxColsOf } = ns.split;
 
   // i18n 取词（各内容脚本同构，见 architecture.md「国际化」节）：优先经 ns.i18n
   // （i18n.js 手动中英文统一入口）；词条缺失或无 chrome.i18n 环境（algo-check.cjs
@@ -58,8 +60,7 @@
     const h = headerRows || 0;
     const headRow = h > 0 ? (aoa[h - 1] || []) : [];
     const seen = new Map();
-    let maxCols = 0;
-    for (const row of aoa) if (row) maxCols = Math.max(maxCols, row.length);
+    const maxCols = maxColsOf(aoa);
     const keys = [];
     for (let c = 0; c < maxCols; c++) {
       let name = String(headRow[c] == null ? '' : headRow[c]).trim();
@@ -91,7 +92,7 @@
       return JSON.stringify(rowObjects(tables[0].aoa, tables[0].headerRows), null, 2);
     }
     const doc = {};
-    tables.forEach(t => { doc[t.name] = rowObjects(t.aoa, t.headerRows); });
+    tables.forEach(tb => { doc[tb.name] = rowObjects(tb.aoa, tb.headerRows); });
     return JSON.stringify(doc, null, 2);
   }
 
@@ -121,7 +122,7 @@
 
   /** Markdown 文档：多表以二级标题分隔 */
   function toMarkdown(tables) {
-    return tables.map(t => mdTable(t.name, t.aoa, t.headerRows)).join('\n\n') + '\n';
+    return tables.map(tb => mdTable(tb.name, tb.aoa, tb.headerRows)).join('\n\n') + '\n';
   }
 
   /* ---------------- HTML ---------------- */
@@ -155,7 +156,7 @@
       '<style>body{font:14px/1.6 -apple-system,"Segoe UI","Microsoft YaHei",sans-serif;color:#333;margin:24px;}h2{font-size:18px;margin:24px 0 8px;}table{border-collapse:collapse;}th,td{border:1px solid #ccc;padding:6px 12px;}th{background:#f5f7fa;}</style>',
       '</head>',
       '<body>',
-      tables.map(t => htmlTable(t.name, t.aoa, t.headerRows)).join('\n'),
+      tables.map(tb => htmlTable(tb.name, tb.aoa, tb.headerRows)).join('\n'),
       '</body>',
       '</html>'
     ].join('\n');

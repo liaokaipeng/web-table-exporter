@@ -1002,11 +1002,15 @@
     updateBar();
   }
 
+  /** 该表是否配置了拆分/列筛选/列格式/列顺序（持久化恢复判重与「列设置」徽标点共用） */
+  const hasColCfg = (table) =>
+    splitRules.has(table) || colFilters.has(table) || colFormats.has(table) || colOrders.has(table);
+
   /** 持久化恢复：把已保存的拆分规则/列筛选/列格式回填内存 Map（幂等：已有会话
    *  配置不覆盖，面板保存后重选也拿到最新值——removeSelected 只清内存不清存储）。
    *  选中表格时调用；导出/面板入口再兜底一次注入初期的存储加载竞态 */
   function restoreFromPersist(table) {
-    if (splitRules.has(table) || colFilters.has(table) || colFormats.has(table) || colOrders.has(table)) return;
+    if (hasColCfg(table)) return;
     const saved = persist.getSaved(table);
     if (!saved || (!saved.rules.length && !saved.excluded.size && !saved.formats.size && !(saved.order && saved.order.length))) return;
     if (saved.rules.length) splitRules.set(table, saved.rules);
@@ -1273,10 +1277,7 @@
     langZhBtn.disabled = busy;
     langEnBtn.disabled = busy;
     // v2.0：已选表中存在拆分/筛选/格式配置 → 「列设置」按钮带徽标点
-    let cfg = false;
-    for (const tb of selected.keys()) {
-      if (splitRules.has(tb) || colFilters.has(tb) || colFormats.has(tb) || colOrders.has(tb)) { cfg = true; break; }
-    }
+    const cfg = [...selected.keys()].some(hasColCfg);
     splitBtn.classList.toggle('h2x-has-cfg', cfg);
   }
 

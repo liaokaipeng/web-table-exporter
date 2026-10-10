@@ -365,7 +365,7 @@
       '<div class="h2x-panel">',
       '  <div class="h2x-panel-top">',
       '    <h3>' + t('panelTitle', '列设置') + '</h3>',
-      '    <button type="button" class="h2x-px" aria-label="' + t('closeAria', '关闭') + '" title="' + t('closePanelTitle', '关闭面板') + '">×</button>',
+      '    <button type="button" class="h2x-px" aria-label="' + escapeHtml(t('closeAria', '关闭')) + '" title="' + escapeHtml(t('closePanelTitle', '关闭面板')) + '">×</button>',
       '  </div>',
       '  <div class="h2x-tabs" role="tablist"></div>',
       '  <div class="h2x-note" hidden></div>',
@@ -374,7 +374,7 @@
       '  <div class="h2x-panel-foot">',
       // v2.7：显式重置入口——此前「重置」需凑齐「全不拆 + 全列导出 + 全文本」再保存，
       // 用户推不出来；按钮只重置当前表格草稿为默认，仍走「保存」落盘（空配置 = 删记忆）
-      '    <button class="h2x-btn h2x-ghost h2x-reset" title="' + t('btnResetTitle', '将当前表格恢复为默认列设置（不拆分、全列导出、文本格式）；点「保存」后生效并清除本页记忆') + '">' + t('btnReset', '恢复默认') + '</button>',
+      '    <button class="h2x-btn h2x-ghost h2x-reset" title="' + escapeHtml(t('btnResetTitle', '将当前表格恢复为默认列设置（不拆分、全列导出、文本格式）；点「保存」后生效并清除本页记忆')) + '">' + t('btnReset', '恢复默认') + '</button>',
       '    <span class="h2x-err"></span>',
       '    <button class="h2x-btn h2x-primary h2x-save">' + t('btnSave', '保存') + '</button>',
       '    <button class="h2x-btn h2x-ghost h2x-pcancel">' + t('btnCancel', '取消 (Esc)') + '</button>',
@@ -460,6 +460,10 @@
     renderPreview();
   }
 
+  /** 该表是否已配置（页签状态点与保存后提示共用；colOrders 为 v2.8 新增，依赖桩可能没有） */
+  const hasCfg = (tb) => deps.splitRules.has(tb) || deps.colFilters.has(tb) || deps.colFormats.has(tb) ||
+    (deps.colOrders && deps.colOrders.has(tb));
+
   /** 页签渲染：序号 + 表名截断（title 全名）+ 已配置状态点（与主工具栏
    *  「列设置」徽标同数据源：会话内存 Map，面板保存后关闭、重开时刷新） */
   function renderTabs() {
@@ -469,8 +473,7 @@
     let i = 0;
     for (const t of deps.selected.keys()) {
       const name = makeSheetName(t, i, used);
-      const cfg = deps.splitRules.has(t) || deps.colFilters.has(t) || deps.colFormats.has(t) ||
-        (deps.colOrders && deps.colOrders.has(t));
+      const cfg = hasCfg(t);
       html += '<button type="button" class="h2x-tab' + (t === panelTable ? ' h2x-tab-on' : '') +
         '" data-i="' + i + '" role="tab" aria-selected="' + (t === panelTable) + '" title="' + escapeHtml(name) + '">' +
         '<i class="h2x-tab-dot' + (cfg ? '' : ' h2x-off') + '" aria-hidden="true"></i><span>' +
@@ -514,9 +517,9 @@
       '<option value="block"' + (d.mode === 'block' ? ' selected' : '') + '>' + t('modeBlock', '按换行拆分') + '</option>' +
       '<option value="delimiter"' + (d.mode === 'delimiter' ? ' selected' : '') + '>' + t('modeDelimiter', '分隔符拆分') + '</option>' +
       '</select></label>' +
-      '<label>' + t('delimLabel', '分隔符') + ' <input type="text" class="h2x-pattern" placeholder="' + t('delimPh', '如 、 ' + SPACE_MARK + '=空格') + '" value="' +
+      '<label>' + t('delimLabel', '分隔符') + ' <input type="text" class="h2x-pattern" placeholder="' + escapeHtml(t('delimPh', '如 、 ' + SPACE_MARK + '=空格')) + '" value="' +
       escapeHtml(d.pattern === ' ' ? SPACE_MARK : d.pattern) + '"' + (lockPattern(d) ? ' disabled' : '') + '></label>' +
-      '<label>' + t('limitLabel', '段数上限') + ' <input type="text" class="h2x-limit" placeholder="' + t('limitPh', '不限') + '" inputmode="numeric" value="' +
+      '<label>' + t('limitLabel', '段数上限') + ' <input type="text" class="h2x-limit" placeholder="' + escapeHtml(t('limitPh', '不限')) + '" inputmode="numeric" value="' +
       escapeHtml(d.limit) + '"' + (lockLimit(d) ? ' disabled' : '') + '></label>' +
       '</div><div class="h2x-sub-cols">' + subColsHtmlOf(entry, c, d) + '</div></div>';
   }
@@ -545,20 +548,27 @@
    *  未拆分时忽略残留标记，避免取消拆分后误排除原列 */
   const srcSkipped = (d) => !!(d.checked && d.skipSegs.has(0));
 
-  /** 导出列计数：已选/全部（原列 + 拆分新列都计入；整列不导出时整列不计；
-   *  v2.11.2：原列被单独跳过（skipSegs 0）时只少计原列，新列照常计入） */
+  /** 导出列计数 { kept, total }（原列 + 拆分新列都计入；整列不导出时整列不计；
+   *  v2.11.2：原列被单独跳过（skipSegs 0）时只少计原列，新列照常计入）。
+   *  updateTools 的「已选/全部」显示与 saveSplitPanel 的「至少保留一列」校验共用，
+   *  避免两处逻辑漂移；segCountOf 即 segNames 的段数（列名个数），二者同源 */
+  function keptCountOf(entry) {
+    let kept = 0, total = 0;
+    entry.draft.forEach((d, c) => {
+      if (!d) return;
+      const n = d.checked ? segCountOf(entry, c, d) : 0;
+      total += 1 + n;
+      if (!d.export) return; // 整列不导出 → 该列及其拆分新列整体不计入
+      if (!srcSkipped(d)) kept++; // 原列本身（被单独跳过时不计）
+      for (let k = 1; k <= n; k++) if (!d.skipSegs.has(k)) kept++;
+    });
+    return { kept: kept, total: total };
+  }
+
   function updateTools() {
     const entry = panelDrafts.get(panelTable);
     if (!entry) return;
-    let kept = 0, total = 0;
-    entry.draft.forEach((d, c) => {
-      const n = d.checked ? segNames(entry, c, d).length : 0;
-      total += 1 + n;
-      if (d.export) {
-        if (!srcSkipped(d)) kept++;
-        for (let k = 1; k <= n; k++) if (!d.skipSegs.has(k)) kept++;
-      }
-    });
+    const { kept, total } = keptCountOf(entry);
     const el = panelMask.querySelector('.h2x-exp-n');
     if (el) el.textContent = kept + '/' + total;
   }
@@ -636,11 +646,13 @@
 
   // 从列行/子行事件解析草稿项：{ row, c, d } 或 null（面板未开 / 目标不在列区）
   function draftAt(e) {
-    if (!panelOpen) return null;
+    if (!panelOpen || !panelDrafts) return null;
     const row = e.target.closest('.h2x-col, .h2x-sub');
     if (!row) return null;
+    const entry = panelDrafts.get(panelTable);
+    if (!entry) return null;
     const c = parseInt(row.dataset.c, 10);
-    return { row: row, c: c, d: panelDrafts.get(panelTable).draft[c] };
+    return { row: row, c: c, d: entry.draft[c] };
   }
 
   /** 导出勾选联动：主行勾选框控制整列（原列 + 拆分新列）导出；整列不导出
@@ -669,8 +681,10 @@
     if (e.target.classList.contains('h2x-ck-s')) {
       const sub = e.target.closest('.h2x-sub');
       if (!sub) return;
+      const entry = panelDrafts && panelDrafts.get(panelTable);
+      if (!entry) return;
       const c = parseInt(sub.dataset.c, 10);
-      const d = panelDrafts.get(panelTable).draft[c];
+      const d = entry.draft[c];
       const k = parseInt(e.target.dataset.k, 10);
       if (e.target.checked) d.skipSegs.delete(k); else d.skipSegs.add(k);
       e.target.closest('label').classList.toggle('noexp', !e.target.checked);
@@ -999,7 +1013,7 @@
     let ti = 0;
     for (const [table, entry] of panelDrafts) {
       ti++;
-      const { draft, cols } = entry;
+      const draft = entry.draft;
       for (let c = 0; c < draft.length; c++) {
         const d = draft[c];
         if (!d || !d.checked) continue;
@@ -1010,15 +1024,7 @@
           errors.push({ table: table, c: c, field: 'limit' });
         }
       }
-      let kept = 0;
-      draft.forEach((d, c) => {
-        if (!d) return;
-        if (!d.export) return; // 整列不导出 → 该列及其拆分新列整体不导出，不计入
-        if (!srcSkipped(d)) kept++; // 原列本身（被单独跳过时不计）
-        const n = d.checked ? segCountOf(entry, c, d) : 0;
-        for (let k = 1; k <= n; k++) if (!d.skipSegs.has(k)) kept++;
-      });
-      if (kept === 0 && !keptErr) keptErr = t('errKeepOne', '表格' + ti + '：至少保留一个导出列', ti);
+      if (keptCountOf(entry).kept === 0 && !keptErr) keptErr = t('errKeepOne', '表格' + ti + '：至少保留一个导出列', ti);
     }
     if (errors.length || keptErr) {
       // v2.0 就地错误：切到首个错误所在表（跨表错误也看得见），标红对应
@@ -1088,8 +1094,7 @@
     // （否则「已保存并记住」会让人以为旧配置还在）
     let anyCfg = false;
     for (const table of panelDrafts.keys()) {
-      if (deps.splitRules.has(table) || deps.colFilters.has(table) || deps.colFormats.has(table) ||
-        (deps.colOrders && deps.colOrders.has(table))) { anyCfg = true; break; }
+      if (hasCfg(table)) { anyCfg = true; break; }
     }
     closeSplitPanel();
     deps.toast(anyCfg ? t('toastSaved', '列设置已保存并记住，导出时生效')
@@ -1097,14 +1102,20 @@
       { type: anyCfg ? 'success' : 'info' });
   }
 
-  function closeSplitPanel() {
-    if (!panelOpen) return;
+  /** 面板状态清理（关闭 / 退出选择模式共用：只清引用，DOM 移除由调用方负责） */
+  function clearPanelState() {
     panelOpen = false;
     panelDrafts = null;
     panelTable = null;
     panelSample = null;
     panelCols = null;
-    if (panelMask) { panelMask.remove(); panelMask = null; }
+    panelMask = null;
+  }
+
+  function closeSplitPanel() {
+    if (!panelOpen) return;
+    if (panelMask) panelMask.remove(); // 先摘 DOM 再清引用
+    clearPanelState();
     deps.updateBar(); // 恢复主工具栏按钮
   }
 
@@ -1118,12 +1129,7 @@
 
   /** 退出选择模式时清面板状态（面板 DOM 随主 UI 的 host 一并移除，此处只清引用） */
   function resetPanel() {
-    panelOpen = false;
-    panelDrafts = null;
-    panelTable = null;
-    panelSample = null;
-    panelCols = null;
-    panelMask = null;
+    clearPanelState();
   }
 
   /** 主 UI 装配依赖接口（main.js 在 buildUI 后调用一次） */

@@ -536,28 +536,31 @@
     takePage(first);
     const totalPages = pager.total ? (pager.total(root) || 0) : 0; // v2.9：总页数（0 = 未知）
     let page = 1;
+    // 停止/失联附注（主循环与回退多处复用，集中一处保证口径一致）
+    const noteStopped = () => t('noteStopped', '已停止采集，保留已采集的 ' + page + ' 页', page);
+    const noteLost = () => t('noteTableLost', '翻页后表格失联，已保留已采集的 ' + page + ' 页', page);
     onProgress(page, headers.length + data.length, totalPages);
     let noNew = 0;
     let limitHit = false; // 达到 maxPages 页数上限（区别于自然到末页）
     for (let i = 0; i < 500; i++) { // 页数硬上限防死循环（循环加载/异常页面）
-      if (isCancelled()) return result(t('noteStopped', '已停止采集，保留已采集的 ' + page + ' 页', page), 'stopped');
+      if (isCancelled()) return result(noteStopped(), 'stopped');
       if (maxPages > 0 && page >= maxPages) { limitHit = true; break; } // 达到页数上限
       if (!root.isConnected) { // 翻页触发整表重建：按指纹重解析
         const nr = resolveRoot(key0);
-        if (!nr) return result(t('noteTableLost', '翻页后表格失联，已保留已采集的 ' + page + ' 页', page), 'tableLost');
+        if (!nr) return result(noteLost(), 'tableLost');
         root = nr;
       }
       const next = pager.next(root);
       if (!next || pager.isDisabled(next)) break; // 末页（按钮禁用/消失）
       // v2.13：页间停顿（确定要翻页才等——末页/达上限不浪费间隔；分块可中断）
       if (sleepMs > 0 && !(await pagePause(sleepMs))) {
-        return result(t('noteStopped', '已停止采集，保留已采集的 ' + page + ' 页', page), 'stopped');
+        return result(noteStopped(), 'stopped');
       }
       const cur0 = curPage();
       clickPaging(next);
       const r = await waitPageData(cur0);
-      if (isCancelled()) return result(t('noteStopped', '已停止采集，保留已采集的 ' + page + ' 页', page), 'stopped');
-      if (r.tableLost) return result(t('noteTableLost', '翻页后表格失联，已保留已采集的 ' + page + ' 页', page), 'tableLost');
+      if (isCancelled()) return result(noteStopped(), 'stopped');
+      if (r.tableLost) return result(noteLost(), 'tableLost');
       if (r.headerChanged) return result(t('noteHeaderChanged', '翻页后表头变化，已保留已采集的 ' + page + ' 页', page), 'headerChanged');
       page++;
       if (r.added === 0) {
@@ -594,7 +597,7 @@
         } else {
           await settle(200);
         }
-        if (isCancelled()) return result(t('noteStopped', '已停止采集，保留已采集的 ' + page + ' 页', page), 'stopped');
+        if (isCancelled()) return result(noteStopped(), 'stopped');
         if (!root.isConnected) {
           const nr = resolveRoot(key0);
           if (nr) root = nr; else break;

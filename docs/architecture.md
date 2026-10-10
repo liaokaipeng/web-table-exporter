@@ -141,6 +141,7 @@
 - v2.10：输出方式下拉与导出按钮合并为分体按钮（主按钮 `.h2x-exp` 导出当前格式，右侧 `.h2x-expdrop` 内为透明原生 select `.h2x-ext` 覆盖箭头，保留原生下拉与键盘交互、E2E 桩零改动），二者启用/禁用同源（`updateBar()` 中 `expOff = busy || selected.size === 0` 同时作用于按钮、select 与下拉区灰显 class），进行时经 `lockExpDrop()` 就地灰置、结束后统一恢复
 - v2.11：输出方式下拉改自绘菜单（原生 select 弹层内容贴边且无法定制）——`.h2x-expwrap` 内 `.h2x-expdrop` 由 span 改箭头 `<button>`，新增 `.h2x-expmenu`（`role="listbox"`，项 `.h2x-expopt[data-k]`），`openExpMenu()` / `closeExpMenu()` / `toggleExpMenu()` / `pickFmt()` / `syncExpMenu()` / `onExpMenuKey()`（↑/↓ 首尾循环）；菜单点选与原生 select 的 change 共用 `applyFmt()`（`fmtTouched` + `syncExportBtn` + `savePrefs`）；原生 select `.h2x-ext` 保留于 DOM 但 `hidden`（仅作格式状态与词条来源，`fmtSel.value` + change 的 E2E 契约不变）；禁用改经 `expDrop.disabled`（样式走 `:disabled`）；收拢路径：点项、点工具栏其他处、点页面处（`onClickCapture`）、Esc（优先于分页面板，收拢后回焦箭头）、焦点移出（`focusout`）、菜单失效时
 - v2.13：分采面板「页数上限」行下增「翻页间隔」行（`h2x-sleep` 数字槽，默认 0.5、step 0.1、placeholder 0.5，单位「秒」与页数单位共用 `h2x-pageunit` 样式类）——`startPagedCollect()` 读取后转毫秒传入 `collectPaged`（留空/非法 = 500ms，上限 600s 防误填）；槽内 Enter 同效采集；与页数槽同源禁用（`updateBar()` 的 `pageOff`）；语言切换经 `refreshTexts()` 就地重取词（label/placeholder/title/aria/单位）
+- v2.14：右侧提醒框（`.h2x-side`，toast 同款 shadow 样式体系、右侧垂直居中、info/warn 两态、× 可手动关闭）——`startPagedCollect()` 经 collectPaged 第七参 `onNorm(page)` 驱动：归一进行中驻屏显示「正在回到第一页… 第 N 页」（每次翻页后同步当前页，结束/取消传 null 收框）；collectPaged 返回 `aborted:'tooFar'`（距第一页超过 10 页不归一）时转警示态「请先返回第一页」并注明当前页，不写快照直接 return（按钮态由 finally 还原），其余路径（含停止/失败）统一收框。渲染统一走 `renderSide()`（只存 sideKind/sidePage 状态），`refreshTexts()` 按状态就地重取词（sticky 框可跨语言切换留存）
 
 ### extension/_locales/ 与国际化约定（v2.6 起，v2.6.1 增手动开关）
 

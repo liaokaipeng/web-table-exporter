@@ -57,6 +57,7 @@
 #### util.js（依赖：—）
 
 - `timestamp()` / `sanitizeFilename()` / `escapeHtml()`
+- v2.15 窗口拖动：`clampPos()` 视口钳制纯函数（algo-check 离线回归）+ `draggable(el, {handle, ignore})` 指针事件拖拽助手（单击阈值、实化定位、视口钳制、resize 重钳制、dispose 摘监听）——主工具栏与列设置面板共用，见 main.js / panel.js 的 v2.15 行
 
 #### controls.js（依赖：—）
 
@@ -123,6 +124,7 @@
 - v2.10.1 拆分控件状态化：草稿增 `open`（配置子行展开态，与「是否有拆分规则」`checked` 解耦；`open` 不落盘，仅当次会话视图态），子行渲染条件 `checked && open`，保存校验失败自动 `open=true` 展开出错列
 - v2.10.2 主行拆分控件合并为单控件：`splitCtlHtml()` 输出勾选框 `h2x-ck-sp`（拆分开关，`onColChange`：勾选=拆分并展开、取消=删规则）+ 折线 chevron 图标按钮 `h2x-sfold`（内嵌 `<svg class="h2x-chev">` 两条边、非实心三角，朝向由 `aria-expanded` 经 CSS 旋转 180°；只控配置子行显隐，`onColClick` 处理，未拆分时 hidden），状态变化经 `syncSplitCtl(col, row, d)` 就地同步（不重建 DOM、键盘焦点保留）
 - v2.11.2 原列级导出：子行行首「原列」勾选与主行整列导出解耦，用 `skipSegs` 索引 0 表示原列（复用 `h2x-ck-s` 事件分支，`srcSkipped()` 守卫「未拆分时忽略残留标记」），取消只跳过原列、新列照常；`draftFromSaved()` 对裸列键按段数消歧（已拆分且段未全被排除 = 只跳过原列，否则整列不导出，旧记录语义不变）
+- v2.15 对话框拖动：标题栏 `.h2x-panel-top` 为把手（关闭按钮在 ignore 内不启动拖动），经 `ns.util.draggable` 实化定位 + 视口钳制；`panelDrag` dispose 句柄在 `clearPanelState()`（关闭/退出共用）摘除，遮罩仍全屏覆盖、焦点圈定不受影响
 
 #### main.js（依赖：其余全部）
 
@@ -143,6 +145,7 @@
 - v2.11：输出方式下拉改自绘菜单（原生 select 弹层内容贴边且无法定制）——`.h2x-expwrap` 内 `.h2x-expdrop` 由 span 改箭头 `<button>`，新增 `.h2x-expmenu`（`role="listbox"`，项 `.h2x-expopt[data-k]`），`openExpMenu()` / `closeExpMenu()` / `toggleExpMenu()` / `pickFmt()` / `syncExpMenu()` / `onExpMenuKey()`（↑/↓ 首尾循环）；菜单点选与原生 select 的 change 共用 `applyFmt()`（`fmtTouched` + `syncExportBtn` + `savePrefs`）；原生 select `.h2x-ext` 保留于 DOM 但 `hidden`（仅作格式状态与词条来源，`fmtSel.value` + change 的 E2E 契约不变）；禁用改经 `expDrop.disabled`（样式走 `:disabled`）；收拢路径：点项、点工具栏其他处、点页面处（`onClickCapture`）、Esc（优先于分页面板，收拢后回焦箭头）、焦点移出（`focusout`）、菜单失效时
 - v2.13：分采面板「页数上限」行下增「翻页间隔」行（`h2x-sleep` 数字槽，默认 0.5、step 0.1、placeholder 0.5，单位「秒」与页数单位共用 `h2x-pageunit` 样式类）——`startPagedCollect()` 读取后转毫秒传入 `collectPaged`（留空/非法 = 500ms，上限 600s 防误填）；槽内 Enter 同效采集；与页数槽同源禁用（`updateBar()` 的 `pageOff`）；语言切换经 `refreshTexts()` 就地重取词（label/placeholder/title/aria/单位）
 - v2.14：右侧提醒框（`.h2x-side`，toast 同款 shadow 样式体系、右侧垂直居中、info/warn 两态、× 可手动关闭）——`startPagedCollect()` 经 collectPaged 第七参 `onNorm(page)` 驱动：归一进行中（含归一后等表体落地的全程）驻屏显示「正在回到第一页… 第 N 页」（每次翻页后同步当前页，读数已是第 1 页不弹，结束/取消传 null 收框）；collectPaged 返回 `aborted:'tooFar'`（距第一页超过 10 页不归一）时转警示态「请先返回第一页」并注明当前页，不写快照直接 return（按钮态由 finally 还原），其余路径（含停止/失败）统一收框。渲染统一走 `renderSide()`（只存 sideKind/sidePage 状态），`refreshTexts()` 按状态就地重取词（sticky 框可跨语言切换留存）
+- v2.15：底部工具栏可拖动移动——`buildUI()` 末尾经 `ns.util.draggable(bar, { ignore: BAR_DRAG_IGNORE })` 接线（把手 = 栏上非交互区：提示文案与空白处；按钮/输入/两个自绘弹层不启动拖动），提示区 hover 为 move 光标 + `barDragTitle` 说明；落点经 `clampPos` 钳制在视口内、窗口 resize 重钳制；`disposeBarDrag` 在 `exit()` 摘监听。位置仅当次会话有效（DOM 随注入重建，回默认底部居中）
 
 ### extension/_locales/ 与国际化约定（v2.6 起，v2.6.1 增手动开关）
 

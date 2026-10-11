@@ -820,6 +820,69 @@
     click(h.sr.querySelector('.h2x-mask .h2x-pcancel'));
   });
 
+  /* ================= 轮次 Y：窗口拖拽移动（v2.15：工具栏 + 列设置对话框） ================= */
+  await round('窗口拖拽移动', async (h) => {
+    // 指针事件助手：真实浏览器派发 PointerEvent；此处以 MouseEvent 同名字段驱动
+    // （draggable 处理器只读 button/clientX/clientY/target，不依赖 PointerEvent 构造）
+    const ptr = (el, type, x, y) => el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+    const near = (a, b) => Math.abs(a - b) <= 1;
+    // —— 工具栏：提示区按住拖动整栏移动，落点视口钳制 ——
+    clickCell('#staff td');
+    const bar = h.sr.querySelector('.h2x-bar');
+    const hint = h.sr.querySelector('.h2x-hint');
+    const r0 = bar.getBoundingClientRect();
+    // 单击（无位移）不实化定位：基准布局保留（仍底部居中，resize 自适应不受影响）
+    ptr(hint, 'pointerdown', r0.left + 8, r0.top + 8);
+    ptr(document, 'pointerup', r0.left + 8, r0.top + 8);
+    t('工具栏单击不触发移动（未实化定位）', bar.style.left === '' && bar.style.top === '',
+      'left=' + bar.style.left + ' top=' + bar.style.top);
+    // 拖拽：阈值（3px）内不认定，超过即实化并跟手移动
+    ptr(hint, 'pointerdown', r0.left + 8, r0.top + 8);
+    ptr(document, 'pointermove', r0.left + 8 + 2, r0.top + 8);
+    t('阈值内移动不认定为拖拽（left 仍未实化）', bar.style.left === '', bar.style.left);
+    ptr(document, 'pointermove', r0.left + 8 + 120, r0.top + 8 - 60);
+    t('拖拽中工具栏带 h2x-dragging 类（禁选）', bar.classList.contains('h2x-dragging'));
+    ptr(document, 'pointerup', r0.left + 8 + 120, r0.top + 8 - 60);
+    const r1 = bar.getBoundingClientRect();
+    t('工具栏拖动到位（left/top 实化并按位移移动）',
+      bar.style.left !== '' && near(r1.left, r0.left + 120) && near(r1.top, r0.top - 60),
+      'left=' + bar.style.left + ' top=' + bar.style.top);
+    t('拖拽结束移除 h2x-dragging 类', !bar.classList.contains('h2x-dragging'));
+    // 拖出屏外：钳制在视口内（贴左上角 0,0）
+    ptr(hint, 'pointerdown', r1.left + 8, r1.top + 8);
+    ptr(document, 'pointermove', -2000, -2000);
+    ptr(document, 'pointerup', -2000, -2000);
+    const r2 = bar.getBoundingClientRect();
+    t('拖出屏外被钳制在视口内（贴左上角）', r2.left === 0 && r2.top === 0,
+      'left=' + bar.style.left + ' top=' + bar.style.top);
+    // 移动不破坏交互：按钮仍可点（列设置面板打开）
+    click(h.splitBtn);
+    await waitFor(() => h.sr.querySelector('.h2x-mask'));
+    t('拖动后工具栏按钮仍可点（列设置打开）', !!h.sr.querySelector('.h2x-mask'));
+    // —— 列设置对话框：标题栏按住拖动；关闭按钮不启动拖动且可关面板 ——
+    const mask = h.sr.querySelector('.h2x-mask');
+    const panel = mask.querySelector('.h2x-panel');
+    const top = panel.querySelector('.h2x-panel-top');
+    const p0 = panel.getBoundingClientRect();
+    ptr(top, 'pointerdown', p0.left + 60, p0.top + 6);
+    ptr(document, 'pointermove', p0.left + 60 + 80, p0.top + 6 + 50);
+    t('对话框拖拽中带 h2x-dragging 类', panel.classList.contains('h2x-dragging'));
+    ptr(document, 'pointerup', p0.left + 60 + 80, p0.top + 6 + 50);
+    const p1 = panel.getBoundingClientRect();
+    t('列设置对话框标题栏拖动到位', panel.style.left !== '' &&
+      near(p1.left, p0.left + 80) && near(p1.top, p0.top + 50),
+      'left=' + panel.style.left + ' top=' + panel.style.top);
+    const px = top.querySelector('.h2x-px');
+    const leftBefore = panel.style.left;
+    ptr(px, 'pointerdown', p1.left + p1.width - 14, p1.top + 12);
+    ptr(document, 'pointermove', p1.left + 200, p1.top + 200);
+    ptr(document, 'pointerup', p1.left + 200, p1.top + 200);
+    t('标题栏关闭按钮不触发拖动（位置不变）', panel.style.left === leftBefore, panel.style.left);
+    click(px);
+    await waitFor(() => !h.sr.querySelector('.h2x-mask'));
+    t('关闭按钮点击仍可关面板', !h.sr.querySelector('.h2x-mask'));
+  });
+
   /* ================= 轮次 V/W：跨设备同步（v2.8，sync 镜像 + 加载合并） ================= */
   const pageKey = 'h2x.v1:p:' + window.__h2x.persist.pageKeyOf(location.href);
   await round('跨设备同步（保存镜像到 sync）', async (h) => {

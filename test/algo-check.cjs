@@ -1029,6 +1029,14 @@ check('escapeHtml 五字符转义 / 普通文本原样',
   [util.escapeHtml('&<>"\''), util.escapeHtml('<script>alert("x")</script>'),
    util.escapeHtml('普通文本 123')],
   ['&amp;&lt;&gt;&quot;&#39;', '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;', '普通文本 123']);
+check('clampPos 正常范围不动 / 越界钳制回视口 / 元素不小于视口贴 0',
+  [util.clampPos(100, 50, 200, 40, 1000, 800),
+   util.clampPos(-30, -20, 200, 40, 1000, 800),
+   util.clampPos(990, 790, 200, 40, 1000, 800),
+   util.clampPos(50, 60, 1200, 40, 1000, 800),
+   util.clampPos(50, 60, 200, 900, 1000, 800)],
+  [{ left: 100, top: 50 }, { left: 0, top: 0 }, { left: 800, top: 760 },
+   { left: 0, top: 60 }, { left: 50, top: 0 }]);
 
 // 42. 工作表名生成（table.js makeSheetName；table 参数以对象桩模拟 caption/aria-label/id）
 const stubTable = (captionText, ariaLabel, id) => ({

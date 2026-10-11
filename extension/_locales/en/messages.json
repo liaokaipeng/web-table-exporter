@@ -27,6 +27,7 @@
 
   "selectedCount": { "message": "Selected <b>$N$</b>", "placeholders": { "N": { "content": "$1" } } },
   "btnClearTitle": { "message": "Clear selected tables" },
+  "barDragTitle": { "message": "Drag to move the toolbar" },
   "toastCleared": { "message": "Cleared all selected tables ($N$)", "placeholders": { "N": { "content": "$1" } } },
   "exportFormatTitle": { "message": "Export format / copy to clipboard" },
   "nameTplTitle": { "message": "File name: {title} = page title, {date} = date, {time} = time; leave it empty for the default name" },
@@ -100,6 +101,7 @@
   "errBase64": { "message": "base64 encoding failed" },
 
   "panelTitle": { "message": "Columns" },
+  "panelDragTitle": { "message": "Drag to move the dialog" },
   "closePanelTitle": { "message": "Close panel" },
   "previewTitle": { "message": "Export preview (green = new split columns; strikethrough = excluded)" },
   "btnSave": { "message": "Save" },

@@ -18,6 +18,8 @@
  * 未拆分时只显示勾选框，勾选即拆分并展开配置；已拆分时勾选框旁出现 chevron 图标按钮，
  * 只控配置子行显隐（收起后拆分仍生效）。此前「取消拆分 | 收起/展开」两个同权重文案
  * 按钮易混淆（误把「收起」当「取消拆分」），且「取消拆分」是不可逆操作。
+ * v2.15：对话框可按住标题栏拖动移动（util.draggable：关闭按钮不启动拖动，落点视口
+ * 钳制；遮罩仍全屏覆盖，移动不改变面板内的焦点圈定与交互）。
  * 保存时草稿回写主 UI 内存 Map，并经 persist 模块落盘（跨会话恢复）。
  * 依赖：主 UI 经 init() 注入 { host, selected, snapshots, splitRules,
  *   colFilters, colFormats, colOrders, hasColCfg, isBusy, updateBar, toast }
@@ -26,7 +28,7 @@
 (() => {
   'use strict';
   const ns = window.__h2x;
-  const { escapeHtml } = ns.util;
+  const { escapeHtml, draggable } = ns.util;
   const { extractTable, makeSheetName } = ns.table;
   const { splitSegments, splitColName, colKeys, ctrlCountOf, ctrlColNames, toNumValue, maxColsOf } = ns.split;
 
@@ -60,6 +62,7 @@
   let panelSample = null;   // 当前表格取样通道 { aoa|rows, ctrl, text, headerRows, merges }
   let panelCols = null;     // 当前表格列信息 [{ name, hasCtrl }]
   let panelDrafts = null;   // Map: table -> { draft: [{checked,mode,pattern,limit,export,skipSegs}|null], cols, keys }
+  let panelDrag = null;     // v2.15：标题栏拖动助手的 dispose 句柄（关面板/退出时摘监听）
 
   // 段数上限解析：空/非法 → null（不限）；合法为 ≥2 的整数
   function parseLimit(s) {
@@ -279,7 +282,7 @@
       '<style>',
       '  .h2x-mask{position:fixed;inset:0;pointer-events:auto;background:rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;z-index:1;animation:h2x-fade .15s ease-out;}',
       '  .h2x-panel{background:var(--c-bg);color:var(--c-text);border-radius:var(--r-lg);box-shadow:var(--sh-3);width:min(1000px,95vw);max-height:86vh;overflow:auto;padding:18px 20px 16px;box-sizing:border-box;font:13px/1.5 var(--ff);animation:h2x-pop .15s ease-out;}',
-      '  .h2x-panel-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-3);}',
+      '  .h2x-panel-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-3);cursor:move;touch-action:none;}',  /* v2.15：标题栏即拖动把手（touch-action:none 防触摸拖拽被滚动手势抢走） */
       '  .h2x-panel-top h3{margin:0;font-size:15px;font-weight:600;}',
       '  .h2x-px{border:none;background:none;color:var(--c-text-3);cursor:pointer;font:18px/1 var(--ff);padding:2px 6px;border-radius:var(--r-xs);}',
       '  .h2x-px:hover{color:var(--c-text);}',
@@ -363,10 +366,11 @@
       '  .h2x-err{color:var(--c-danger);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
       '  @keyframes h2x-fade{from{opacity:0;}}',
       '  @keyframes h2x-pop{from{opacity:0;transform:scale(.98);}}',
+      '  .h2x-panel.h2x-dragging{user-select:none;}',  /* v2.15 拖拽中禁选（标题栏文本不被拖选） */
       '</style>',
       '<div class="h2x-panel">',
       '  <div class="h2x-panel-top">',
-      '    <h3>' + t('panelTitle', '列设置') + '</h3>',
+      '    <h3 title="' + escapeHtml(t('panelDragTitle', '拖动移动对话框')) + '">' + t('panelTitle', '列设置') + '</h3>',
       '    <button type="button" class="h2x-px" aria-label="' + escapeHtml(t('closeAria', '关闭')) + '" title="' + escapeHtml(t('closePanelTitle', '关闭面板')) + '">×</button>',
       '  </div>',
       '  <div class="h2x-tabs" role="tablist"></div>',
@@ -384,6 +388,11 @@
       '</div>'
     ].join('');
     deps.host.shadowRoot.appendChild(panelMask);
+    // v2.15：对话框按住标题栏拖动移动（关闭按钮在 ignore 内，不启动拖动；遮罩仍全屏）
+    panelDrag = draggable(panelMask.querySelector('.h2x-panel'), {
+      handle: '.h2x-panel-top',
+      ignore: 'button,input,select,textarea,a,label'
+    });
     panelMask.querySelector('.h2x-save').addEventListener('click', saveSplitPanel);
     panelMask.querySelector('.h2x-pcancel').addEventListener('click', closeSplitPanel);
     panelMask.querySelector('.h2x-px').addEventListener('click', closeSplitPanel);
@@ -1106,6 +1115,7 @@
 
   /** 面板状态清理（关闭 / 退出选择模式共用：只清引用，DOM 移除由调用方负责） */
   function clearPanelState() {
+    if (panelDrag) { panelDrag(); panelDrag = null; } // v2.15：摘除标题栏拖动监听（防退出后残留）
     panelOpen = false;
     panelDrafts = null;
     panelTable = null;

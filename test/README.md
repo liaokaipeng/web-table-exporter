@@ -17,8 +17,8 @@
   - 预期：页内 summary「37 项全部 PASS」
 
 - **`e2e-harness.js`**
-  - 覆盖：全链路注入回归（`fixture.html`），桩 `chrome.storage`（local+sync 两区，v2.8 跨设备同步）与 `runtime.sendMessage`（走 blob 回退），逐项断言导出内容：选择交互（v2.4 非表格点击放行、被移除已选表格自动剔除+toast）、链接拦截（`preventDefault`+警示 toast+就地红框高亮及还原）、Esc 退出；CSV/JSON/MD/HTML/XLSX 内容（BOM/CRLF、RFC4180 转义、列N兜底、`thead` 归位）、merges、Sheet 名；自适应列宽、XLSX 全量单元格比对（值+类型逐格，含合并延续空位与数字格式 `t:n`）；列拆分三模式（智能预填：分隔符默认留空、段数上限默认 10；单控件：勾选框控拆分+图标按钮控配置显隐）；列筛选（含拆分子列独立筛选、v2.10 原列不导出联动新列整体排除与子列勾选置灰、v2.11.2 原列级导出只跳过原列并持久化恢复）、列格式、分体表格合并；持久化保存/恢复/重置、面板折叠与默认收起、复制到剪贴板（TSV/Markdown）；清空已选与「恢复默认」、导出中止（点「停止导出」不产生文件且选择保留、再次导出正常）；列顺序调整（Alt+↑ 换位+导出列序+重开面板保持）、跨设备同步（镜像存 sync、按 updatedAt 合并取更新者）；输出方式与文件名记忆（v2.9：选择即存偏好、文件名改后记模板并渲染 `{date}`、重进恢复、清空回落默认命名）
-  - 预期：`__TEST_RESULT` 数组 164/164 pass
+  - 覆盖：全链路注入回归（`fixture.html`），桩 `chrome.storage`（local+sync 两区，v2.8 跨设备同步）与 `runtime.sendMessage`（走 blob 回退），逐项断言导出内容：选择交互（v2.4 非表格点击放行、被移除已选表格自动剔除+toast）、链接拦截（`preventDefault`+警示 toast+就地红框高亮及还原）、Esc 退出；CSV/JSON/MD/HTML/XLSX 内容（BOM/CRLF、RFC4180 转义、列N兜底、`thead` 归位）、merges、Sheet 名；自适应列宽、XLSX 全量单元格比对（值+类型逐格，含合并延续空位与数字格式 `t:n`）；列拆分三模式（智能预填：分隔符默认留空、段数上限默认 10；单控件：勾选框控拆分+图标按钮控配置显隐）；列筛选（含拆分子列独立筛选、v2.10 原列不导出联动新列整体排除与子列勾选置灰、v2.11.2 原列级导出只跳过原列并持久化恢复）、列格式、分体表格合并；持久化保存/恢复/重置、面板折叠与默认收起、复制到剪贴板（TSV/Markdown）；清空已选与「恢复默认」、导出中止（点「停止导出」不产生文件且选择保留、再次导出正常）；列顺序调整（Alt+↑ 换位+导出列序+重开面板保持）、跨设备同步（镜像存 sync、按 updatedAt 合并取更新者）；输出方式与文件名记忆（v2.9：选择即存偏好、文件名改后记模板并渲染 `{date}`、重进恢复、清空回落默认命名）；窗口拖拽移动（v2.15：工具栏提示区按住拖动整栏到位、3px 阈值内不认定、拖拽中 h2x-dragging 类、拖出屏外钳制贴左上角、移动后按钮仍可点；列设置对话框标题栏拖动到位、关闭按钮不触发拖动且仍可关面板）
+  - 预期：`__TEST_RESULT` 数组 175/175 pass
 
 - **`e2e-harness-virtual.js`**
   - 覆盖：注入回归（`virtual-fixture.html`）：采集 61 行、重复行保留、控件实时值（`input`/`select` JS 属性设值）、分体表+虚拟滚动 41 行、面板快照与默认不拆分预设
@@ -85,8 +85,8 @@
   - 预期：`__TEST_RESULT` 数组 16/16 pass
 
 - **`algo-check.cjs`**
-  - 覆盖：纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列顺序/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具、模块清单一致性、国际化词条一致性——明细见下节
-  - 预期：全部 PASS（240 项）
+  - 覆盖：纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列顺序/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具（含 v2.15 clampPos 视口钳制）、模块清单一致性、国际化词条一致性——明细见下节
+  - 预期：全部 PASS（244 项）
 
 ## algo-check 覆盖明细
 
@@ -103,7 +103,7 @@
 | 分页适配器（pagination.js v2.5） | 注册表完整性（三适配器、四要素齐备，rootSel 互异，next/prev 均为单类名选择器，v2.9 总页数选择器 pageSel、v2.12 当前页码钩子 current 均可选且类型正确）；v2.13 采集引擎页间停顿（collectPaged pageSleep：无停顿对照 3 页 7 行、400ms×2 次翻页显著拉长耗时、缺参按默认 500ms、停顿不改变结果、停顿中「停止」分块及时中断且保留已采页 reason=stopped）；v2.14 起点归一（collectPaged：≤10 页经 first 钩子一次点击直跳首页、从第 1 页起采且 onNorm 回传 [起始页, null]、结束后回退到起始页；超过 10 页返回 aborted:tooFar 且不点击不采集；边界第 10 页仍自动归一；无 first 钩子落回逐页回点、onNorm 序列 [3,2,1,null]；直跳后表体超 3s 才落地（landMs 桩）仍取到第 1 页数据而非旧页、读数已是第 1 页的不规范分页器不弹提醒框且零导航）；采集引擎页级重叠合并复用 virtual.js overlapLen 既有用例 |
 | 持久化（persist.js） | pageKeyOf 忽略 query/hash、tableKeyOf 指纹（thead 无 tr 的 vxe-table 取 th 子元素而非数据行；v2.1 网格取 dynamic-header-row 表头格、优先内部 table 回退）与空值、sanitizeRecord 损坏剔除自愈（含 formats 键值对、v2.8 order 列顺序数组）与「仅 order 也保留」、evictKeys LRU 淘汰 |
 | 格式序列化（format.js） | csvCell RFC4180 转义、toCsv BOM/CRLF、tsvCell 制表符/换行转空格（v2.7 剪贴板）、toTsv 分隔与空表边界、headerKeys 列名兜底、toJson 行对象/表名嵌套、mdCell 转义与 toMarkdown 结构（含无表头生成列N）、toHtmlDocument 结构 |
-| 通用工具 | util.js sanitizeFilename/escapeHtml；table.js makeSheetName 四级兜底、非法字符、31 字符截断、重名后缀 |
+| 通用工具 | util.js sanitizeFilename/escapeHtml/clampPos（v2.15 视口钳制：正常不动/越界贴边/元素不小于视口贴 0）；table.js makeSheetName 四级兜底、非法字符、31 字符截断、重名后缀 |
 | 模块清单一致性 | service-worker 注入列表 / 九个 e2e-harness 各自 `FILES` / `extension/content` 实际文件对齐+依赖序（防漏同步；v2.5.2 六个分页 harness 漏注入 `pagination.js` 致 E2E 全线失败后扩全；v2.9 新增两个分页 harness） |
 | 国际化词条一致性（v2.6） | 内容脚本与 manifest 引用的全部 `t()`/`__MSG_` 词条 ⊆ `_locales/en`（新增硬编码中文即失败）；manifest `__MSG_` 词条 ⊆ `_locales/zh_CN`（default_locale，缺则显示 key 名）；占位符词条消息须含声明的全部 `$XXX$`；以 en 语言包桩 `chrome.i18n` 驱动 headerKeys/makeSheetName 验证 `$1` 注入（回归：`t()` 曾误用箭头函数 `arguments` 致 subs 恒空） |
 
@@ -135,7 +135,7 @@ powershell -ExecutionPolicy Bypass -File test/gen-icon.ps1
 仓库根 `npx serve .` 后浏览器访问（页面自跑自判，结果在页底浮层、标题栏同步结论）。用 `#e2e=1` 而非 `?e2e=1`：静态服务器 cleanUrls 会丢查询串，hash 不受影响（两种写法均支持）：
 
 ```
-http://localhost:3000/test/fixture.html#e2e=1 →「156 项全部 PASS」
+http://localhost:3000/test/fixture.html#e2e=1 →「175 项全部 PASS」
 http://localhost:3000/test/virtual-fixture.html#e2e=1 →「33 项全部 PASS」
 http://localhost:3000/test/tablev2-fixture.html#e2e=1 →「24 项全部 PASS」
 http://localhost:3000/test/antdv-fixture.html#e2e=1 →「19 项全部 PASS」
@@ -170,5 +170,6 @@ window.__TEST_RESULT = await (0, eval)(c);
 9. 原列级导出（v2.11.2）：拆分并展开子行→取消行首「原列」勾选→仅预览原列划线、主行仍勾选、各新列勾选保持；保存后重开该表子行仍为「原列」未勾选（导出只含新列）；主行取消整列导出→子行全部勾选置灰禁用、重勾恢复各勾选状态。
 10. 翻页间隔（v2.13）：分页页「采集全部页 ▾」→面板「翻页间隔」默认 0.5 秒（单位「秒」，留空 = 默认）→填 1 开始采集，逐页停顿约 1 秒后再翻页（toast/进度行数照常推进）；填 0 无停顿；停顿中「停止采集」立即中止并保留已采页；未选表/多选时该槽随面板禁用。
 11. 起点归一提醒（v2.14）：分页页先手动翻到第 3 页→选中表格→「采集全部页 ▾」→「开始采集」：右侧弹出提醒框「正在回到第一页… 当前第 3 页」，随即直跳第 1 页开始采集（进度从第 1 页起）、提醒框自动收起，采完回到第 1 页；翻到第 12 页（>10 页）再开始采集：不自动回退，右侧警示提醒「请先返回第一页」并注明当前页、不开始采集——手动翻回第 1 页后再点「开始采集」即采全量；提醒框可点 × 关闭。
+12. 窗口拖拽移动（v2.15）：选中表格后按住工具栏提示文案区（光标为移动状）拖动整栏换位——按钮/文件名输入框上按下不拖动、点选照常；拖到屏幕外会自动收拢在视口内；缩小浏览器窗口后界面不会被移出屏外；退出选择模式再进入回到底部居中。打开「列设置」后按住标题栏「列设置」文字处拖动对话框换位，点右上角「×」仍可关闭（不会误拖）；面板内勾选/输入/滚动不受影响。
 
 控件取值规则见 [docs/controls.md](../docs/controls.md)；真实页面回归：点三咪折扣活动编辑页（长列表+一口价 input 列）。

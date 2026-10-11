@@ -55,12 +55,14 @@
  * 10 页不自动归一——collectPaged 返回 aborted:'tooFar'，右侧提醒框（警示色）
  * 请用户手动回第一页后再点「开始采集」，不写快照不采集；提醒框可手动关闭，
  * 语言切换经 renderSide 按状态就地重取词
+ * v2.15：底部工具栏可拖动移动（util.draggable：提示区/空白处按住拖动，按钮与
+ * 输入不启动拖动，落点视口钳制；位置仅当次会话有效，退出重进回默认底部居中）
  */
 (() => {
   'use strict';
   const ns = window.__h2x;
   if (!ns || ns.aborted) return; // 守卫已退出（再次点击图标 = 退出选择模式），不初始化
-  const { timestamp, sanitizeFilename } = ns.util;
+  const { timestamp, sanitizeFilename, draggable } = ns.util;
   const { extractTable, makeSheetName, splitGroupOf, gridRootOf, GRID_ROOT_SELECTOR } = ns.table;
   const { isVirtualTable, collectVirtual } = ns.virtual;
   const { detectPager, manualPager, collectPaged, isPagingClick, pagerByLocator } = ns.pagination;
@@ -144,6 +146,12 @@
   let menuTitleEl = null, menuSubEl = null, pageLimitLabelEl = null, pageUnitEl = null; // 分页面板静态文案节点（语言切换就地重取词）
   let sleepInput = null, pageSleepLabelEl = null, sleepUnitEl = null; // v2.13 翻页间隔行节点（同上，语言切换就地重取词）
   let toastRoot = null;
+  // v2.15 工具栏整体拖动：bar 元素引用 + 拖拽助手 dispose 句柄（退出时摘监听）
+  let bar = null;
+  let disposeBarDrag = null;
+  // 工具栏拖拽忽略区：交互控件与两个自绘弹层不启动拖动（点选/输入/菜单照常）；
+  // 提示区与空白处即为把手（move 光标 + title 提示）
+  const BAR_DRAG_IGNORE = 'button,input,select,textarea,a,label,[role=listbox],[role=dialog]';
   // v2.14 右侧提醒框（起点归一进行中 / 距第一页过远需手动归一）
   let sideBox = null, sideIcoEl = null, sideTitleEl = null, sideMsgEl = null, sideXBtn = null;
   let sideKind = '';   // '' = 隐藏 | 'norm' 归一进行中 | 'toofar' 距第一页过远待手动归一
@@ -200,7 +208,8 @@
       '  .h2x-badge{position:absolute;top:-12px;left:-12px;min-width:22px;height:22px;padding:0 6px;box-sizing:border-box;border-radius:11px;background:#2e7d32;color:#fff;font:700 12px/22px var(--ff);text-align:center;box-shadow:var(--sh-1);}',
       '  .h2x-sel.h2x-flip-x .h2x-badge{left:auto;right:-12px;}',   /* 表格贴左边缘：徽标翻内侧 */
       '  .h2x-sel.h2x-flip-y .h2x-badge{top:auto;bottom:-12px;}',   /* 表格贴上边缘：徽标翻内侧 */
-      '  .h2x-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);pointer-events:auto;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;width:max-content;max-width:96vw;box-sizing:border-box;padding:10px 14px;background:var(--c-bg);border-radius:var(--r-lg);box-shadow:var(--sh-2);gap:var(--sp-2) var(--sp-3);font:13px/1.4 var(--ff);color:var(--c-text);}',  /* v2.6.1 消除英文折行两侧空白：width:max-content 让单行内容恰可放下（中文一行外观零变化），只有超出 max-width 才折行；折行后各行剩余空间经 space-between 分布到行内间隙、两端贴边，替代默认 auto 宽度收缩成多条窄行 + center 空洞 */
+      '  .h2x-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);pointer-events:auto;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;width:max-content;max-width:96vw;box-sizing:border-box;padding:10px 14px;background:var(--c-bg);border-radius:var(--r-lg);box-shadow:var(--sh-2);gap:var(--sp-2) var(--sp-3);font:13px/1.4 var(--ff);color:var(--c-text);cursor:move;touch-action:none;}',  /* v2.6.1 消除英文折行两侧空白：width:max-content 让单行内容恰可放下（中文一行外观零变化），只有超出 max-width 才折行；折行后各行剩余空间经 space-between 分布到行内间隙、两端贴边，替代默认 auto 宽度收缩成多条窄行 + center 空洞；v2.15 cursor:move + touch-action:none：整栏可拖动移动（交互控件自带 cursor 覆盖，触摸拖拽不被滚动手势抢走） */
+      '  .h2x-bar.h2x-dragging{user-select:none;}',  /* v2.15 拖拽中禁选（防拖过提示文字时选中） */
       '  .h2x-hint{color:var(--c-text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',  /* 空间不足先截断提示文案，按钮不被迫换行 */
       '  .h2x-count{flex:none;white-space:nowrap;}',
       '  .h2x-count b{color:var(--c-primary);}',
@@ -208,7 +217,7 @@
       '  .h2x-clear:hover:not(:disabled){background:var(--c-danger);color:#fff;}',
       '  .h2x-clear:disabled{opacity:.5;cursor:not-allowed;}',
       '  .h2x-clear[hidden]{display:none;}',
-      '  .h2x-name{flex:1 1 150px;min-width:110px;max-width:260px;height:var(--h-ctl);padding:0 10px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 var(--ff);color:var(--c-text);outline:none;background:var(--c-input);box-sizing:border-box;}',
+      '  .h2x-name{flex:1 1 150px;min-width:110px;max-width:260px;height:var(--h-ctl);padding:0 10px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 var(--ff);color:var(--c-text);outline:none;background:var(--c-input);box-sizing:border-box;cursor:text;}',  /* cursor:text：覆盖工具栏的 move 光标（v2.15），文件名是可编辑文本 */
       '  .h2x-name:focus{border-color:var(--c-primary);}',
       // v2.11 输出方式下拉改自绘菜单：原生 select 弹层在部分浏览器中内容贴边且无法定制内边距。
       // 主按钮（导出当前格式）+ 右侧箭头按钮开合菜单；隐藏的原生 select 保留为格式状态与词条来源
@@ -370,6 +379,7 @@
     ].join('');
 
     hoverBox = root.querySelector('.h2x-hover');
+    bar = root.querySelector('.h2x-bar'); // v2.15：整栏拖动的目标（把手 = 栏上非交互区）
     countWrap = root.querySelector('.h2x-count'); // countEl 由 syncCount 渲染后取得（<b> 才存在）
     clearBtn = root.querySelector('.h2x-clear');
     nameInput = root.querySelector('.h2x-name');
@@ -449,6 +459,8 @@
     fillStaticTexts(); // 静态文案统一入口（语言切换经 refreshTexts 重走，杜绝双写）
     syncCount(); // 计数含 <b> 骨架：updateBar 热路径只改 textContent，不重建 DOM
     nameInput.value = renderNameTpl(NAME_TPL_DEFAULT);
+    // v2.15：工具栏整栏可拖动移动（按钮/输入/弹层不启动拖动，见 BAR_DRAG_IGNORE）
+    disposeBarDrag = draggable(bar, { ignore: BAR_DRAG_IGNORE });
   }
 
   /** 静态文案统一填充（buildUI 结尾与语言切换 refreshTexts 共用同一入口）：
@@ -459,6 +471,8 @@
   function fillStaticTexts() {
     clearBtn.title = t('btnClearTitle', '清空已选表格');
     clearBtn.setAttribute('aria-label', clearBtn.title);
+    // v2.15：提示区是工具栏最大的空白把手，hover 出拖动说明（textContent 动态、title 静态）
+    hintEl.title = t('barDragTitle', '拖动移动工具栏');
     nameInput.title = t('nameTplTitle', '文件名：{title} 页面标题、{date} 日期、{time} 时间；留空 = 默认命名');
     nameInput.setAttribute('aria-label', nameInput.title);
     splitBtn.textContent = t('btnColSettings', '列设置');
@@ -1510,6 +1524,7 @@
     active = false;
     genToken++; // 使进行中的采集任务失效
     specifying = false;
+    if (disposeBarDrag) disposeBarDrag(); // v2.15：摘除工具栏拖动监听（resize 钳制 + 指针）
     document.removeEventListener('mouseover', onMouseOver, true);
     document.removeEventListener('click', onClickCapture, true);
     document.removeEventListener('keydown', onKeyDown, true);

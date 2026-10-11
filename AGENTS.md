@@ -27,6 +27,13 @@ node test/algo-check.cjs
 
 测试范围：简单功能或小改动不必补自动化测试，至少完成上述语法检查；涉及取值、解析等核心逻辑的改动须跑 `node test/algo-check.cjs` 并做浏览器回归。
 
+小功能从简路径（默认生效，省轮次；拿不准是否算小功能 → 按完整路径）：
+- 判定（须全部满足）：改动 ≤3 个文件；不碰取值/解析/采集/导出算法（split/cell/table/virtual/pagination/format）与持久化结构；不动 manifest 权限
+- 执行：语法检查 + 浏览器手工回归（只验本功能相关场景，对应 test/README 的回归步骤）；新增了 t() 界面文案的，顺带跑 `node test/algo-check.cjs`（数秒，i18n 词条齐备断言兜底漏翻）
+- 不补 E2E 轮次、不加 algo-check 用例（新增纯函数除外）
+- 文档最小面：manifest 版本升一位 + architecture/product 各补一句版本行；test/README 覆盖矩阵与计数、decisions 可不写（行为取舍值得记时破例）
+- 完整路径（碰核心算法或存储结构、新增内容脚本模块、新增可断言的交互契约）：algo-check + 相关 E2E 轮次 + 文档全量同步（含 test/README 计数修正）
+
 ## 远程 GitHub 操作
 
 推送、打 Tag、GitHub Release 代发等全部远程操作（含凭据获取与 API 坑）集中在 [docs/github-remote.md](docs/github-remote.md)，不在此重复。

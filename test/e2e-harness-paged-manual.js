@@ -8,147 +8,36 @@
  * 按钮（不再要求指定、不再进子模式）；③记忆的按钮从页面消失时回落子模式兜底，
  * 且不清除记忆（页面重渲染后仍可命中）。另覆盖：自建分页器无总页数时进度只显示
  * 当前页（不显示 i/N）、子模式 Esc 取消不丢选区。
+ * 基建：chrome 桩 / 导出捕获桩（带回落版：编程式翻页靠 a 链接原生 click 派发）/
+ * 注入器 / UI 定位（基座 + 分页采集控件）/ 轮次执行器 / 采集等待助手均经
+ * e2e-common.js 的 create() 装配，本文件只保留业务轮次与 fixture 特有助手
+ * （esc / pagerMem）。
  */
 (async () => {
   if (window.__HARNESS_STARTED) return { error: 'harness 已在运行（并发守卫）' };
   window.__HARNESS_STARTED = true;
-  window.__TEST_LOG = [];
-  const log = (m) => window.__TEST_LOG.push(Date.now() % 1000000 + ' ' + m);
-  const R = [];
-  const t = (name, pass, detail) => R.push({ name, pass: !!pass, detail: detail == null ? '' : String(detail) });
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const waitFor = async (cond, timeout) => {
-    const t0 = Date.now();
-    while (!cond() && Date.now() - t0 < (timeout || 3000)) await sleep(20);
-    return !!cond();
-  };
 
-  /* ---- 全局桩：chrome.storage（local）+ runtime（无扩展上下文） ---- */
-  const memStore = {};
-  window.chrome = {
-    storage: { local: {
-      get: async (k) => {
-        const out = {};
-        if (k == null) { for (const key in memStore) out[key] = memStore[key]; return out; }
-        for (const key of (Array.isArray(k) ? k : [k])) if (memStore[key] != null) out[key] = memStore[key];
-        return out;
-      },
-      set: async (obj) => { for (const key in obj) memStore[key] = obj[key]; },
-      remove: async (keys) => { for (const k of (Array.isArray(keys) ? keys : [keys])) delete memStore[k]; }
-    } },
-    runtime: { sendMessage: () => { throw new Error('E2E: 无扩展上下文（预期走 blob 回退）'); } }
-  };
-
-  /* ---- 捕获导出 ---- */
-  const origCreate = URL.createObjectURL.bind(URL);
-  const origAnchorClick = HTMLAnchorElement.prototype.click;
-  window.__exports = [];
-  const blobMap = new Map();
-  URL.createObjectURL = (b) => { const u = origCreate(b); blobMap.set(u, b); return u; };
-  HTMLAnchorElement.prototype.click = function () {
-    const b = blobMap.get(this.href);
-    if (b) { window.__exports.push({ name: this.download, blob: b }); return; }
-    // 非导出链接（如本页「下一页」为 a 链接）走原生 click 派发事件——
-    // 扩展的编程式翻页正是靠它触发页面自身的监听器，桩不得吞掉
-    return origAnchorClick.call(this);
-  };
-
-  const FILES = ['entry', 'i18n', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'pagination', 'persist', 'format', 'panel', 'main'];
-  const modCache = Object.create(null);
-  async function inject() {
-    if (window.__html2xlsx) { try { window.__html2xlsx.toggle(); } catch (e) { /* 忽略 */ } }
-    [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647').forEach(el => el.remove());
-    window.__html2xlsx = null;
-    try { delete window.__h2x; } catch (e) { window.__h2x = undefined; }
-    window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
-    for (const f of FILES) {
-      if (!modCache[f]) {
-        const r = await fetch('/extension/content/' + f + '.js');
-        if (!r.ok) throw new Error(f + '.js HTTP ' + r.status);
-        modCache[f] = await r.text();
-      }
-      (0, eval)(modCache[f]);
+  /* ---- 共享基建：e2e-common.js（chrome 桩 / 导出捕获桩 / 注入器 / UI 定位 / 轮次
+         执行器 / startCollect+waitCollect；行为统一规格见该文件头）。已加载则跳过 ---- */
+  if (!window.__h2xT) (0, eval)(await (await fetch('/test/e2e-common.js?v=' + Date.now())).text());
+  const T = window.__h2xT.create({
+    uiExtra: { // 分页采集控件追加定位（自建分页器，无总页数/无右侧提醒框）
+      pageBtn: '.h2x-pagebtn',
+      pageMenu: '.h2x-pagemenu',
+      pagesInput: '.h2x-pages',
+      sleepInput: '.h2x-sleep',
+      pageGo: '.h2x-pagego'
     }
-    return !!window.__html2xlsx;
-  }
-  function ui() {
-    const hosts = [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647');
-    const host = hosts[hosts.length - 1];
-    if (!host) throw new Error('未找到工具栏 host');
-    const sr = host.shadowRoot;
-    return {
-      host: host, sr: sr,
-      exportBtn: sr.querySelector('.h2x-actions > .h2x-primary'),
-      cancelBtn: sr.querySelector('.h2x-actions > .h2x-ghost'),
-      fmtSel: sr.querySelector('.h2x-ext'),
-      count: sr.querySelector('.h2x-count b'),
-      hint: sr.querySelector('.h2x-hint'),
-      pageBtn: sr.querySelector('.h2x-pagebtn'),
-      pageMenu: sr.querySelector('.h2x-pagemenu'),
-      pagesInput: sr.querySelector('.h2x-pages'),
-      sleepInput: sr.querySelector('.h2x-sleep'),
-      pageGo: sr.querySelector('.h2x-pagego')
-    };
-  }
-  const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
-  const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  const clickCell = (sel) => click(document.querySelector(sel));
-  const toastText = (h) => [...h.sr.querySelectorAll('.h2x-toast')].map(x => x.textContent).join('|');
+  });
+  const FILES = T.FILES; // algo-check 模块清单一致性检查引用（清单唯一来源在 e2e-common.js）
+  const { R, t, sleep, waitFor, waitExports, csvLines, fire, click, clickCell, toastText,
+    round, startCollect, waitCollect, summarize } = T;
+  const { memStore } = T; // chrome.storage local 内存桩（翻页按钮记忆 h2x.pager.v1 断言）
+
+  /* ---- fixture 特有助手 ---- */
   const esc = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-  async function waitExports(n, timeout) {
-    const t0 = Date.now();
-    while (window.__exports.length < n && Date.now() - t0 < (timeout || 20000)) await sleep(25);
-    return window.__exports.slice();
-  }
-  const csvLines = async (f) => (await f.blob.text()).replace(/^\uFEFF/, '').split('\r\n').filter(x => x !== '');
   const pagerMem = () => memStore['h2x.pager.v1'] || {};
   const pagerMemCount = () => Object.keys(pagerMem()).length;
-
-  /** 点开「采集全部页」下拉 →（可选）填页数上限 →（可选）填翻页间隔（秒）→ 点「开始采集」 */
-  async function startCollect(h, limit, sleep) {
-    click(h.pageBtn);
-    await waitFor(() => !h.pageMenu.hidden, 1000);
-    if (limit) { h.pagesInput.value = String(limit); fire(h.pagesInput, 'input'); }
-    if (sleep != null) { h.sleepInput.value = String(sleep); fire(h.sleepInput, 'input'); }
-    click(h.pageGo);
-  }
-  /** 等采集结束（完成 toast 出现），期间用 MutationObserver 记录每一次进度文案
-   *  （轮询会漏掉「写入后立刻被重置」的中间帧，观察器记录每个文本节点写入） */
-  async function waitCollect(h, timeout) {
-    const hints = [];
-    const mo = new MutationObserver((recs) => {
-      for (const r of recs) {
-        const v = r.type === 'childList'
-          ? [...r.addedNodes].map(n => n.textContent).join('')
-          : r.target.textContent;
-        if (v && hints[hints.length - 1] !== v) hints.push(v);
-      }
-    });
-    mo.observe(h.hint, { childList: true, characterData: true, subtree: true });
-    const t0 = Date.now();
-    while (Date.now() - t0 < (timeout || 15000)) {
-      if (toastText(h).indexOf('采集完成') >= 0 || toastText(h).indexOf('采集失败') >= 0) break;
-      await sleep(10);
-    }
-    mo.disconnect();
-    return hints;
-  }
-
-  async function round(name, fn) {
-    log('=== 轮次开始: ' + name);
-    window.__exports.length = 0;
-    blobMap.clear();
-    try {
-      if (!(await inject())) throw new Error('注入失败（window.__html2xlsx 为空）');
-      const h = ui();
-      try { await fn(h); }
-      finally { try { click(h.cancelBtn); } catch (e) { /* 已退出 */ } await waitFor(() => !document.documentElement.contains(h.host), 1500); }
-      log('=== 轮次结束: ' + name);
-    } catch (e) {
-      t('【' + name + '】轮次执行异常', false, String((e && e.stack) || e));
-      log('[' + name + '] 异常: ' + e);
-    }
-  }
 
   /* ================= 轮次 A：指定翻页按钮并记住（v2.9） ================= */
   await round('指定翻页按钮并记住', async (h) => {
@@ -207,5 +96,5 @@
     t('记忆保留（按钮重新渲染后仍可命中）', pagerMemCount() === 1, JSON.stringify(pagerMem()));
   });
 
-  return { total: R.length, passed: R.filter(x => x.pass).length, results: R };
+  return summarize(R);
 })();

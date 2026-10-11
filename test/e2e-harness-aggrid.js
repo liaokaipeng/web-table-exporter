@@ -7,135 +7,32 @@
  * 自动滚动采集 300 行（DOM 序倒置注入，导出正确性依赖按 aria-rowindex 排序）、
  * 合法重复行保留、控件实时值（input JS 属性设值 / select）、采集后面板快照取样、
  * 固定列双分区拼接采集（列序 pinned→center）150 行、普通表回归。
+ * 基建：chrome 桩 / 导出捕获桩 / 注入器（scrollTop patch）/ UI 定位 / 轮次执行器 /
+ * waitSelected 采集等待均经 e2e-common.js 的 create() 装配，普通表回归轮次用 common
+ * 的 normalTableRound；本文件只保留业务轮次与 fixture 特有探针（waitSelected 诊断日志）。
  * 提速：事件驱动 waitFor + 模块代码缓存（同 e2e-harness-tablev2.js，配 run-all.ps1
  * headless 虚拟时间模式整页约 1 秒跑完）。
  */
 (async () => {
   if (window.__HARNESS_STARTED) return { error: 'harness 已在运行（并发守卫）' };
   window.__HARNESS_STARTED = true;
-  window.__TEST_LOG = [];
-  const log = (m) => window.__TEST_LOG.push(Date.now() % 1000000 + ' ' + m);
-  const R = [];
-  const t = (name, pass, detail) => R.push({ name, pass: !!pass, detail: detail == null ? '' : String(detail) });
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const waitFor = async (cond, timeout) => {
-    const t0 = Date.now();
-    while (!cond() && Date.now() - t0 < (timeout || 3000)) await sleep(20);
-    return !!cond();
+
+  /* ---- 共享基建：e2e-common.js（chrome 桩 / 导出捕获桩 / 注入器 / UI 定位 / 轮次
+         执行器 / waitSelected / normalTableRound；行为统一规格见该文件头）。
+         已加载则跳过；scrollTop patch：隐藏标签页 scroll 不触发，网格滚动类页面需要 ---- */
+  if (!window.__h2xT) (0, eval)(await (await fetch('/test/e2e-common.js?v=' + Date.now())).text());
+  const T = window.__h2xT.create({ patchScrollTop: true });
+  const FILES = T.FILES; // algo-check 模块清单一致性检查引用（清单唯一来源在 e2e-common.js）
+  const { R, t, waitFor, waitExports, csvLines, fire, click, clickCell, toastText,
+    round, waitSelected, normalTableRound, summarize } = T;
+
+  /* ---- fixture 特有探针：waitSelected 诊断日志（两个网格的 body-viewport 滚动位置/行数） ---- */
+  const probe = (h) => {
+    const g1 = document.querySelector('#grid1 .ag-body-viewport');
+    const g2 = document.querySelector('#grid2 .ag-body-viewport');
+    return ' [g1 st=' + (g1 && g1.scrollTop) + ' rows=' + document.querySelectorAll('#grid1 .ag-center-cols-container .ag-row').length + ']' +
+      ' [g2 st=' + (g2 && g2.scrollTop) + ' rows=' + document.querySelectorAll('#grid2 .ag-center-cols-container .ag-row').length + ']';
   };
-
-  /* ---- 全局桩（同 e2e-harness-tablev2.js） ---- */
-  const memStore = {};
-  window.chrome = {
-    storage: { local: {
-      get: async (k) => {
-        const out = {};
-        if (k == null) { for (const key in memStore) out[key] = memStore[key]; return out; }
-        for (const key of (Array.isArray(k) ? k : [k])) if (memStore[key] != null) out[key] = memStore[key];
-        return out;
-      },
-      set: async (obj) => { for (const key in obj) memStore[key] = obj[key]; },
-      remove: async (keys) => { for (const k of (Array.isArray(keys) ? keys : [keys])) delete memStore[k]; }
-    } },
-    runtime: { sendMessage: () => { throw new Error('E2E: 无扩展上下文（预期走 blob 回退）'); } }
-  };
-
-  /* ---- 捕获导出 ---- */
-  const origCreate = URL.createObjectURL.bind(URL);
-  window.__exports = [];
-  const blobMap = new Map();
-  URL.createObjectURL = (b) => { const u = origCreate(b); blobMap.set(u, b); return u; };
-  HTMLAnchorElement.prototype.click = function () {
-    const b = blobMap.get(this.href);
-    if (b) window.__exports.push({ name: this.download, blob: b });
-  };
-
-  const FILES = ['entry', 'i18n', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'pagination', 'persist', 'format', 'panel', 'main'];
-  const modCache = Object.create(null);
-  async function inject() {
-    if (window.__html2xlsx) { try { window.__html2xlsx.toggle(); } catch (e) { /* 忽略 */ } }
-    [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647').forEach(el => el.remove());
-    window.__html2xlsx = null;
-    try { delete window.__h2x; } catch (e) { window.__h2x = undefined; }
-    window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
-    if (!window.__H2X_ST_PATCHED) {
-      window.__H2X_ST_PATCHED = true;
-      const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
-      if (desc && desc.set && desc.configurable) {
-        Object.defineProperty(Element.prototype, 'scrollTop', {
-          configurable: true, enumerable: desc.enumerable,
-          get: desc.get,
-          set: function (v) { desc.set.call(this, v); this.dispatchEvent(new Event('scroll')); }
-        });
-      }
-    }
-    for (const f of FILES) {
-      if (!modCache[f]) {
-        const r = await fetch('/extension/content/' + f + '.js');
-        if (!r.ok) throw new Error(f + '.js HTTP ' + r.status);
-        modCache[f] = await r.text();
-      }
-      (0, eval)(modCache[f]);
-    }
-    return !!window.__html2xlsx;
-  }
-  function ui() {
-    const hosts = [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647');
-    const host = hosts[hosts.length - 1];
-    if (!host) throw new Error('未找到工具栏 host');
-    const sr = host.shadowRoot;
-    return {
-      host: host, sr: sr,
-      exportBtn: sr.querySelector('.h2x-actions > .h2x-primary'),
-      splitBtn: sr.querySelector('.h2x-split'),
-      cancelBtn: sr.querySelector('.h2x-actions > .h2x-ghost'),
-      fmtSel: sr.querySelector('.h2x-ext'),
-      count: sr.querySelector('.h2x-count b'),
-      hint: sr.querySelector('.h2x-hint'),
-      hoverBox: sr.querySelector('.h2x-hover')
-    };
-  }
-  const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
-  const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  const clickCell = (sel) => click(document.querySelector(sel));
-  const toastText = (h) => [...h.sr.querySelectorAll('.h2x-toast')].map(x => x.textContent).join('|');
-  async function waitExports(n, timeout) {
-    const t0 = Date.now();
-    while (window.__exports.length < n && Date.now() - t0 < (timeout || 20000)) await sleep(25);
-    return window.__exports.slice();
-  }
-  const csvLines = async (f) => (await f.blob.text()).replace(/^\uFEFF/, '').split('\r\n').filter(x => x !== '');
-  async function waitSelected(h, timeout) { // 等虚拟采集完成（计数变 1）
-    const t0 = Date.now();
-    let polls = 0;
-    while (h.count.textContent !== '1' && Date.now() - t0 < (timeout || 90000)) {
-      await sleep(100);
-      if (++polls % 5 === 1) {
-        const g1 = document.querySelector('#grid1 .ag-body-viewport');
-        const g2 = document.querySelector('#grid2 .ag-body-viewport');
-        log('waitSelected#' + polls + ' count=' + h.count.textContent + ' hint=' + h.hint.textContent +
-          ' [g1 st=' + (g1 && g1.scrollTop) + ' rows=' + document.querySelectorAll('#grid1 .ag-center-cols-container .ag-row').length + ']' +
-          ' [g2 st=' + (g2 && g2.scrollTop) + ' rows=' + document.querySelectorAll('#grid2 .ag-center-cols-container .ag-row').length + ']');
-      }
-    }
-    return h.count.textContent === '1';
-  }
-
-  async function round(name, fn) {
-    log('=== 轮次开始: ' + name);
-    window.__exports.length = 0;
-    blobMap.clear();
-    try {
-      if (!(await inject())) throw new Error('注入失败（window.__html2xxx 为空）');
-      const h = ui();
-      try { await fn(h); }
-      finally { try { click(h.cancelBtn); } catch (e) { /* 已退出 */ } await waitFor(() => !document.documentElement.contains(h.host), 1500); }
-      log('=== 轮次结束: ' + name);
-    } catch (e) {
-      t('【' + name + '】轮次执行异常', false, String((e && e.stack) || e));
-      log('[' + name + '] 异常: ' + e);
-    }
-  }
 
   /* ================= 轮次 A：AG Grid 基本结构（300 行，行节点复用乱序） ================= */
   await round('AG Grid 采集', async (h) => {
@@ -148,7 +45,7 @@
 
     const ok = await (async () => {
       clickCell('#grid1 .ag-cell');
-      return waitSelected(h, 90000);
+      return waitSelected(h, 90000, probe);
     })();
     t('AG Grid 点击后自动滚动采集选中', ok, 'count=' + h.count.textContent);
     t('采集完成提示（toast 301 行含表头）', toastText(h).indexOf('采集完成，共 301 行') >= 0, toastText(h));
@@ -199,7 +96,7 @@
 
     const ok = await (async () => {
       clickCell('#grid2 .ag-cell');
-      return waitSelected(h, 90000);
+      return waitSelected(h, 90000, probe);
     })();
     t('固定列表格点击一次整体选中（自动采集）', ok, 'count=' + h.count.textContent);
     t('固定列采集完成提示（toast 151 行）', toastText(h).indexOf('采集完成，共 151 行') >= 0, toastText(h));
@@ -224,15 +121,7 @@
   });
 
   /* ================= 轮次 C：普通表格回归 ================= */
-  await round('普通表回归', async (h) => {
-    clickCell('#normal td');
-    h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
-    click(h.exportBtn);
-    const files = await waitExports(1);
-    const lines = await csvLines(files[0]);
-    const exp = ['姓名,部门', '张三,研发部', '李四,市场部'];
-    t('普通表格导出回归（3 行）', JSON.stringify(lines) === JSON.stringify(exp), JSON.stringify(lines));
-  });
+  await normalTableRound('普通表回归');
 
-  return { total: R.length, passed: R.filter(x => x.pass).length, results: R };
+  return summarize(R);
 })();

@@ -23,7 +23,7 @@ Web Table Exporter：导出表格
 **详细说明**
 
 ```
-把网页表格一键导出为 Excel、CSV 等文件，无需复制粘贴、无需截图。完全免费、代码开源，不收集任何数据。
+把网页表格一键导出为 Excel、CSV 等文件，无需复制粘贴、无需截图。完全免费、代码开源。
 
 【使用方式】
 1. 点击浏览器工具栏的扩展图标，进入选择模式
@@ -49,7 +49,7 @@ Web Table Exporter：导出表格
 xlsx（多表多 Sheet）、csv、json、md、html，工具栏下拉切换；另支持复制到剪贴板（表格 TSV / Markdown），不落盘，可直接粘贴进 Excel、飞书或笔记
 
 【隐私与数据安全】
-表格数据始终在本机处理，不出浏览器，也不发起任何网络请求。列设置默认仅存本机；登录 Chrome 账号时随浏览器账号在您自己的设备间同步（由浏览器提供，不经过任何第三方服务器）。代码可自行审计：https://github.com/liaokaipeng/web-table-exporter
+本扩展为纯本地工具：点击图标后按需注入内容脚本，用户点选页面表格后导出文件，表格数据始终在本机处理、不出浏览器。扩展不请求任何网络权限，不发起任何网络请求，不收集、不传输任何数据。列设置默认仅存本机（chrome.storage.local）；登录 Chrome 账号时由浏览器镜像一份到 chrome.storage.sync，随浏览器账号在您自己的设备间同步（不经过任何第三方服务器）。代码可自行审计：https://github.com/liaokaipeng/web-table-exporter
 
 【适用场景】
 后台管理系统数据导出、电商订单表格整理、报表搬运、数据核对。
@@ -78,7 +78,7 @@ Export web tables. Free & open source, no data collected. Virtual-scrolling grid
 **Detailed description**
 
 ```
-Turn web page tables into Excel, CSV and more with one click — no copy-paste, no screenshots. Completely free and open source, and it collects no data.
+Turn web page tables into Excel, CSV and more with one click — no copy-paste, no screenshots. Completely free and open source.
 
 HOW TO USE
 1. Click the extension icon to enter selection mode
@@ -104,7 +104,7 @@ OUTPUT FORMATS
 xlsx (one sheet per table), csv, json, md, html — switch via the toolbar dropdown. You can also copy to the clipboard (table TSV / Markdown) without saving a file, ready to paste into Excel, Sheets or your notes.
 
 PRIVACY & DATA SAFETY
-Table data is processed entirely on your device and never leaves your browser, and there are no network requests at all. Column settings are stored locally by default; when you are signed in to Chrome they sync across your own devices through your browser account (handled by the browser, never by a third-party server). Audit the code yourself: https://github.com/liaokaipeng/web-table-exporter
+This extension is a purely local tool: clicking the icon injects content scripts on demand, and the user selects tables on the page and exports them as files; table data is processed entirely on your device and never leaves your browser. It requests no network permissions, makes no network requests, and collects or transmits no data. Column settings are stored locally by default (chrome.storage.local); when you are signed in to Chrome they are mirrored by the browser to chrome.storage.sync and sync across your own devices through your browser account (never by a third-party server). Audit the code yourself: https://github.com/liaokaipeng/web-table-exporter
 
 USE CASES
 Exporting admin dashboard data, organizing e-commerce order tables, moving reports, cross-checking data.

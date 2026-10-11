@@ -57,7 +57,7 @@
 #### util.js（依赖：—）
 
 - `timestamp()` / `sanitizeFilename()` / `escapeHtml()`
-- v2.15 窗口拖动：`clampPos()` 视口钳制纯函数（algo-check 离线回归）+ `draggable(el, {handle, ignore})` 指针事件拖拽助手（单击阈值、实化定位、视口钳制、resize 重钳制、dispose 摘监听）——主工具栏与列设置面板共用，见 main.js / panel.js 的 v2.15 行
+- v2.15 窗口拖动：`clampPos()` 视口钳制纯函数（algo-check 离线回归）+ `draggable(el, {handle, ignore})` 指针事件拖拽助手（单击阈值、实化定位、视口钳制、resize 重钳制、dispose 摘监听）——主工具栏与列设置面板共用
 
 #### controls.js（依赖：—）
 
@@ -85,29 +85,20 @@
 
 #### virtual.js（依赖：table）
 
-- `isVirtualTable()` / `collectVirtual()` / `overlapLen()`
+- 虚拟滚动采集：`isVirtualTable()` 识别 → `collectVirtual()` 回顶、按视口 80% 步长下滚、逐窗提取并经 `overlapLen()` 重叠合并衔接（v2.9 起「元素身份优先、内容匹配兜底」：`refOverlapLen()` / `refTopsMatch()`）
 - v2.1：网格表格恒走滚动采集，固定列多分区（left/main/right）联动设置 scrollTop
-- v2.9：窗口衔接改「元素身份优先、内容匹配兜底」——`refOverlapLen()`（窗口头部与上窗尾部的 DOM 行元素对齐数）+ `refTopsMatch()`（引用重叠的 k 行内容须与已累积尾部一致，否则视为误判、回落内容匹配）
-- 「整窗同一批节点」不再直接短路为「零新增」，而是交给内容匹配（内容也相同 = 零新增，内容变了 = 按内容求重叠）
+- 机制与参数（识别规则、窗口衔接、停止与快照结构）见 [mechanisms.md](mechanisms.md)「虚拟滚动」
 
 #### pagination.js（依赖：table, persist, virtual）
 
-- 分页表格自动翻页采集（v2.5）：
-  - `PAGER_ADAPTERS` 分页适配器注册表（el-pagination / ant-pagination，`detectPager()` 自表格根向上找分页器）
-  - `manualPager()` 用户指定按钮定位器（`locatorOf` / `resolveLocator` 跨页重解析）
-  - `collectPaged()` 采集引擎（逐页 extractTable + overlapLen 页级重叠合并，起点归一 / 指纹校验 / 三重停止）
-  - `isPagingClick()` 编程式点击豁免
-- v2.9：适配器增 `pageSel`（页码项选择器，末页号即总页数）与 `total(root)`（0 = 未知）；`collectPaged()` 结果增 `reason`（noNew / tableLost / headerChanged / stopped / maxPages / 空）与 `pages`；`manualPager()` 返回定位器 `loc`，新增 `pagerByLocator()`（解析不到返回 null 由主 UI 回落子模式）
-- v2.12：翻页等待改「页码变化 + 数据落地」双判定（修复慢站点误停：51 页站点采到第 3 页只剩 40 行、toast「连续翻页无新数据」）。适配器增可选 `current(root)` 读当前页码（el `.el-pager li.active` / ant `.ant-pagination-item-active`，0 = 读不到）；`collectPaged()` 点击后改轮询（`waitPageData`：单页总预算 6s、250ms 步进），页码不变超 1.2s = 点击被页面丢弃（加载中守卫/限流）→ 重新查找按钮重点（至多 3 次），新行落地即返回；起点归一/回退每击等「页码动了 + 表体内容签名换了」（`waitTurn`；签名 = 行数 + 首末行文本采样，替代早期整根 textContent——万行表在 150~250ms 轮询里反复全量序列化过重，无行元素的网格未渲染态回落文本长度）再点下一击；读不到页码（手动/vxe）退化固定 200ms 且不重点。提前停止原因增 `noteNoTurn`（翻页按钮点击后页面未变化）；表头指纹/表格失联校验增瞬时容错（读不到 ≠ 变化）
-- v2.13：页间停顿 `pageSleep`（采集面板「翻页间隔」自定义，单位秒、默认 0.5s，经 `collectPaged` 第六参传毫秒；undefined/负数/NaN 按 500ms）。主循环中「下一页」按钮可用且确定要点击前停顿一次（末页/达页数上限不浪费间隔），`pagePause()` 按 ≤100ms 分块等待——「停止采集」不必等满整个间隔；停顿中被取消返回已采页部分结果（reason `stopped`）。对慢站点/限流后台连续翻页易被吞点击或封禁的场景，用户可自行加大间隔减压
-- v2.14：起点归一升级——① 统一 pager 接口增 `first(root)`（pageSel 内找文本/title=1 的页码项，直跳首页用；vxe/自建无 pageSel 返回 null），归一时优先一次点击回第一页（`waitTurn` 双判定确认），失败落回逐页回点；② 距第一页超过 `NORM_MAX=10` 页不自动归一——`collectPaged` 返回 `{ aborted:'tooFar', page }`（不采集、不写快照），交还用户手动回第一页后再点「开始采集」；③ `collectPaged` 第七参 `onNorm(page)` 回调（归一开始/每次翻页后回传当前页，0 = 读不到；读数已是第 1 页不回调防提醒框瞬间闪；结束传 null）驱动 main.js 右侧提醒框（`renderSide()` 按 sideKind/sidePage 渲染，info/warn 两态、可手动关闭、语言切换就地重取词）；④ 翻过页后等表体真正落地再取第一页（`waitLanded`，与 `waitPageData` 同款 6s 预算、重建按指纹重解析）——防超慢站点把旧页行当第一页写进快照
+- 分页表格自动翻页采集（v2.5）：`PAGER_ADAPTERS` 适配器注册表 + `manualPager()` 手动指定两层定位；`collectPaged()` 采集引擎（逐页 extractTable + overlapLen 页级重叠合并、起点归一、指纹校验、多重停止兜底、页间停顿）；`isPagingClick()` 编程式点击豁免
+- 机制与参数（翻页等待预算、停止条件、起点归一阈值、页间停顿）见 [mechanisms.md](mechanisms.md)「分页翻页采集」；用户向行为（采集组件、进度提示、提醒框）见 [product.md](product.md)「分页表格」
 
 #### persist.js（依赖：entry）
 
-- 拆分规则 / 列筛选 / 列格式 / 列顺序持久化（v2.8 增列顺序与跨设备同步）：`tableKeyOf()` 表指纹 + `getSaved()` / `save()` 恢复与落盘 + `ready()` 就绪兜底
-- 页面键 = origin+pathname，`chrome.storage.local` 为真相源（单页一条，LRU 上限 50 页）并镜像到 `chrome.storage.sync`（≤20 页、单项 ≤7KB，随 Chrome 账号跨设备）；注入时两侧按表取 `updatedAt` 更新者合并
-- 界面偏好（`h2x.prefs`：输出方式 + 文件名模板）与手动翻页按钮记忆（`h2x.pager.v1`，LRU 30 条）的存储面：`prefs.load()` / `prefs.save()` / `pager.get()` / `pager.save()` / `pager.load()`——原在 main.js，因其纯存储关注点（校验、合并基准、fire-and-forget 落盘）迁入本模块集中管理；main.js 只留模板渲染（document.title）、「已动过控件」会话守卫与 DOM 应用
-- 纯函数可离线回归
+- 列设置持久化（拆分规则 / 列筛选 / 列格式 / 列顺序，v2.8 增后两者）：`pageKeyOf()` 页面键 + `tableKeyOf()` 表指纹定位，`getSaved()` / `save()` 恢复与落盘、`ready()` 就绪兜底；`chrome.storage.local` 为真相源并镜像 `chrome.storage.sync` 跨设备同步（v2.8），注入时按更新时间取更新者合并
+- 另管界面偏好（`h2x.prefs`：输出方式 + 文件名模板）与手动翻页按钮记忆（`h2x.pager.v1`，LRU 30 条）的存储面——集中理由见 [decisions.md](decisions.md)「存储面集中 persist，UI 面留 main」，main.js 只留模板渲染、「已动过控件」会话守卫与 DOM 应用
+- 机制与参数（定位键构成、指纹算法、LRU 淘汰、sync 镜像与合并规则）见 [mechanisms.md](mechanisms.md)「持久化」；纯函数可离线回归（algo-check.cjs）
 
 #### format.js（依赖：util, split）
 
@@ -116,50 +107,28 @@
 
 #### panel.js（依赖：util, table, split, persist）
 
-- 「列设置」面板（导出列筛选 + 拆分配置 + 列格式）
-- 依赖经 `panel.init({ host, selected, snapshots, splitRules, colFilters, colFormats, colOrders, hasColCfg, isBusy, updateBar, toast })` 注入（`isBusy` 与主工具栏 `updateBar()` 的 busy 同源：采集中/导出中/子模式中）；面板样式自持，按钮样式共用主 UI 的 `<style>`；保存经 `ns.persist.save()` 落盘
-- v2.0 重构：列行折叠式（拆分配置收进展开子行，模式/分隔符键入只局部刷新新列勾选区）、多表页签（带已配置状态点）、最终输出全列预览、校验错误就地标红 + 底部汇总、focus trap + `role="dialog"`
-- v2.7：底部「恢复默认」显式重置入口（`resetDraft()` 只回默认草稿 + 清校验态，落盘仍走「保存」，空配置即删记忆）
-- v2.8 列顺序：`entry.order`（显示序，列索引数组）驱动列区与预览渲染，手柄拖放（`onColDragStart` / `onColDragOver` / `onColDrop`，落点以内阴影标示）与手柄聚焦 Alt+↑/↓（`onColGripKey`）统一经 `applyMove()` 改序，`orderKeysOf()` 保存时把自然序折叠为 `[]`（不落记录，零回归），含 merges 表渲染占位手柄不参与拖拽
-- v2.10.1 拆分控件状态化：草稿增 `open`（配置子行展开态，与「是否有拆分规则」`checked` 解耦；`open` 不落盘，仅当次会话视图态），子行渲染条件 `checked && open`，保存校验失败自动 `open=true` 展开出错列
-- v2.10.2 主行拆分控件合并为单控件：`splitCtlHtml()` 输出勾选框 `h2x-ck-sp`（拆分开关，`onColChange`：勾选=拆分并展开、取消=删规则）+ 折线 chevron 图标按钮 `h2x-sfold`（内嵌 `<svg class="h2x-chev">` 两条边、非实心三角，朝向由 `aria-expanded` 经 CSS 旋转 180°；只控配置子行显隐，`onColClick` 处理，未拆分时 hidden），状态变化经 `syncSplitCtl(col, row, d)` 就地同步（不重建 DOM、键盘焦点保留）
-- v2.11.2 原列级导出：子行行首「原列」勾选与主行整列导出解耦，用 `skipSegs` 索引 0 表示原列（复用 `h2x-ck-s` 事件分支，`srcSkipped()` 守卫「未拆分时忽略残留标记」），取消只跳过原列、新列照常；`draftFromSaved()` 对裸列键按段数消歧（已拆分且段未全被排除 = 只跳过原列，否则整列不导出，旧记录语义不变）
-- v2.15 对话框拖动：标题栏 `.h2x-panel-top` 为把手（关闭按钮在 ignore 内不启动拖动），经 `ns.util.draggable` 实化定位 + 视口钳制；`panelDrag` dispose 句柄在 `clearPanelState()`（关闭/退出共用）摘除，遮罩仍全屏覆盖、焦点圈定不受影响
+- 「列设置」面板：导出列筛选 + 拆分配置 + 列格式 + 列顺序（v2.8），保存经 `ns.persist.save()` 落盘；依赖经 `panel.init({ host, selected, snapshots, splitRules, colFilters, colFormats, colOrders, hasColCfg, isBusy, updateBar, toast })` 注入（`isBusy` 与主工具栏 `updateBar()` 的 busy 同源：采集中/导出中/子模式中）；面板样式自持，按钮样式共用主 UI 的 `<style>`
+- 交互行为（页签、全列预览、校验、拆分控件、列序手柄、恢复默认、可拖动）见 [product.md](product.md)「列设置面板」；拆分/筛选/列顺序/列格式机制见 [mechanisms.md](mechanisms.md)「列拆分 / 导出列筛选 / 列格式」
 
 #### main.js（依赖：其余全部）
 
-- 主 UI / 事件 / 选中管理 / 导出 / 退出清理 / 启动装配
-- v2.0：toast 反馈系统（结果性通知迁出 hint，成功/信息/警示 8s 自动消失、错误常驻可关、同屏 6 条上限）、虚拟采集可中止（「停止采集」genToken 作废当前任务）、导出后保留选择（toast「退出」动作）、设计 token + 深色模式（prefers-color-scheme）+ 动效（prefers-reduced-motion）
-- v2.1：`hitRoot()` 与表格存在性检查支持 div 网格表格
-- v2.2：经 `gridRootOf()` / `GRID_ROOT_SELECTOR` 适配器分发，覆盖全部注册组件
-- v2.4：选择模式点击放行（非表格点击不拦截 + `pruneDetached()` 剔除被页面交互替换的选中表格，链接拦截改 toast 提示）
-- v2.5：「采集全部页」入口（取最后选中的表，识别不到分页器进入「指定翻页按钮」子模式）+ 分页采集选中迁移（表格被重建时换新根）+ 采集期点击豁免经 `isPagingClick()`
-- v2.5.1：页数输入框与采集按钮合并为句子式复合组件「采集 N/全部 页」（整组点击采集、页数槽 Enter 同效，div 容器 + `aria-disabled`）
-- v2.5.2：改下拉展开式——主按钮「采集全部页 ▾」+ 分页采集设置面板（页数上限输入槽留空=全部页、取消/开始采集按钮，点开聚焦输入槽、Esc/点外部/再点按钮收拢；采集中禁用主按钮并收拢）。启动调 `updateBar()` 统一初始按钮态——未选表时与「列设置」「导出」一致禁用（HTML `disabled` 仅装配前兜底，此后以 `updateBar()` 为单一来源）
-- v2.5.3：分页采集限定单表——`updateBar()` 中多选（≥2）即禁用主按钮并切换 `title` 提示「多表选择时不支持分页采集」，`onCollectAllPages()` 恒取唯一选中表
-- v2.6.1：工具栏「中文 | EN」语言分段开关——忙态（采集/导出/面板/子模式）禁用，`pickLang()` 切换后 `refreshTexts()` 就地重取词 + `syncLangUI()` 高亮，启动经 `ns.i18n.init()` 恢复存储偏好；工具栏宽度自适应（`width:max-content`：单行恰包内容、仅超 96vw 上限才折行，折行各行两端贴边）
-- v2.7：`CLIPBOARD` 输出方式注册表（`copy-tsv` / `copy-md`，与 `FORMATS` 同列于下拉），`doExport()` 取数后按模式分流——剪贴板经 `writeClipboard()`（Clipboard API 优先、execCommand 兜底）写文本并 toast 行数，不落盘；已选计数旁 `clearSelection()` 一键清空
-- v2.8：`exportToken` 导出代际令牌 + `abortExport()`（导出中「取消」变「停止导出」；`doExport()` 各 yield 检查点比对令牌，`finally` 按 `aborted && active` 提示已下载文件数，剪贴板成功路径以 `copied` 排除双 toast）；`colOrders` Map 经 `buildAoa()` 最后一环 `reorderColumns()` 生效；剪贴板与下载成功 toast 均带「退出」动作
-- v2.9：界面偏好与翻页按钮记忆——`loadPrefs()`（存储读写经 `persist.prefs`；main 侧只留 `renderNameTpl()` 单遍渲染 `{title}` / `{date}` / `{time}`、`fmtTouched` / `nameDirty` 防异步回填覆盖用户操作，文件名 blur 时记住、清空即回落默认模板）、分页进度带总页数（collectPaged 第三参，0 = 未知则退回「第 i 页」）、翻页按钮记忆经 `persist.pager`（存储键 `h2x.pager.v1`，键 = 页面键 + 表指纹，值 = 定位器，LRU 30 条；命中即直接采集并 toast 复用，复用后 reason 为 noNew/tableLost 即清除记忆并提示重新指定）
-- v2.10：输出方式下拉与导出按钮合并为分体按钮（主按钮 `.h2x-exp` 导出当前格式，右侧 `.h2x-expdrop` 内为透明原生 select `.h2x-ext` 覆盖箭头，保留原生下拉与键盘交互、E2E 桩零改动），二者启用/禁用同源（`updateBar()` 中 `expOff = busy || selected.size === 0` 同时作用于按钮、select 与下拉区灰显 class），进行时经 `lockExpDrop()` 就地灰置、结束后统一恢复
-- v2.11：输出方式下拉改自绘菜单（原生 select 弹层内容贴边且无法定制）——`.h2x-expwrap` 内 `.h2x-expdrop` 由 span 改箭头 `<button>`，新增 `.h2x-expmenu`（`role="listbox"`，项 `.h2x-expopt[data-k]`），`openExpMenu()` / `closeExpMenu()` / `toggleExpMenu()` / `pickFmt()` / `syncExpMenu()` / `onExpMenuKey()`（↑/↓ 首尾循环）；菜单点选与原生 select 的 change 共用 `applyFmt()`（`fmtTouched` + `syncExportBtn` + `savePrefs`）；原生 select `.h2x-ext` 保留于 DOM 但 `hidden`（仅作格式状态与词条来源，`fmtSel.value` + change 的 E2E 契约不变）；禁用改经 `expDrop.disabled`（样式走 `:disabled`）；收拢路径：点项、点工具栏其他处、点页面处（`onClickCapture`）、Esc（优先于分页面板，收拢后回焦箭头）、焦点移出（`focusout`）、菜单失效时
-- v2.13：分采面板「页数上限」行下增「翻页间隔」行（`h2x-sleep` 数字槽，默认 0.5、step 0.1、placeholder 0.5，单位「秒」与页数单位共用 `h2x-pageunit` 样式类）——`startPagedCollect()` 读取后转毫秒传入 `collectPaged`（留空/非法 = 500ms，上限 600s 防误填）；槽内 Enter 同效采集；与页数槽同源禁用（`updateBar()` 的 `pageOff`）；语言切换经 `refreshTexts()` 就地重取词（label/placeholder/title/aria/单位）
-- v2.14：右侧提醒框（`.h2x-side`，toast 同款 shadow 样式体系、右侧垂直居中、info/warn 两态、× 可手动关闭）——`startPagedCollect()` 经 collectPaged 第七参 `onNorm(page)` 驱动：归一进行中（含归一后等表体落地的全程）驻屏显示「正在回到第一页… 第 N 页」（每次翻页后同步当前页，读数已是第 1 页不弹，结束/取消传 null 收框）；collectPaged 返回 `aborted:'tooFar'`（距第一页超过 10 页不归一）时转警示态「请先返回第一页」并注明当前页，不写快照直接 return（按钮态由 finally 还原），其余路径（含停止/失败）统一收框。渲染统一走 `renderSide()`（只存 sideKind/sidePage 状态），`refreshTexts()` 按状态就地重取词（sticky 框可跨语言切换留存）
-- v2.15：底部工具栏可拖动移动——`buildUI()` 末尾经 `ns.util.draggable(bar, { ignore: BAR_DRAG_IGNORE })` 接线（把手 = 栏上非交互区：提示文案与空白处；按钮/输入/两个自绘弹层不启动拖动），提示区 hover 为 move 光标 + `barDragTitle` 说明；落点经 `clampPos` 钳制在视口内、窗口 resize 重钳制；`disposeBarDrag` 在 `exit()` 摘监听。位置仅当次会话有效（DOM 随注入重建，回默认底部居中）
+- 主 UI / 事件 / 选中管理 / 导出 / 分页采集入口 / 退出清理 / 启动装配：`buildUI()` 组装 Shadow DOM 单 host（高亮层、已选覆盖层、底部工具栏、toast 容器），`hitRoot()` 解析表格逻辑根，按钮态经 `updateBar()` 单一状态源驱动（未选 / 忙态禁用）
+- 导出编排：`doExport()` 走统一管线（取值 → `buildAoa()` → 生成文件 → 后台下载，v2.7 起剪贴板分流、v2.8 起可中止）；虚拟 / 分页采集入口与进度提示
+- 机制细节（事件放行规则、采集与导出中止、翻页等待、语言切换重取词）见 [mechanisms.md](mechanisms.md)；用户向行为（工具栏各控件、toast/hint 文案）见 [product.md](product.md)「选择模式 / 分页表格 / 导出结果 / 状态反馈」
 
 ### extension/_locales/ 与国际化约定（v2.6 起，v2.6.1 增手动开关）
 
 - 语言包：`en/messages.json`（内容脚本运行时词条全量）、`zh_CN/messages.json`（manifest 三词条；运行时词条缺省，靠代码内中文回落，zh 界面取词失败即回落原文、零差异）。新增语言只加目录 + 补词条
 
-- `t(key, fb, ...subs)` 各内容脚本**就地定义**（同构拷贝；v2.6.1 起先经 `ns.i18n.t()`——i18n.js 的手动语言统一入口，未注入/不可用（algo-check.cjs 伪 window、E2E 桩）时回落内置 `chrome.i18n` 分支，Node 回归与既有 E2E 断言零改动）：词条缺失或无环境回落 `fb` 中文。buildUI 的 `root.innerHTML` 骨架**不拼** `t()`——只放结构与数据驱动内容（格式选项列表），静态文案经 `fillStaticTexts()` 统一填充（启动与语言切换 `refreshTexts()` 共用同一入口，同一批文案只定义一处）；进行时文案（hint/按钮/title）动态取词，语言切换后天然生效；计数 `syncCount()` / 导出按钮 `syncExportBtn()` / 分页按钮 title（`updateBar()`）等状态相关文案按各自状态渲染，不进 fillStaticTexts
+- `t(key, fb, ...subs)` 各内容脚本**就地定义**（同构拷贝；v2.6.1 起先经 `ns.i18n.t()`——i18n.js 的手动语言统一入口，未注入/不可用（algo-check.cjs 伪 window、E2E 桩）时回落内置 `chrome.i18n` 分支，Node 回归与既有 E2E 断言零改动）：词条缺失或无环境回落 `fb` 中文；buildUI 的 `root.innerHTML` 骨架**不拼** `t()`——只放结构与数据驱动内容（格式选项列表），静态文案经 `fillStaticTexts()` 统一填充（启动与语言切换 `refreshTexts()` 共用同一入口，同一批文案只定义一处），理由见 [decisions.md](decisions.md)「工具栏静态文案单一入口 fillStaticTexts」；内容脚本局部变量一律不用裸 `t` 命名，与取词函数彻底隔离
 
 - 语言解析三层（i18n.js `t()`）：① 手动 zh → 回落代码内中文（zh 无独立词表）② 手动 en → 按 en 词表取词——词表经后台消息 `h2x-i18n-catalog` 拉取 `_locales/en/messages.json`（词表就绪前生效语言不变；拉取失败时复位加载 Promise，后续切换/init 可重试，不判整会话死刑）③ auto（默认；`chrome.storage.local` 偏好键 `h2x.uiLang` 缺省/删除即 auto）→ `chrome.i18n.getMessage` 按浏览器 UI 语言，v2.6 语义零回归。占位符替换按 placeholders.content 的 `$1/$2` 序号（与 chrome.i18n 一致），非声明顺序
 
-- 切换控件在工具栏最右（「中文 | EN」分段按钮，main.js `pickLang()`）：按钮文案即语言自称（双语恒定、不随界面语言取词），`aria-pressed` 标注生效语言（`syncLangUI()`）；点未激活语言 = 切换并持久化，再点当前**手动**语言 = 回到跟随浏览器（auto），auto 模式点当前语言无操作。忙态禁用开关——`refreshTexts()` 只在空闲态重取词（`updateBar()` 单一状态源同步禁用态）
+- 切换控件在工具栏最右（「中文 | EN」分段按钮，main.js `pickLang()`）：按钮文案即语言自称（双语恒定、不随界面语言取词），`aria-pressed` 标注生效语言（`syncLangUI()`）；点未激活语言 = 切换并持久化，再点当前**手动**语言 = 回到跟随浏览器（auto），auto 模式点当前语言无操作。忙态禁用开关——`refreshTexts()` 只在空闲态重取词（`updateBar()` 单一状态源同步禁用态）。用户向行为见 [product.md](product.md)「选择模式」
 
-- 算法层文案一并取词（导出文件内容）：控件值「是/否」、列名兜底「列N」、Sheet 名兜底「表格N」、control 拆分后缀「\_控件/\_文本」、无表头 JSON/MD 列名「列N」、HTML 默认标题「导出表格」、分页采集附注等——手动切换后导出内容同步换语言。持久化列键/表指纹取**页面表头原文**，不受 UI 语言影响；内容脚本局部变量（表格元素、遍历项）一律不用裸 `t` 命名，与取词函数 `t()` 彻底隔离（历史上有过形参/循环变量遮蔽，已统一改名 tbl/tb）
+- 算法层文案一并取词（导出文件内容）：控件值「是/否」、列名兜底「列N」、Sheet 名兜底「表格N」、control 拆分后缀「\_控件/\_文本」、无表头 JSON/MD 列名「列N」、HTML 默认标题「导出表格」、分页采集附注等——手动切换后导出内容同步换语言。持久化列键/表指纹取**页面表头原文**，不受 UI 语言影响
 
-- 漏翻防护：algo-check.cjs 断言「内容脚本与 manifest 引用的全部词条 ⊆ en 语言包」「manifest 词条 ⊆ zh_CN」「占位符词条消息含对应 `$XXX$`」——新增硬编码中文 UI 文案会被测试暴露
+- 漏翻防护：algo-check.cjs 断言「内容脚本与 manifest 引用的全部词条 ⊆ en 语言包」「manifest 词条 ⊆ zh_CN」「占位符词条消息含对应 `$XXX$`」——新增硬编码中文 UI 文案会被测试暴露（明细见 [test/README.md](../test/README.md)「国际化词条一致性」）
 
 ## 相关文档
 

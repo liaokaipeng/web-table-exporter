@@ -14,133 +14,37 @@
  * 且不开始采集，用户手动回第 1 页后再开始即采全量（97 行）；轮次 G 超慢站点
  * （__SLOW_MS=3500 超过 waitTurn 3s 预算）：直跳后等表体真正落地再取第一页，
  * 不把旧页（第 3 页）行当第一页写进快照。
+ * 基建：chrome 桩 / 导出捕获桩 / 注入器 / UI 定位（基座 + 分页采集控件）/ 轮次
+ * 执行器 / 采集等待助手均经 e2e-common.js 的 create() 装配，本文件只保留业务轮次
+ * 与 fixture 特有助手（activePage / watchSide / slowRound）。
  * 提速：事件驱动 waitFor + 模块代码缓存。v2.13 翻页间隔：面板「翻页间隔」槽默认 0.5 秒
  * （断言默认值/标签/单位，轮次 A 端到端生效），其余轮次置 0 只测本项目关注点。
  */
 (async () => {
   if (window.__HARNESS_STARTED) return { error: 'harness 已在运行（并发守卫）' };
   window.__HARNESS_STARTED = true;
-  window.__TEST_LOG = [];
-  const log = (m) => window.__TEST_LOG.push(Date.now() % 1000000 + ' ' + m);
-  const R = [];
-  const t = (name, pass, detail) => R.push({ name, pass: !!pass, detail: detail == null ? '' : String(detail) });
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const waitFor = async (cond, timeout) => {
-    const t0 = Date.now();
-    while (!cond() && Date.now() - t0 < (timeout || 3000)) await sleep(20);
-    return !!cond();
-  };
 
-  /* ---- 全局桩：chrome.storage（local）+ runtime（无扩展上下文） ---- */
-  const memStore = {};
-  window.chrome = {
-    storage: { local: {
-      get: async (k) => {
-        const out = {};
-        if (k == null) { for (const key in memStore) out[key] = memStore[key]; return out; }
-        for (const key of (Array.isArray(k) ? k : [k])) if (memStore[key] != null) out[key] = memStore[key];
-        return out;
-      },
-      set: async (obj) => { for (const key in obj) memStore[key] = obj[key]; },
-      remove: async (keys) => { for (const k of (Array.isArray(keys) ? keys : [keys])) delete memStore[k]; }
-    } },
-    runtime: { sendMessage: () => { throw new Error('E2E: 无扩展上下文（预期走 blob 回退）'); } }
-  };
-
-  /* ---- 捕获导出 ---- */
-  const origCreate = URL.createObjectURL.bind(URL);
-  const origAnchorClick = HTMLAnchorElement.prototype.click;
-  window.__exports = [];
-  const blobMap = new Map();
-  URL.createObjectURL = (b) => { const u = origCreate(b); blobMap.set(u, b); return u; };
-  HTMLAnchorElement.prototype.click = function () {
-    const b = blobMap.get(this.href);
-    if (b) { window.__exports.push({ name: this.download, blob: b }); return; }
-    return origAnchorClick.call(this); // 非导出链接走原生派发（防桩吞掉页面自身的点击行为）
-  };
-
-  const FILES = ['entry', 'i18n', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'pagination', 'persist', 'format', 'panel', 'main'];
-  const modCache = Object.create(null);
-  async function inject() {
-    if (window.__html2xlsx) { try { window.__html2xlsx.toggle(); } catch (e) { /* 忽略 */ } }
-    [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647').forEach(el => el.remove());
-    window.__html2xlsx = null;
-    try { delete window.__h2x; } catch (e) { window.__h2x = undefined; }
-    window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
-    for (const f of FILES) {
-      if (!modCache[f]) {
-        const r = await fetch('/extension/content/' + f + '.js');
-        if (!r.ok) throw new Error(f + '.js HTTP ' + r.status);
-        modCache[f] = await r.text();
-      }
-      (0, eval)(modCache[f]);
+  /* ---- 共享基建：e2e-common.js（chrome 桩 / 导出捕获桩 / 注入器 / UI 定位 / 轮次
+         执行器 / startCollect+waitCollect；行为统一规格见该文件头）。已加载则跳过 ---- */
+  if (!window.__h2xT) (0, eval)(await (await fetch('/test/e2e-common.js?v=' + Date.now())).text());
+  const T = window.__h2xT.create({
+    uiExtra: { // 分页采集控件追加定位（el 结构分页器 + v2.14 右侧提醒框）
+      pageBtn: '.h2x-pagebtn',
+      pageMenu: '.h2x-pagemenu',
+      pagesInput: '.h2x-pages',
+      sleepInput: '.h2x-sleep',
+      sleepLabel: '.h2x-sleeprow label',
+      sleepUnit: '.h2x-sleeprow .h2x-pageunit',
+      sideBox: '.h2x-side', // v2.14 右侧提醒框
+      pageGo: '.h2x-pagego'
     }
-    return !!window.__html2xlsx;
-  }
-  function ui() {
-    const hosts = [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647');
-    const host = hosts[hosts.length - 1];
-    if (!host) throw new Error('未找到工具栏 host');
-    const sr = host.shadowRoot;
-    return {
-      host: host, sr: sr,
-      exportBtn: sr.querySelector('.h2x-actions > .h2x-primary'),
-      splitBtn: sr.querySelector('.h2x-split'),
-      cancelBtn: sr.querySelector('.h2x-actions > .h2x-ghost'),
-      fmtSel: sr.querySelector('.h2x-ext'),
-      count: sr.querySelector('.h2x-count b'),
-      hint: sr.querySelector('.h2x-hint'),
-      pageBtn: sr.querySelector('.h2x-pagebtn'),
-      pageMenu: sr.querySelector('.h2x-pagemenu'),
-      pagesInput: sr.querySelector('.h2x-pages'),
-      sleepInput: sr.querySelector('.h2x-sleep'),
-      sleepLabel: sr.querySelector('.h2x-sleeprow label'),
-      sleepUnit: sr.querySelector('.h2x-sleeprow .h2x-pageunit'),
-      sideBox: sr.querySelector('.h2x-side'), // v2.14 右侧提醒框
-      pageGo: sr.querySelector('.h2x-pagego')
-    };
-  }
-  const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
-  const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  const clickCell = (sel) => click(document.querySelector(sel));
-  const toastText = (h) => [...h.sr.querySelectorAll('.h2x-toast')].map(x => x.textContent).join('|');
-  async function waitExports(n, timeout) {
-    const t0 = Date.now();
-    while (window.__exports.length < n && Date.now() - t0 < (timeout || 20000)) await sleep(25);
-    return window.__exports.slice();
-  }
-  const csvLines = async (f) => (await f.blob.text()).replace(/^\uFEFF/, '').split('\r\n').filter(x => x !== '');
+  });
+  const FILES = T.FILES; // algo-check 模块清单一致性检查引用（清单唯一来源在 e2e-common.js）
+  const { R, t, sleep, waitFor, waitExports, csvLines, fire, click, clickCell, toastText,
+    round, startCollect, waitCollect, summarize } = T;
+
+  /* ---- fixture 特有助手 ---- */
   const activePage = () => (document.querySelector('#pagerList li.active') || {}).textContent;
-
-  /** 点开「采集全部页」下拉 →（可选）填页数上限 →（可选）填翻页间隔（秒）→ 点「开始采集」 */
-  async function startCollect(h, limit, sleep) {
-    click(h.pageBtn);
-    await waitFor(() => !h.pageMenu.hidden, 1000);
-    if (limit) { h.pagesInput.value = String(limit); fire(h.pagesInput, 'input'); }
-    if (sleep != null) { h.sleepInput.value = String(sleep); fire(h.sleepInput, 'input'); }
-    click(h.pageGo);
-  }
-  /** 等采集结束（完成 toast 出现），期间用 MutationObserver 记录每一次进度文案
-   *  （轮询会漏掉「写入后立刻被重置」的中间帧，观察器记录每个文本节点写入） */
-  async function waitCollect(h, timeout) {
-    const hints = [];
-    const mo = new MutationObserver((recs) => {
-      for (const r of recs) {
-        const v = r.type === 'childList'
-          ? [...r.addedNodes].map(n => n.textContent).join('')
-          : r.target.textContent;
-        if (v && hints[hints.length - 1] !== v) hints.push(v);
-      }
-    });
-    mo.observe(h.hint, { childList: true, characterData: true, subtree: true });
-    const t0 = Date.now();
-    while (Date.now() - t0 < (timeout || 15000)) {
-      if (toastText(h).indexOf('采集完成') >= 0 || toastText(h).indexOf('采集失败') >= 0) break;
-      await sleep(10);
-    }
-    mo.disconnect();
-    return hints;
-  }
 
   /** v2.14：记录右侧提醒框（.h2x-side）的每次文本写入（起点归一驻屏提示存在
    *  时间短，轮询会漏帧；与 waitCollect 同款 MutationObserver 记录每个文本节点
@@ -157,22 +61,6 @@
     });
     mo.observe(h.sideBox, { childList: true, characterData: true, subtree: true, attributes: true });
     return { seen: seen, stop: () => mo.disconnect() };
-  }
-
-  async function round(name, fn) {
-    log('=== 轮次开始: ' + name);
-    window.__exports.length = 0;
-    blobMap.clear();
-    try {
-      if (!(await inject())) throw new Error('注入失败（window.__html2xlsx 为空）');
-      const h = ui();
-      try { await fn(h); }
-      finally { try { click(h.cancelBtn); } catch (e) { /* 已退出 */ } await waitFor(() => !document.documentElement.contains(h.host), 1500); }
-      log('=== 轮次结束: ' + name);
-    } catch (e) {
-      t('【' + name + '】轮次执行异常', false, String((e && e.stack) || e));
-      log('[' + name + '] 异常: ' + e);
-    }
   }
 
   /* ================= 轮次 A：全页采集 + 总页数进度（v2.9） ================= */
@@ -360,5 +248,5 @@
     }
   });
 
-  return { total: R.length, passed: R.filter(x => x.pass).length, results: R };
+  return summarize(R);
 })();

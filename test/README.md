@@ -4,89 +4,27 @@
 
 ## 覆盖矩阵
 
-- **`fixture.html`**
-  - 覆盖：普通表格；`rowspan`/`colspan` 合并（caption）；空单元格/长文本；控件取值（第 4 节）：`select` 单/多选、空值/value=文本、`checkbox`/`radio`、`hidden`、`date`/`textarea`/`output`、一格多控件、ARIA `switch`/`slider`/`listbox`/`combobox`、el/ant/van 开关、嵌套开关、类名形似非开关回退；列拆分（第 5 节）：控件值（同格多控件各自成列）、换行拆分、分隔符拆分、智能预填、段数不足补空、合并表格禁用；分体合并（第 6 节）：表头/表体两 `table` 仿 Element Plus `el-table`、垂直+水平滚动裁剪（860>620，表头 `scrollLeft` 同步）、gutter 占位列；图片链接导出（第 8 节）：纯图片/图片+文字/无链接图片/控件+图片/双行格含图按换行拆分；列格式（第 9 节）：文本=默认零回归、数字列数值化（千分位剥离、解析失败保原文）、拆分新列继承、合并单元格表仍可设置；选择模式链接不跳转
-  - 预期：行内「预期导出」列
+除 `pagination-ant-fixture.html`（无 harness，手工核对）外，9 个 fixture 页各配一个注入 harness；`auto-check.html` 与 `algo-check.cjs` 为另两种回归形态。pass 计数只在本表「预期」列定义，别处引用不复述。
 
-- **`virtual-fixture.html`**
-  - 覆盖：60 行虚拟滚动（`thead` 无 `tr`、`input`/`select` JS 属性设值模拟 Vue、`el-switch` 开关列）；分体表+虚拟滚动（表头/表体两 `table` 仿 vxe-table，滚动容器在数据表上层）；采集后拆分列面板
-  - 预期：61 行全采集（60 数据+表头）；序号 1/26/41 三行相同须保留（重复行不误删）；发货仓「华东仓(1)/华南仓(2)」、开关「是/否」；分体表悬浮高亮一次点选、采集 41 行（40 数据+表头）、一口价取 JS 实时值
+| 页面 | harness | 覆盖要点 | 预期 |
+|---|---|---|---|
+| `fixture.html` | `e2e-harness.js` | 主 fixture（第 4~9 节分区构造）：普通表格、`rowspan`/`colspan` 合并（caption）、空单元格/长文本；控件取值（第 4 节）：`select` 单/多选、空值/value=文本、`checkbox`/`radio`/`hidden`、`date`/`textarea`/`output`、一格多控件、ARIA `switch`/`slider`/`listbox`/`combobox`、el/ant/van 开关、嵌套开关、类名形似非开关回退；列拆分（第 5 节）：控件值（同格多控件各自成列）、换行拆分、分隔符拆分、智能预填、段数不足补空、合并表格禁用；分体合并（第 6 节）：表头/表体两 `table` 仿 Element Plus `el-table`、垂直+水平滚动裁剪（860>620，表头 `scrollLeft` 同步）、gutter 占位列；图片链接导出（第 8 节）：纯图片/图片+文字/无链接图片/控件+图片/双行格含图按换行拆分；列格式（第 9 节）：文本=默认零回归、数字列数值化（千分位剥离、解析失败保原文）、拆分新列继承、合并单元格表仍可设置；选择模式链接不跳转。harness 全链路注入回归：桩 `chrome.storage`（local+sync 两区，v2.8 跨设备同步）与 `runtime.sendMessage`（走 blob 回退）；选择交互（v2.4 非表格点击放行、被移除已选表格自动剔除+toast）、链接拦截（`preventDefault`+警示 toast+就地红框高亮及还原）、Esc 退出；CSV/JSON/MD/HTML/XLSX 内容（BOM/CRLF、RFC4180 转义、列N兜底、`thead` 归位）、merges、Sheet 名；自适应列宽、XLSX 全量单元格比对（值+类型逐格，含合并延续空位与数字格式 `t:n`）；列拆分三模式（智能预填：分隔符默认留空、段数上限默认 10；单控件：勾选框控拆分+图标按钮控配置显隐）；列筛选（含拆分子列独立筛选、v2.10 原列不导出联动新列整体排除与子列勾选置灰、v2.11.2 原列级导出只跳过原列并持久化恢复）、列格式、分体表格合并；持久化保存/恢复/重置、面板折叠与默认收起、复制到剪贴板（TSV/Markdown）；清空已选与「恢复默认」、导出中止（点「停止导出」不产生文件且选择保留、再次导出正常）；列顺序调整（Alt+↑ 换位+导出列序+重开面板保持）、跨设备同步（镜像存 sync、按 updatedAt 合并取更新者）；输出方式与文件名记忆（v2.9：选择即存偏好、文件名改后记模板并渲染 `{date}`、重进恢复、清空回落默认命名）；窗口拖拽移动（v2.15：工具栏提示区按住拖动整栏到位、3px 阈值内不认定、拖拽中 h2x-dragging 类、拖出屏外钳制贴左上角、移动后按钮仍可点；列设置对话框标题栏拖动到位、关闭按钮不触发拖动且仍可关面板） | 行内「预期导出」列；harness `__TEST_RESULT` 175/175 pass |
+| `virtual-fixture.html` | `e2e-harness-virtual.js` | 60 行虚拟滚动（`thead` 无 `tr`、`input`/`select` JS 属性设值模拟 Vue、`el-switch` 开关列）；分体表+虚拟滚动（表头/表体两 `table` 仿 vxe-table，滚动容器在数据表上层）；采集后拆分列面板。harness：采集 61 行、重复行保留、控件实时值（`input`/`select` JS 属性设值）、分体表+虚拟滚动 41 行、面板快照与默认不拆分预设 | 61 行全采集（60 数据+表头）；序号 1/26/41 三行相同须保留（重复行不误删）；发货仓「华东仓(1)/华南仓(2)」、开关「是/否」；分体表悬浮高亮一次点选、采集 41 行（40 数据+表头）、一口价取 JS 实时值；harness `__TEST_RESULT` 33/33 pass |
+| `tablev2-fixture.html` | `e2e-harness-tablev2.js` | Element Plus `el-table-v2` 网格（div 结构无 `table`）：500 行两例——纯主分区网格+固定列（left/main 双分区、滚动联动）、JS 渲染窗口模拟虚拟滚动（仅渲染可见行±缓存）、表头 `dynamic-header-row`、控件列（`input`/`select` JS 属性设值）、行内操作按钮。harness：识别与悬浮高亮、滚动采集 500 行、固定列双分区拼接列序、控件实时值、导出断言 | 悬浮高亮、一次点选自动滚动采集 501 行（500 数据+表头）、固定列按视觉列序拼接在前、控件取实时值、重复行保留；harness `__TEST_RESULT` 24/24 pass |
+| `antdv-fixture.html` | `e2e-harness-antdv.js` | Ant Design Vue 4.x Table（原生 `table`+`ant-table` 包装类，零组件特判）：普通表格（4 行含控件列）、`scroll.y` 分体结构（表头表+数据表，仿 a-table 固定列+spacer 占位列）、JS 属性设值控件、普通 `table` 回归。harness：分体配对命中（走既有 `el-table` 同构逻辑）、行数/列序（spacer 占位列不导出）、控件实时值、导出断言 | 悬浮高亮、一次点选，值见页内；harness `__TEST_RESULT` 19/19 pass |
+| `aggrid-fixture.html` | `e2e-harness-aggrid.js` | AG Grid（v28+，`ag-theme-balham`）网格：div+ARIA role、单垂直滚动容器（固定列分区为其子级）、pinned 左固定列、行节点复用（`aria-rowindex` 重分配、DOM 序倒置注入；v2.9「元素身份重叠」于此页覆盖——误并/误丢则 301 行断言失败）、300 行含 3 条分散重复行、JS 属性设值控件、普通 `table` 回归。harness：网格识别（表头/表体/固定列命中同一根）、滚动采集全量、行序排序（DOM 倒置修正）、固定列拼接列序、控件实时值、导出断言 | 悬浮高亮、一次点选采集 301 行（含表头）、行序按 `aria-rowindex` 还原、固定列在前拼接、重复行保留；harness `__TEST_RESULT` 25/25 pass |
+| `mui-fixture.html` | `e2e-harness-mui.js` | MUI X DataGrid（v6/v7）网格：div+ARIA role、单滚动容器 `virtualScroller`、pinned 为同行 sticky cell、行节点复用（`aria-rowindex`，DOM 序倒置注入）、300 行含 3 条分散重复行、JS 属性设值控件、普通 `table` 回归。harness：网格识别、滚动采集全量、行序排序、控件实时值、导出断言 | 悬浮高亮、一次点选采集 301 行（含表头）、行序按 `aria-rowindex` 还原、重复行保留；harness `__TEST_RESULT` 24/24 pass |
+| `tabulator-fixture.html` | `e2e-harness-tabulator.js` | Tabulator（v6，vdom）网格：div 结构、滚动容器 `tableHolder`、冻结列为同行 frozen cell、行追加序即视觉序（无节点复用）、300 行含 3 条分散重复行+无冻结列 150 行例、JS 属性设值控件、普通 `table` 回归。harness：网格识别、滚动采集全量、控件实时值、导出断言 | 悬浮高亮、一次点选采集 301 行（含表头）、重复行保留；harness `__TEST_RESULT` 23/23 pass |
+| `pagination-el-fixture.html` | `e2e-harness-paged-el.js` | 分页表格（仿 `el-pagination` 类名结构：`button.btn-prev`/`ul.el-pager`/`button.btn-next`，disabled 态类+属性双写）：5 页×8 行、翻页仅重建 `tbody`、`input` 控件列（JS 设值）、普通无分页表回归；慢异步模式（harness 置 `window.__SLOW_MS` 后翻页改为「页码立即更新、数据延迟落地」，复刻受控分页器+异步拉取；`__SLOW_GUARD` 追加加载中点击守卫、`__SLOW_DROP_FIRST` 追加落地后首击丢弃）。harness 轮次：全页采集与进度逐页推进（`MutationObserver` 记录每次提示文案）、页数上限、起点归一、`input` 实时值导出断言、v2.12 慢异步三态（含守卫站点点击被吞、落地后首击被丢后重点）、v2.13 翻页间隔（默认值/标签/单位断言+默认 0.5s 端到端生效）、v2.14 直跳首页（提醒框观察器断言+结束收起）与距第一页超 10 页不归一、轮次 G 超慢站点（`__SLOW_MS=3500` 超 waitTurn 3s 预算） | 选中表→「采集全部页」展开设置→「开始采集」（页数上限留空=全部页）：toast 41 行（含表头）、首行「商品 P1-1」末行「商品 P5-8」、一口价列取 `input` 实时值；先翻第 3 页再采集应先回第 1 页采全量、完成回第 1 页；页数上限填 2→只采前 2 页（toast 17 行+「已采集指定 2 页」，输入框 Enter 同效）；采集中「停止采集」→保留已采页（toast「已停止采集，保留已采集的 N 页」）且导出即已采部分、采集后「列设置」可取样；单表限定（v2.5.3）：再选中普通无分页表→「采集全部页」禁用、悬浮提示「多表选择时不支持分页采集」，取消后恢复；v2.9 进度带总页数（「第 1/5 页，已采集 9 行」，页数上限不改显示总页数）；v2.12 慢异步三态仍采全量 41 行、不误停、完成回第 1 页（旧版固定 sleep 会在第 3 页误判「连续翻页无新数据」停止）；v2.13「翻页间隔」槽默认 0.5 秒（标签「翻页间隔」+ 单位「秒」，轮次 A 端到端生效，其余轮次置 0 提速）；v2.14 起点归一（harness 置 `window.__setPages(n)` 动态改总页数）：距第一页 ≤10 页直跳「1」页项一次回第一页（归一期间右侧提醒框显示「正在回到第一页… 第 3 页」、结束收起）；第 12 页（>10 页）不自动归一——右侧提醒「请先返回第一页」并注明当前页、不开始采集（无完成 toast、主按钮恢复可用），手动回第 1 页后再开始即采全量 97 行（末行「商品 P12-8」），提醒框可手动关闭；超慢站点（`__SLOW_MS=3500` 超过 waitTurn 3s 预算，先翻第 3 页等表体落地）：直跳后等表体换成第一页再取数，导出首行仍是「商品 P1-1」不被旧页污染、41 行不误停、完成回第 1 页；harness `__TEST_RESULT` 52/52 pass |
+| `pagination-ant-fixture.html` | —（无 harness，手工核对） | 分页表格（仿 `ant-pagination` 类名结构：`li.ant-pagination-prev/item/next`，页码为 `a` 链接，禁用态 `aria-disabled`+`.ant-pagination-disabled`）：4 页×6 行 | 选中表→「采集全部页」展开设置→「开始采集」（留空=全部页）采集 25 行（含表头）、首行「订单 A-1」末行「订单 D-6」、完成回第 1 页；翻页按钮为链接结构时编程式点击豁免采集期拦截；选择模式下手动点页码可翻页（v2.4 点击放行） |
+| `pagination-manual-fixture.html` | `e2e-harness-paged-manual.js` | 分页表格（自建分页器，类名与组件库无交集，「下一页」为 `a` 链接且末页无 disabled 态）：3 页×5 行。harness：指定翻页按钮并记住（定位器 sel/tag 断言）、复用记忆按钮（不进子模式+复用 toast）、生效记忆保留、按钮失联回落子模式且不清记忆、无总页数时进度只显示当前页、Esc 取消子模式不丢选区 | 选中表→「采集全部页」展开设置→「开始采集」进入「指定翻页按钮」子模式（hint 提示+悬浮高亮任意元素）→点「下一页 »」后采集：toast 16 行（含表头）+「自当前页开始采集，连续翻页无新数据，已停止」；子模式拦截所有点击（含链接）、Esc 取消不丢选区、停止条件（连续 2 页无新行）；v2.9 指定一次即按页面记住（`h2x.pager.v1`）、再次采集直接复用（toast「已复用上次指定的翻页按钮」），按钮消失时回落子模式且保留记忆；harness `__TEST_RESULT` 16/16 pass |
+| `auto-check.html` | —（无扩展环境，页内自判） | DOM 层自动化回归（页内自判 PASS/FAIL）：控件取值（`controls.controlValue`）：`input`/`checkbox`/`radio`/`hidden`/`date`/`textarea`/`output`、`select` 单/多选、ARIA `switch`/`slider`、`el-switch` 类名开关、类名形似回退 `null`；单元格四通道（`cell.openBatch`）：空白归一化、nbsp/换行/连续空格压缩、控件 `merged`/`text`/`ctrl` 三通道、多控件对齐、嵌套开关不重复计数、图片绝对链接、无 `src` 图片为空；表格提取（`table.extractTable`）：常规 `thead`、`rowspan`/`colspan` 展开+merges、多行表头、无 `thead` 全 `th` 行计表头、`display:none` 行过滤；导出管线端到端：提取→拆分→列筛选→数字格式→csv/json 精确对比（JS 属性设值复刻 Vue 状态） | 页内 summary「37 项全部 PASS」 |
+| `algo-check.cjs` | —（Node 直接运行，不碰 DOM） | 纯函数离线回归：采集算法、列拆分/列筛选/列顺序/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具（含 v2.15 clampPos 视口钳制）、模块清单一致性、国际化词条一致性 | 全部 PASS（229 项）；明细见下节 |
 
-- **`auto-check.html`**
-  - 覆盖：DOM 层自动化回归（页内自判 PASS/FAIL）；控件取值（`controls.controlValue`）：`input`/`checkbox`/`radio`/`hidden`/`date`/`textarea`/`output`、`select` 单/多选、ARIA `switch`/`slider`、`el-switch` 类名开关、类名形似回退 `null`；单元格四通道（`cell.openBatch`）：空白归一化、nbsp/换行/连续空格压缩、控件 `merged`/`text`/`ctrl` 三通道、多控件对齐、嵌套开关不重复计数、图片绝对链接、无 `src` 图片为空；表格提取（`table.extractTable`）：常规 `thead`、`rowspan`/`colspan` 展开+merges、多行表头、无 `thead` 全 `th` 行计表头、`display:none` 行过滤；导出管线端到端：提取→拆分→列筛选→数字格式→csv/json 精确对比（JS 属性设值复刻 Vue 状态）
-  - 预期：页内 summary「37 项全部 PASS」
+### 共享测试基建
 
-- **`e2e-harness.js`**
-  - 覆盖：全链路注入回归（`fixture.html`），桩 `chrome.storage`（local+sync 两区，v2.8 跨设备同步）与 `runtime.sendMessage`（走 blob 回退），逐项断言导出内容：选择交互（v2.4 非表格点击放行、被移除已选表格自动剔除+toast）、链接拦截（`preventDefault`+警示 toast+就地红框高亮及还原）、Esc 退出；CSV/JSON/MD/HTML/XLSX 内容（BOM/CRLF、RFC4180 转义、列N兜底、`thead` 归位）、merges、Sheet 名；自适应列宽、XLSX 全量单元格比对（值+类型逐格，含合并延续空位与数字格式 `t:n`）；列拆分三模式（智能预填：分隔符默认留空、段数上限默认 10；单控件：勾选框控拆分+图标按钮控配置显隐）；列筛选（含拆分子列独立筛选、v2.10 原列不导出联动新列整体排除与子列勾选置灰、v2.11.2 原列级导出只跳过原列并持久化恢复）、列格式、分体表格合并；持久化保存/恢复/重置、面板折叠与默认收起、复制到剪贴板（TSV/Markdown）；清空已选与「恢复默认」、导出中止（点「停止导出」不产生文件且选择保留、再次导出正常）；列顺序调整（Alt+↑ 换位+导出列序+重开面板保持）、跨设备同步（镜像存 sync、按 updatedAt 合并取更新者）；输出方式与文件名记忆（v2.9：选择即存偏好、文件名改后记模板并渲染 `{date}`、重进恢复、清空回落默认命名）；窗口拖拽移动（v2.15：工具栏提示区按住拖动整栏到位、3px 阈值内不认定、拖拽中 h2x-dragging 类、拖出屏外钳制贴左上角、移动后按钮仍可点；列设置对话框标题栏拖动到位、关闭按钮不触发拖动且仍可关面板）
-  - 预期：`__TEST_RESULT` 数组 175/175 pass
-
-- **`e2e-harness-virtual.js`**
-  - 覆盖：注入回归（`virtual-fixture.html`）：采集 61 行、重复行保留、控件实时值（`input`/`select` JS 属性设值）、分体表+虚拟滚动 41 行、面板快照与默认不拆分预设
-  - 预期：`__TEST_RESULT` 数组 33/33 pass
-
-- **`tablev2-fixture.html`**
-  - 覆盖：Element Plus `el-table-v2` 网格（div 结构无 `table`）：500 行两例——纯主分区网格+固定列（left/main 双分区、滚动联动）、JS 渲染窗口模拟虚拟滚动（仅渲染可见行±缓存）、表头 `dynamic-header-row`、控件列（`input`/`select` JS 属性设值）、行内操作按钮
-  - 预期：悬浮高亮、一次点选自动滚动采集 501 行（500 数据+表头）、固定列按视觉列序拼接在前、控件取实时值、重复行保留
-
-- **`e2e-harness-tablev2.js`**
-  - 覆盖：注入回归（`tablev2-fixture.html`）：识别与悬浮高亮、滚动采集 500 行、固定列双分区拼接列序、控件实时值、导出断言
-  - 预期：`__TEST_RESULT` 数组 24/24 pass
-
-- **`antdv-fixture.html`**
-  - 覆盖：Ant Design Vue 4.x Table（原生 `table`+`ant-table` 包装类，零组件特判）：普通表格（4 行含控件列）、`scroll.y` 分体结构（表头表+数据表，仿 a-table 固定列+spacer 占位列）、JS 属性设值控件、普通 `table` 回归
-  - 预期：悬浮高亮、一次点选，值见页内
-
-- **`e2e-harness-antdv.js`**
-  - 覆盖：注入回归（`antdv-fixture.html`）：分体配对命中（走既有 `el-table` 同构逻辑）、行数/列序（spacer 占位列不导出）、控件实时值、导出断言
-  - 预期：`__TEST_RESULT` 数组 19/19 pass
-
-- **`aggrid-fixture.html`**
-  - 覆盖：AG Grid（v28+，`ag-theme-balham`）网格：div+ARIA role、单垂直滚动容器（固定列分区为其子级）、pinned 左固定列、行节点复用（`aria-rowindex` 重分配、DOM 序倒置注入；v2.9「元素身份重叠」于此页覆盖——误并/误丢则 301 行断言失败）、300 行含 3 条分散重复行、JS 属性设值控件、普通 `table` 回归
-  - 预期：悬浮高亮、一次点选采集 301 行（含表头）、行序按 `aria-rowindex` 还原、固定列在前拼接、重复行保留
-
-- **`e2e-harness-aggrid.js`**
-  - 覆盖：注入回归（`aggrid-fixture.html`）：网格识别（表头/表体/固定列命中同一根）、滚动采集全量、行序排序（DOM 倒置修正）、固定列拼接列序、控件实时值、导出断言
-  - 预期：`__TEST_RESULT` 数组 25/25 pass
-
-- **`mui-fixture.html`**
-  - 覆盖：MUI X DataGrid（v6/v7）网格：div+ARIA role、单滚动容器 `virtualScroller`、pinned 为同行 sticky cell、行节点复用（`aria-rowindex`，DOM 序倒置注入）、300 行含 3 条分散重复行、JS 属性设值控件、普通 `table` 回归
-  - 预期：悬浮高亮、一次点选采集 301 行（含表头）、行序按 `aria-rowindex` 还原、重复行保留
-
-- **`e2e-harness-mui.js`**
-  - 覆盖：注入回归（`mui-fixture.html`）：网格识别、滚动采集全量、行序排序、控件实时值、导出断言
-  - 预期：`__TEST_RESULT` 数组 24/24 pass
-
-- **`tabulator-fixture.html`**
-  - 覆盖：Tabulator（v6，vdom）网格：div 结构、滚动容器 `tableHolder`、冻结列为同行 frozen cell、行追加序即视觉序（无节点复用）、300 行含 3 条分散重复行+无冻结列 150 行例、JS 属性设值控件、普通 `table` 回归
-  - 预期：悬浮高亮、一次点选采集 301 行（含表头）、重复行保留
-
-- **`e2e-harness-tabulator.js`**
-  - 覆盖：注入回归（`tabulator-fixture.html`）：网格识别、滚动采集全量、控件实时值、导出断言
-  - 预期：`__TEST_RESULT` 数组 23/23 pass
-
-- **`pagination-el-fixture.html`**
-  - 覆盖：分页表格（仿 `el-pagination` 类名结构：`button.btn-prev`/`ul.el-pager`/`button.btn-next`，disabled 态类+属性双写）：5 页×8 行、翻页仅重建 `tbody`、`input` 控件列（JS 设值）、普通无分页表回归；慢异步模式（harness 置 `window.__SLOW_MS` 后翻页改为「页码立即更新、数据延迟落地」，复刻受控分页器+异步拉取；`__SLOW_GUARD` 追加加载中点击守卫，`__SLOW_DROP_FIRST` 追加落地后首击丢弃）
-  - 预期：选中表→「采集全部页」展开设置→「开始采集」（页数上限留空=全部页）直接采集：toast 41 行（含表头）、首行「商品 P1-1」末行「商品 P5-8」、一口价列取 `input` 实时值；先翻第 3 页再采集应先回第 1 页采全量、完成回第 1 页；页数上限填 2→只采前 2 页（toast 17 行+「已采集指定 2 页」，输入框 Enter 同效）；采集中「停止采集」→保留已采页（toast「已停止采集，保留已采集的 N 页」）且导出即已采部分、采集后「列设置」可取样；单表限定（v2.5.3）：再选中普通无分页表→「采集全部页」禁用、悬浮提示「多表选择时不支持分页采集」，取消后恢复；v2.9 进度带总页数（「第 1/5 页，已采集 9 行」，页数上限不改显示总页数）；v2.12 慢异步三态（纯延迟/加载中守卫/落地后首击丢弃）仍采全量 41 行、不误停、完成回第 1 页（旧版固定 sleep 会在第 3 页误判「连续翻页无新数据」停止）；v2.13「翻页间隔」槽默认 0.5 秒（标签「翻页间隔」+ 单位「秒」，轮次 A 端到端生效，其余轮次置 0 提速）；v2.14 起点归一（harness 置 `window.__setPages(n)` 动态改总页数）：距第一页 ≤10 页直跳「1」页项一次回第一页（归一期间右侧提醒框显示「正在回到第一页… 第 3 页」、结束收起）；第 12 页（>10 页）不自动归一——右侧提醒「请先返回第一页」并注明当前页、不开始采集（无完成 toast、主按钮恢复可用），手动回第 1 页后再开始即采全量 97 行（末行「商品 P12-8」），提醒框可手动关闭；超慢站点（`__SLOW_MS=3500` 超过 waitTurn 3s 预算，先翻第 3 页等表体落地）：直跳后等表体换成第一页再取数，导出首行仍是「商品 P1-1」不被旧页污染、41 行不误停、完成回第 1 页
-
-- **`e2e-harness-paged-el.js`**
-  - 覆盖：注入回归（`pagination-el-fixture.html`）：全页采集 41 行、进度逐页推进（`MutationObserver` 记录每次提示文案）、页数上限 2→17 行、起点归一（先翻第 3 页仍从第 1 页起采、完成回第 1 页）、`input` 实时值导出断言；v2.12 慢异步三态全量采集（含守卫站点点击被吞、落地后首击被丢后重点）；v2.13「翻页间隔」槽默认值/标签/单位断言 + 默认 0.5s 端到端生效；v2.14 直跳首页（归一期间右侧提醒框「正在回到第一页… 第 3 页」观察器断言 + 结束收起）与距第一页超过 10 页不归一（`__setPages(12)`：右侧提醒「请先返回第一页」、不开始采集、可手动关闭、手动回第 1 页后再开始采全量 97 行）；轮次 G 超慢站点（`__SLOW_MS=3500` 超过 waitTurn 3s 预算）：先翻第 3 页等落地再采集，直跳后等表体换成第一页才取数（导出首行仍是 P1-1 而非旧页 P3-1）、41 行不误停、回第 1 页
-  - 预期：`__TEST_RESULT` 数组 52/52 pass
-
-- **`pagination-ant-fixture.html`**
-  - 覆盖：分页表格（仿 `ant-pagination` 类名结构：`li.ant-pagination-prev/item/next`，页码为 `a` 链接，禁用态 `aria-disabled`+`.ant-pagination-disabled`）：4 页×6 行
-  - 预期：选中表→「采集全部页」展开设置→「开始采集」（留空=全部页）采集 25 行（含表头）、首行「订单 A-1」末行「订单 D-6」、完成回第 1 页；翻页按钮为链接结构时编程式点击豁免采集期拦截；选择模式下手动点页码可翻页（v2.4 点击放行）
-
-- **`pagination-manual-fixture.html`**
-  - 覆盖：分页表格（自建分页器，类名与组件库无交集，「下一页」为 `a` 链接且末页无 disabled 态）：3 页×5 行
-  - 预期：选中表→「采集全部页」展开设置→「开始采集」进入「指定翻页按钮」子模式（hint 提示+悬浮高亮任意元素）→点「下一页 »」后采集：toast 16 行（含表头）+「自当前页开始采集，连续翻页无新数据，已停止」；子模式拦截所有点击（含链接）、Esc 取消不丢选区、停止条件（连续 2 页无新行）；v2.9 指定一次即按页面记住（`h2x.pager.v1`）、再次采集直接复用（toast「已复用上次指定的翻页按钮」），按钮消失时回落子模式且保留记忆
-
-- **`e2e-harness-paged-manual.js`**
-  - 覆盖：注入回归（`pagination-manual-fixture.html`）：指定翻页按钮并记住（定位器 sel/tag 断言）、复用记忆按钮（不进子模式+复用 toast）、生效记忆保留、按钮失联回落子模式且不清记忆、无总页数时进度只显示当前页、Esc 取消子模式不丢选区
-  - 预期：`__TEST_RESULT` 数组 16/16 pass
-
-- **`algo-check.cjs`**
-  - 覆盖：纯函数离线回归（Node 直接运行，不碰 DOM）：采集算法、列拆分/列筛选/列顺序/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具（含 v2.15 clampPos 视口钳制）、模块清单一致性、国际化词条一致性——明细见下节
-  - 预期：全部 PASS（244 项）
+- **`e2e-common.js`**（9 个 harness 共享的注入基建）：IIFE 挂 `window.__h2xT`，导出 `boot`/`stubChrome`/`stubExport`/`makeInjector`/`uiHost`/`makeRound`/`waitSelected`/`normalTableRound`/`pagedCollect`/`summarize`/`FILES` 与便捷工厂 `create(config)`。加载协议：harness 在并发守卫之后、业务轮次之前按需拉取——`if (!window.__h2xT) (0, eval)(await (await fetch('/test/e2e-common.js?v=' + Date.now())).text())`（已加载则跳过），之后只调 `create()` 装配，不再自行接线各粒度件。`FILES`（13 个内容脚本注入清单，与 service-worker 注入序逐项一致）为全库唯一来源，algo-check 模块清单一致性检查以本文件为准。
+- **`e2e-boot.js`**（9 个 fixture 页共享的 bootstrap，取代原页内约 30 行同款脚本；`pagination-ant-fixture.html` 无 harness 亦不引入）：各页尾部两行声明——`<script>window.__E2E_HARNESS = '<harness 文件名>';</script>` + `<script src="/test/e2e-boot.js"></script>`；虚拟滚动类 5 页（virtual/tablev2/aggrid/mui/tabulator）另声明可选 `window.__E2E_WAIT_TEXT`（浮层初始文案追加时长后缀，如「（虚拟滚动采集，约需 10-30 秒）」）。行为与重构前逐字一致：search/hash 双路 `e2e=1` 探测 → load 事件+50ms → fetch harness+eval → 页底浮层渲染 PASS/FAIL → 标题打 `[全部 PASS]`/`[FAIL n]`/`[ERROR]` 徽标；`run-all.ps1` 解析依赖（标题徽标 + `id="e2e-summary"`）未变。
 
 ## algo-check 覆盖明细
 
@@ -104,7 +42,7 @@
 | 持久化（persist.js） | pageKeyOf 忽略 query/hash、tableKeyOf 指纹（thead 无 tr 的 vxe-table 取 th 子元素而非数据行；v2.1 网格取 dynamic-header-row 表头格、优先内部 table 回退）与空值、sanitizeRecord 损坏剔除自愈（含 formats 键值对、v2.8 order 列顺序数组）与「仅 order 也保留」、evictKeys LRU 淘汰 |
 | 格式序列化（format.js） | csvCell RFC4180 转义、toCsv BOM/CRLF、tsvCell 制表符/换行转空格（v2.7 剪贴板）、toTsv 分隔与空表边界、headerKeys 列名兜底、toJson 行对象/表名嵌套、mdCell 转义与 toMarkdown 结构（含无表头生成列N）、toHtmlDocument 结构 |
 | 通用工具 | util.js sanitizeFilename/escapeHtml/clampPos（v2.15 视口钳制：正常不动/越界贴边/元素不小于视口贴 0）；table.js makeSheetName 四级兜底、非法字符、31 字符截断、重名后缀 |
-| 模块清单一致性 | service-worker 注入列表 / 九个 e2e-harness 各自 `FILES` / `extension/content` 实际文件对齐+依赖序（防漏同步；v2.5.2 六个分页 harness 漏注入 `pagination.js` 致 E2E 全线失败后扩全；v2.9 新增两个分页 harness） |
+| 模块清单一致性 | service-worker 注入列表 / `e2e-common.js` `FILES`（全库唯一来源）/ `extension/content` 实际文件对齐+依赖序，外加九个 harness 引用校验（经 `__h2xT` 守卫接入 + `const FILES = T.FILES` 引用清单）（防漏同步；v2.5.2 六个分页 harness 漏注入 `pagination.js` 致 E2E 全线失败后扩全；v2.9 新增两个分页 harness） |
 | 国际化词条一致性（v2.6） | 内容脚本与 manifest 引用的全部 `t()`/`__MSG_` 词条 ⊆ `_locales/en`（新增硬编码中文即失败）；manifest `__MSG_` 词条 ⊆ `_locales/zh_CN`（default_locale，缺则显示 key 名）；占位符词条消息须含声明的全部 `$XXX$`；以 en 语言包桩 `chrome.i18n` 驱动 headerKeys/makeSheetName 验证 `$1` 注入（回归：`t()` 曾误用箭头函数 `arguments` 致 subs 恒空） |
 
 ## 命令
@@ -132,23 +70,23 @@ powershell -ExecutionPolicy Bypass -File test/gen-icon.ps1
 
 ## E2E 注入回归（无扩展环境）
 
-仓库根 `npx serve .` 后浏览器访问（页面自跑自判，结果在页底浮层、标题栏同步结论）。用 `#e2e=1` 而非 `?e2e=1`：静态服务器 cleanUrls 会丢查询串，hash 不受影响（两种写法均支持）：
+仓库根 `npx serve .` 后浏览器访问（页面自跑自判，结果在页底浮层、标题栏同步结论；各页预期项数见覆盖矩阵「预期」列）。用 `#e2e=1` 而非 `?e2e=1`：静态服务器 cleanUrls 会丢查询串，hash 不受影响（两种写法均支持）：
 
 ```
-http://localhost:3000/test/fixture.html#e2e=1 →「175 项全部 PASS」
-http://localhost:3000/test/virtual-fixture.html#e2e=1 →「33 项全部 PASS」
-http://localhost:3000/test/tablev2-fixture.html#e2e=1 →「24 项全部 PASS」
-http://localhost:3000/test/antdv-fixture.html#e2e=1 →「19 项全部 PASS」
-http://localhost:3000/test/aggrid-fixture.html#e2e=1 →「25 项全部 PASS」
-http://localhost:3000/test/mui-fixture.html#e2e=1 →「24 项全部 PASS」
-http://localhost:3000/test/tabulator-fixture.html#e2e=1 →「23 项全部 PASS」
-http://localhost:3000/test/pagination-el-fixture.html#e2e=1 →「52 项全部 PASS」
-http://localhost:3000/test/pagination-manual-fixture.html#e2e=1 →「16 项全部 PASS」
+http://localhost:3000/test/fixture.html#e2e=1
+http://localhost:3000/test/virtual-fixture.html#e2e=1
+http://localhost:3000/test/tablev2-fixture.html#e2e=1
+http://localhost:3000/test/antdv-fixture.html#e2e=1
+http://localhost:3000/test/aggrid-fixture.html#e2e=1
+http://localhost:3000/test/mui-fixture.html#e2e=1
+http://localhost:3000/test/tabulator-fixture.html#e2e=1
+http://localhost:3000/test/pagination-el-fixture.html#e2e=1
+http://localhost:3000/test/pagination-manual-fixture.html#e2e=1
 ```
 
 `run-all.ps1` 默认 headless Chromium+`--virtual-time-budget`（快进定时器），九页并行约 5 秒、退出码 0/1 作门禁，无 Chrome/Edge 时降级交互模式；harness 用 `waitFor`+模块缓存（13 内容脚本）+25ms 轮询，分页页用 `MutationObserver` 记录 hint，未跑完的页串行补跑。
 
-手动执行（`__TEST_RESULT` 结构 `{total, passed, results}`）：
+手动执行（`__TEST_RESULT` 结构 `{total, passed, results}`；harness 会经加载守卫自动拉取 `e2e-common.js`，无需手动引入）：
 
 ```js
 const c = await (await fetch('/test/e2e-harness.js?v=' + Date.now())).text();   // 其余页换对应 harness：virtual / tablev2 / antdv / aggrid / mui / tabulator / paged-el / paged-manual

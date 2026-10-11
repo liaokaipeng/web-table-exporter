@@ -48,27 +48,7 @@ Export web page tables to xlsx/csv/json/md/html files.
 
 ## 5. 审核备注（可选，建议填写）
 
-给审核员的说明，可加快审核：
-
-**中文**
-
-```
-本扩展为纯本地工具：点击图标后按需注入内容脚本，用户点选页面表格后导出文件。
-不请求任何网络权限，不收集、不传输任何数据。列设置默认仅存本机（chrome.storage.local）；
-用户登录 Chrome 账号时由浏览器镜像一份到 chrome.storage.sync，便于其在多台设备上沿用
-同一套设置，数据始终在用户自己的浏览器账号内，不经过任何第三方服务器。
-```
-
-**English**
-
-```
-This extension is a purely local tool: clicking the icon injects content scripts on demand;
-the user selects tables on the page and exports them as files. It requests no network
-permissions and collects or transmits no data. Column settings are stored locally
-(chrome.storage.local) and, when the user is signed in to Chrome, mirrored by the browser to
-chrome.storage.sync so the same settings carry over to their other devices — the data stays
-inside the user's own browser account and never reaches any third-party server.
-```
+给审核员的说明，可加快审核：审核表单该栏直接复制 [store-listing.md](store-listing.md)「隐私与数据安全」节的中/英文案；如审核要求调整措辞，改 store-listing.md 后中英两边同步（以该节为唯一源）。
 
 ---
 

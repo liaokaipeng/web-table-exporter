@@ -6,120 +6,24 @@
  * 覆盖：Ant Design Vue Table 三种形态——普通表格（原生 table + ant 包装类）、
  * scroll.y 分体结构（表头表 + 数据表，走既有分体配对，验证零组件特判）、
  * 固定列 + scroll.x（sticky cell 单表）、控件实时值（input/select JS 属性设值）、
- * 普通表回归。提速：事件驱动 waitFor + 模块代码缓存（同 e2e-harness-tablev2.js）。
+ * 普通表回归。
+ * 基建：chrome 桩 / 导出捕获桩 / 注入器（scrollTop patch）/ UI 定位 / 轮次执行器
+ * 均经 e2e-common.js 的 create() 装配（hover 助手由 boot 提供），普通表回归轮次用
+ * common 的 normalTableRound；本文件只保留业务轮次。
+ * 提速：事件驱动 waitFor + 模块代码缓存（同 e2e-harness-tablev2.js）。
  */
 (async () => {
   if (window.__HARNESS_STARTED) return { error: 'harness 已在运行（并发守卫）' };
   window.__HARNESS_STARTED = true;
-  window.__TEST_LOG = [];
-  const log = (m) => window.__TEST_LOG.push(Date.now() % 1000000 + ' ' + m);
-  const R = [];
-  const t = (name, pass, detail) => R.push({ name, pass: !!pass, detail: detail == null ? '' : String(detail) });
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const waitFor = async (cond, timeout) => {
-    const t0 = Date.now();
-    while (!cond() && Date.now() - t0 < (timeout || 3000)) await sleep(20);
-    return !!cond();
-  };
 
-  /* ---- 全局桩（同 e2e-harness-tablev2.js） ---- */
-  const memStore = {};
-  window.chrome = {
-    storage: { local: {
-      get: async (k) => {
-        const out = {};
-        if (k == null) { for (const key in memStore) out[key] = memStore[key]; return out; }
-        for (const key of (Array.isArray(k) ? k : [k])) if (memStore[key] != null) out[key] = memStore[key];
-        return out;
-      },
-      set: async (obj) => { for (const key in obj) memStore[key] = obj[key]; },
-      remove: async (keys) => { for (const k of (Array.isArray(keys) ? keys : [keys])) delete memStore[k]; }
-    } },
-    runtime: { sendMessage: () => { throw new Error('E2E: 无扩展上下文（预期走 blob 回退）'); } }
-  };
-
-  /* ---- 捕获导出 ---- */
-  const origCreate = URL.createObjectURL.bind(URL);
-  window.__exports = [];
-  const blobMap = new Map();
-  URL.createObjectURL = (b) => { const u = origCreate(b); blobMap.set(u, b); return u; };
-  HTMLAnchorElement.prototype.click = function () {
-    const b = blobMap.get(this.href);
-    if (b) window.__exports.push({ name: this.download, blob: b });
-  };
-
-  const FILES = ['entry', 'i18n', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'pagination', 'persist', 'format', 'panel', 'main'];
-  const modCache = Object.create(null);
-  async function inject() {
-    if (window.__html2xlsx) { try { window.__html2xlsx.toggle(); } catch (e) { /* 忽略 */ } }
-    [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647').forEach(el => el.remove());
-    window.__html2xlsx = null;
-    try { delete window.__h2x; } catch (e) { window.__h2x = undefined; }
-    window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
-    if (!window.__H2X_ST_PATCHED) {
-      window.__H2X_ST_PATCHED = true;
-      const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
-      if (desc && desc.set && desc.configurable) {
-        Object.defineProperty(Element.prototype, 'scrollTop', {
-          configurable: true, enumerable: desc.enumerable,
-          get: desc.get,
-          set: function (v) { desc.set.call(this, v); this.dispatchEvent(new Event('scroll')); }
-        });
-      }
-    }
-    for (const f of FILES) {
-      if (!modCache[f]) {
-        const r = await fetch('/extension/content/' + f + '.js');
-        if (!r.ok) throw new Error(f + '.js HTTP ' + r.status);
-        modCache[f] = await r.text();
-      }
-      (0, eval)(modCache[f]);
-    }
-    return !!window.__html2xlsx;
-  }
-  function ui() {
-    const hosts = [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647');
-    const host = hosts[hosts.length - 1];
-    if (!host) throw new Error('未找到工具栏 host');
-    const sr = host.shadowRoot;
-    return {
-      host: host, sr: sr,
-      exportBtn: sr.querySelector('.h2x-actions > .h2x-primary'),
-      splitBtn: sr.querySelector('.h2x-split'),
-      cancelBtn: sr.querySelector('.h2x-actions > .h2x-ghost'),
-      fmtSel: sr.querySelector('.h2x-ext'),
-      count: sr.querySelector('.h2x-count b'),
-      hint: sr.querySelector('.h2x-hint'),
-      hoverBox: sr.querySelector('.h2x-hover')
-    };
-  }
-  const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
-  const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  const clickCell = (sel) => click(document.querySelector(sel));
-  const hover = (sel) => document.querySelector(sel)
-    .dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-  async function waitExports(n, timeout) {
-    const t0 = Date.now();
-    while (window.__exports.length < n && Date.now() - t0 < (timeout || 20000)) await sleep(25);
-    return window.__exports.slice();
-  }
-  const csvLines = async (f) => (await f.blob.text()).replace(/^\uFEFF/, '').split('\r\n').filter(x => x !== '');
-
-  async function round(name, fn) {
-    log('=== 轮次开始: ' + name);
-    window.__exports.length = 0;
-    blobMap.clear();
-    try {
-      if (!(await inject())) throw new Error('注入失败（window.__html2xxx 为空）');
-      const h = ui();
-      try { await fn(h); }
-      finally { try { click(h.cancelBtn); } catch (e) { /* 已退出 */ } await waitFor(() => !document.documentElement.contains(h.host), 1500); }
-      log('=== 轮次结束: ' + name);
-    } catch (e) {
-      t('【' + name + '】轮次执行异常', false, String((e && e.stack) || e));
-      log('[' + name + '] 异常: ' + e);
-    }
-  }
+  /* ---- 共享基建：e2e-common.js（chrome 桩 / 导出捕获桩 / 注入器 / UI 定位 / 轮次
+         执行器 / normalTableRound；行为统一规格见该文件头）。已加载则跳过；
+         scrollTop patch：隐藏标签页 scroll 不触发，antdv 滚动类页面需要 ---- */
+  if (!window.__h2xT) (0, eval)(await (await fetch('/test/e2e-common.js?v=' + Date.now())).text());
+  const T = window.__h2xT.create({ patchScrollTop: true });
+  const FILES = T.FILES; // algo-check 模块清单一致性检查引用（清单唯一来源在 e2e-common.js）
+  const { R, t, waitFor, waitExports, csvLines, fire, click, clickCell, hover,
+    round, normalTableRound, summarize } = T;
 
   /* ================= 轮次 A：普通表格（原生 table + ant 包装类） ================= */
   await round('antdv 普通表', async (h) => {
@@ -182,15 +86,7 @@
   });
 
   /* ================= 轮次 D：普通表格回归 ================= */
-  await round('普通表回归', async (h) => {
-    clickCell('#normal td');
-    h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
-    click(h.exportBtn);
-    const files = await waitExports(1);
-    const lines = await csvLines(files[0]);
-    const exp = ['姓名,部门', '张三,研发部', '李四,市场部'];
-    t('普通表格导出回归（3 行）', JSON.stringify(lines) === JSON.stringify(exp), JSON.stringify(lines));
-  });
+  await normalTableRound('普通表回归');
 
-  return { total: R.length, passed: R.filter(x => x.pass).length, results: R };
+  return summarize(R);
 })();

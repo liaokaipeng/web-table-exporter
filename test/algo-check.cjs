@@ -1067,27 +1067,34 @@ check('makeSheetName 空 caption 文本回落 aria-label / 纯空白回落序号
    makeSheetName(stubTable('   '), 0, new Set())],
   ['支付宝订单', '表格1']);
 
-// 43. 模块清单一致性（防新增模块漏同步：四份清单各自维护，任何一份缺文件即注入不全）
+// 43. 模块清单一致性（防新增模块漏同步：FILES 清单唯一来源在 e2e-common.js，
+// 与 extension/content 实际文件、service-worker 注入序三方比对；harness 只作引用校验）
 const swSrc = fs.readFileSync(path.join(__dirname, '..', 'extension', 'background', 'service-worker.js'), 'utf8');
 const swModules = [...swSrc.matchAll(/'content\/(\w+)\.js'/g)].map(m => m[1]);
 const actualModules = fs.readdirSync(path.join(__dirname, '..', 'extension', 'content'))
   .filter(f => f.endsWith('.js')).map(f => f.replace(/\.js$/, ''));
-check('模块清单：service-worker 注入列表与实际文件一致',
-  [...swModules].sort(), [...actualModules].sort());
-// v2.5.2 教训：六个分页面 harness 漏注入 pagination.js（E2E 全线报 ns.pagination undefined）——
-// 清单检查从主 harness 扩到全部（v2.9 起九个：七页组件/虚拟 + 两个分页采集页），
-// 任一 FILES 与 service-worker 依赖序不一致即失败
+// 从 e2e-common.js 提取 FILES 字面量（全库唯一注入清单来源；提取失败得空数组，
+// 下方与实际文件 / service-worker 的比对即 FAIL，不会静默放行）
+const commonSrc = fs.readFileSync(path.join(__dirname, 'e2e-common.js'), 'utf8');
+const commonDecl = commonSrc.match(/const FILES = \[([^\]]*)\]/);
+const commonModules = commonDecl ? [...commonDecl[1].matchAll(/'(\w+)'/g)].map(m => m[1]) : [];
+check('模块清单：common FILES 与实际文件一致（全库唯一来源）',
+  [...commonModules].sort(), [...actualModules].sort());
+check('模块清单：common FILES 与 service-worker 注入顺序一致（依赖序）',
+  commonModules, swModules);
+// v2.5.2 教训：六个分页面 harness 漏注入 pagination.js（E2E 全线报 ns.pagination
+// undefined）——清单检查从主 harness 扩到全部（v2.9 起九个：七页组件/虚拟 + 两个
+// 分页采集页）。重构后 FILES 上移 e2e-common.js 成为全库唯一来源，九个 harness 不再
+// 各自维护清单，改为引用校验：必须经 __h2xT 守卫加载 common，且以 const FILES =
+// T.FILES 引用其清单（防绕过 common 私抄一份导致再次漏同步）；引用成立时，common 与
+// service-worker/实际文件一致即等价于旧版逐 harness 比对，任何一份缺文件仍 FAIL
 const harnessFiles = fs.readdirSync(__dirname).filter(f => /^e2e-harness(-\w+)*\.js$/.test(f));
-const harnessLists = harnessFiles.map(f => {
-  const src = fs.readFileSync(path.join(__dirname, f), 'utf8');
-  const decl = src.match(/const FILES = \[([^\]]*)\]/);
-  return { name: f, modules: decl ? [...decl[1].matchAll(/'(\w+)'/g)].map(m => m[1]) : [] };
-});
+const harnessSrcs = new Map(harnessFiles.map(f => [f, fs.readFileSync(path.join(__dirname, f), 'utf8')]));
 check('模块清单：e2e-harness 数量齐备（九个页面 harness）', harnessFiles.length, 9);
-for (const h of harnessLists) {
-  check('模块清单：' + h.name + ' FILES 与实际文件一致', [...h.modules].sort(), [...actualModules].sort());
-  check('模块清单：' + h.name + ' 与 service-worker 注入顺序一致（依赖序）', h.modules, swModules);
-}
+check('模块清单：九个 harness 均经 __h2xT 加载守卫接入 common',
+  harnessFiles.filter(f => !harnessSrcs.get(f).includes('__h2xT')), []);
+check('模块清单：九个 harness 均以 const FILES = T.FILES 引用 common 清单',
+  harnessFiles.filter(f => !/const FILES = T\.FILES;/.test(harnessSrcs.get(f))), []);
 check('模块清单：注入顺序首尾正确（entry 先行守卫 / main 殿后建 UI）',
   [swModules[0], swModules[swModules.length - 1]], ['entry', 'main']);
 

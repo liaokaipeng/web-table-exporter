@@ -6,148 +6,39 @@
  * 覆盖：虚拟滚动采集 61 行、合法重复行保留、控件实时值、分体表+虚拟滚动
  * 组合采集 41 行、采集后面板快照取样与智能预填、普通表回归、
  * v2.0 停止采集（中止不退出、可重新采集）。
+ * 基建：chrome 桩 / 导出捕获桩 / 注入器（scrollTop patch）/ UI 定位 / 轮次执行器 /
+ * waitSelected 采集等待均经 e2e-common.js 的 create() 装配，普通表回归轮次用 common
+ * 的 normalTableRound；本文件只保留业务轮次与 fixture 特有探针（waitSelected 诊断日志）。
  * 提速（v2.2）：事件驱动 waitFor 替代固定 sleep、模块代码缓存、导出轮询 25ms；
  * 配 run-all.ps1 headless 虚拟时间模式整页约 1 秒跑完（真实定时器被快进）。
  */
 (async () => {
   if (window.__HARNESS_STARTED) return { error: 'harness 已在运行（并发守卫）' };
   window.__HARNESS_STARTED = true;
-  window.__TEST_LOG = [];
-  const log = (m) => window.__TEST_LOG.push(Date.now() % 1000000 + ' ' + m);
-  const R = [];
-  const t = (name, pass, detail) => R.push({ name, pass: !!pass, detail: detail == null ? '' : String(detail) });
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  // 事件驱动等待：条件满足立即返回（替代固定 sleep，提速且比盲等更强）
-  const waitFor = async (cond, timeout) => {
-    const t0 = Date.now();
-    while (!cond() && Date.now() - t0 < (timeout || 3000)) await sleep(20);
-    return !!cond();
-  };
 
-  /* ---- 全局桩 ---- */
-  const memStore = {};
-  window.chrome = {
-    storage: { local: {
-      get: async (k) => {
-        const out = {};
-        if (k == null) { for (const key in memStore) out[key] = memStore[key]; return out; }
-        for (const key of (Array.isArray(k) ? k : [k])) if (memStore[key] != null) out[key] = memStore[key];
-        return out;
-      },
-      set: async (obj) => { for (const key in obj) memStore[key] = obj[key]; },
-      remove: async (keys) => { for (const k of (Array.isArray(keys) ? keys : [keys])) delete memStore[k]; }
-    } },
-    runtime: { sendMessage: () => { throw new Error('E2E: 无扩展上下文（预期走 blob 回退）'); } }
-  };
+  /* ---- 共享基建：e2e-common.js（chrome 桩 / 导出捕获桩 / 注入器 / UI 定位 / 轮次
+         执行器 / waitSelected / normalTableRound；行为统一规格见该文件头）。
+         已加载则跳过；scrollTop patch：隐藏标签页 scroll 不触发，虚拟滚动类页面需要 ---- */
+  if (!window.__h2xT) (0, eval)(await (await fetch('/test/e2e-common.js?v=' + Date.now())).text());
+  const T = window.__h2xT.create({ patchScrollTop: true });
+  const FILES = T.FILES; // algo-check 模块清单一致性检查引用（清单唯一来源在 e2e-common.js）
+  const { R, t, sleep, waitFor, waitExports, csvLines, fire, click, clickCell, toastText,
+    round, waitSelected, normalTableRound, summarize } = T;
 
-  /* ---- 捕获导出 ---- */
-  const origCreate = URL.createObjectURL.bind(URL);
-  window.__exports = [];
-  const blobMap = new Map();
-  URL.createObjectURL = (b) => { const u = origCreate(b); blobMap.set(u, b); return u; };
-  HTMLAnchorElement.prototype.click = function () {
-    const b = blobMap.get(this.href);
-    if (b) window.__exports.push({ name: this.download, blob: b });
-  };
-
-  const FILES = ['entry', 'i18n', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'pagination', 'persist', 'format', 'panel', 'main'];
-  const modCache = Object.create(null); // 模块代码缓存：13 文件只拉取一次，多轮免重复网络往返
-  async function inject() {
-    // 防御性清理：若上一轮 UI/命名空间残留，先退出再注入（避免 entry 守卫误触发退出语义）
-    // （exit 为同步清理，无需等待；残留兜底由 staleHosts 式强删完成——见 ui() 的 host 定位）
-    if (window.__html2xlsx) { try { window.__html2xlsx.toggle(); } catch (e) { /* 忽略 */ } }
-    [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647').forEach(el => el.remove());
-    window.__html2xlsx = null;
-    try { delete window.__h2x; } catch (e) { window.__h2x = undefined; }
-    // 后台/不可见标签页 rAF 不触发 → virtual.js settle 永久挂起；
-    // 测试环境用定时器替代（fixture 渲染走 scroll 事件，不依赖真实绘制）
-    window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
-    // 隐藏标签页 scroll 事件随渲染步骤派发也不触发 → fixture 的滚动渲染失效；
-    // scrollTop 赋值后同步补发 scroll 事件，模拟可见标签页行为（仅测试环境）
-    if (!window.__H2X_ST_PATCHED) {
-      window.__H2X_ST_PATCHED = true;
-      const desc = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
-      if (desc && desc.set && desc.configurable) {
-        Object.defineProperty(Element.prototype, 'scrollTop', {
-          configurable: true, enumerable: desc.enumerable,
-          get: desc.get,
-          set: function (v) { desc.set.call(this, v); this.dispatchEvent(new Event('scroll')); }
-        });
-      }
-    }
-    for (const f of FILES) {
-      if (!modCache[f]) {
-        const r = await fetch('/extension/content/' + f + '.js');
-        if (!r.ok) throw new Error(f + '.js HTTP ' + r.status);
-        modCache[f] = await r.text();
-      }
-      (0, eval)(modCache[f]);
-    }
-    return !!window.__html2xlsx;
-  }
-  function ui() {
-    const hosts = [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647');
-    const host = hosts[hosts.length - 1];
-    if (!host) throw new Error('未找到工具栏 host');
-    const sr = host.shadowRoot;
-    return {
-      host: host, sr: sr,
-      exportBtn: sr.querySelector('.h2x-actions > .h2x-primary'),
-      splitBtn: sr.querySelector('.h2x-split'),
-      cancelBtn: sr.querySelector('.h2x-actions > .h2x-ghost'),
-      fmtSel: sr.querySelector('.h2x-ext'),
-      count: sr.querySelector('.h2x-count b'),
-      hint: sr.querySelector('.h2x-hint'),
-      hoverBox: sr.querySelector('.h2x-hover')
-    };
-  }
-  const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
-  const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  const clickCell = (sel) => click(document.querySelector(sel));
-  const toastText = (h) => [...h.sr.querySelectorAll('.h2x-toast')].map(x => x.textContent).join('|'); // v2.0：结果性通知走 toast
-  async function waitExports(n, timeout) {
-    const t0 = Date.now();
-    while (window.__exports.length < n && Date.now() - t0 < (timeout || 20000)) await sleep(25);
-    return window.__exports.slice();
-  }
-  const csvLines = async (f) => (await f.blob.text()).replace(/^\uFEFF/, '').split('\r\n').filter(x => x !== '');
-  async function waitSelected(h, timeout) { // 等虚拟采集完成（计数变 1）
-    const t0 = Date.now();
-    let polls = 0;
+  /* ---- fixture 特有探针：waitSelected 诊断日志（两个虚拟容器的滚动位置/行数） ---- */
+  const probe = (h) => {
     const vc = document.getElementById('vcontainer');
     const sBodyEl = document.getElementById('sgbody');
-    while (h.count.textContent !== '1' && Date.now() - t0 < (timeout || 90000)) {
-      await sleep(100);
-      if (++polls % 5 === 1) {
-        const vt = vc ? ' [vt st=' + vc.scrollTop + '/' + vc.scrollHeight + '/' + vc.clientHeight + ' rows=' + document.querySelectorAll('#vtbody tr:not(.virtual-spacer)').length + ']' : '';
-        const sg = sBodyEl ? ' [sg st=' + sBodyEl.scrollTop + '/' + sBodyEl.scrollHeight + '/' + sBodyEl.clientHeight + ' rows=' + document.querySelectorAll('#sgtbody tr:not(.virtual-spacer)').length + ']' : '';
-        log('waitSelected#' + polls + ' count=' + h.count.textContent + ' hint=' + h.hint.textContent + vt + sg);
-      }
-    }
-    return h.count.textContent === '1';
-  }
-
-  async function round(name, fn) {
-    log('=== 轮次开始: ' + name);
-    window.__exports.length = 0;
-    blobMap.clear();
-    try {
-      if (!(await inject())) throw new Error('注入失败（window.__html2xlsx 为空）');
-      const h = ui();
-      try { await fn(h); }
-      finally { try { click(h.cancelBtn); } catch (e) { /* 已退出 */ } await waitFor(() => !document.documentElement.contains(h.host), 1500); }
-      log('=== 轮次结束: ' + name);
-    } catch (e) {
-      t('【' + name + '】轮次执行异常', false, String((e && e.stack) || e));
-      log('[' + name + '] 异常: ' + e);
-    }
-  }
+    const vt = vc ? ' [vt st=' + vc.scrollTop + '/' + vc.scrollHeight + '/' + vc.clientHeight + ' rows=' + document.querySelectorAll('#vtbody tr:not(.virtual-spacer)').length + ']' : '';
+    const sg = sBodyEl ? ' [sg st=' + sBodyEl.scrollTop + '/' + sBodyEl.scrollHeight + '/' + sBodyEl.clientHeight + ' rows=' + document.querySelectorAll('#sgtbody tr:not(.virtual-spacer)').length + ']' : '';
+    return vt + sg;
+  };
 
   /* ================= 轮次 A：虚拟滚动采集（60 行） ================= */
   await round('虚拟滚动采集', async (h) => {
     const ok = await (async () => {
       clickCell('#vt tbody td');
-      return waitSelected(h, 90000);
+      return waitSelected(h, 90000, probe);
     })();
     t('虚拟表格自动滚动采集完成（点选后选中）', ok, 'count=' + h.count.textContent);
     t('采集完成提示（toast 61 行含表头）', toastText(h).indexOf('采集完成，共 61 行') >= 0, toastText(h));
@@ -198,7 +89,7 @@
     const bw = parseFloat(h.hoverBox.style.width);
     t('悬浮表头：分体组整体高亮', Math.abs(bw - wrap.offsetWidth) < 12, bw + ' vs ' + wrap.offsetWidth);
     clickCell('#sgtable td');
-    const ok = await waitSelected(h, 90000);
+    const ok = await waitSelected(h, 90000, probe);
     t('分体虚拟表点击一次整体选中（自动采集）', ok, 'count=' + h.count.textContent);
     t('分体虚拟采集完成提示（toast 41 行）', toastText(h).indexOf('采集完成，共 41 行') >= 0, toastText(h));
     h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
@@ -212,15 +103,7 @@
   });
 
   /* ================= 轮次 C：普通表格回归 ================= */
-  await round('普通表回归', async (h) => {
-    clickCell('#normal td');
-    h.fmtSel.value = 'csv'; fire(h.fmtSel, 'change');
-    click(h.exportBtn);
-    const files = await waitExports(1);
-    const lines = await csvLines(files[0]);
-    const exp = ['姓名,部门', '张三,研发部', '李四,市场部'];
-    t('普通表格导出回归（3 行）', JSON.stringify(lines) === JSON.stringify(exp), JSON.stringify(lines));
-  });
+  await normalTableRound('普通表回归');
 
   /* ================= 轮次 D：停止采集（v2.0：采集可中止，不退出选择模式） ================= */
   await round('停止采集', async (h) => {
@@ -241,11 +124,11 @@
     t('停止后：滚动位置还原（scrollTop=0）', vc.scrollTop === 0, 'scrollTop=' + vc.scrollTop);
     const ok = await (async () => { // 同一表可重新发起采集
       clickCell('#vt tbody td');
-      return waitSelected(h, 90000);
+      return waitSelected(h, 90000, probe);
     })();
     t('停止后重新采集成功（61 行 toast）', ok && toastText(h).indexOf('采集完成，共 61 行') >= 0,
       'count=' + h.count.textContent + ' toast=' + toastText(h));
   });
 
-  return { total: R.length, passed: R.filter(x => x.pass).length, results: R };
+  return summarize(R);
 })();

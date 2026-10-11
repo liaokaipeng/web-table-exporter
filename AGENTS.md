@@ -15,15 +15,19 @@ Chrome MV3 扩展（原生 JS，零构建）。架构、机制与产品信息见
 ## 验证命令（本机为 PowerShell）
 
 ```powershell
-# 内容脚本语法检查（13 个文件，依赖序注入见 docs/architecture.md；i18n.js 紧跟 entry 先行，其余模块 t() 依赖其 ns.i18n）
+# 内容脚本语法检查（13 个文件，依赖序注入见 docs/architecture.md）
 Get-ChildItem extension/content/*.js | ForEach-Object { node --check $_.FullName }
-node --check extension/background/service-worker.js
+# 纯函数算法回归（采集/拆分/筛选/格式/分页/持久化）
 node test/algo-check.cjs
+# 一键回归（语法 + 算法 + 9 页 E2E 并行，约 5 秒）
+.\test\run-all.ps1
 ```
+
+详细命令（后台 service-worker 语法检查、auto-check 自动回归、交互模式、图标生成等）与覆盖矩阵以 [test/README.md](test/README.md) 为唯一源。
 
 注意：PowerShell 不支持 `&&` 和 heredoc；多行提交信息用 `git commit -F <文件>`。
 
-改代码后的浏览器回归：`chrome://extensions` 刷新扩展 → 刷新目标页 → 按 [test/README.md](test/README.md) 用两个 fixture 页对照页内预期值验证。控件取值规则见 [docs/controls.md](docs/controls.md)。
+改代码后的浏览器回归：`chrome://extensions` 刷新扩展 → 刷新目标页 → 按 [test/README.md](test/README.md) 回归。现行规模：9 个 fixture + auto-check + 9 个 E2E harness + algo-check，一键跑 `.\test\run-all.ps1`（细则见 test/README.md）。控件取值规则见 [docs/controls.md](docs/controls.md)。
 
 测试范围：简单功能或小改动不必补自动化测试，至少完成上述语法检查；涉及取值、解析等核心逻辑的改动须跑 `node test/algo-check.cjs` 并做浏览器回归。
 
@@ -40,5 +44,5 @@ node test/algo-check.cjs
 
 ## 坑（已踩过，勿再踩）
 
-- 单元格取文本：离屏容器不能加 `visibility:hidden`（innerText 会排除不可见文本）；input 值必须从原元素读（cloneNode 丢属性设值）。详见 [docs/decisions.md](docs/decisions.md)
+- 单元格取文本：离屏容器不能加 `visibility:hidden`（innerText 会排除不可见文本）；input 值必须从原元素读（cloneNode 丢属性设值）。详见 [docs/mechanisms.md](docs/mechanisms.md)「单元格四通道」条
 - `test/dianxiaomi-table.html` 含真实业务数据，已在 .gitignore，勿提交勿删除该忽略规则

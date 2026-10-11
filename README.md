@@ -64,58 +64,17 @@ Edge、Firefox 等其它浏览器同样可用，仅需将 `chrome://extensions` 
 ## 目录结构
 
 ```
-├── extension/                  # 插件本体（chrome://extensions 加载此目录）
-│   ├── manifest.json           # MV3 配置（activeTab / scripting / downloads / storage + default_locale 国际化）
-│   ├── _locales/               # 国际化语言包（en 英文全量 / zh_CN 中文，见 docs/architecture.md）
-│   ├── background/service-worker.js  # 图标点击注入 + 后台下载 + 语言词表
-│   ├── content/                # 内容脚本（按依赖序注入，零构建无模块系统）
-│   │   ├── entry.js            #   注入守卫 + window.__h2x 命名空间
-│   │   ├── i18n.js             #   界面语言（手动中英文开关 + 各模块 t() 统一取词入口）
-│   │   ├── util.js             #   工具函数
-│   │   ├── controls.js         #   控件值三层判定（详见 docs/controls.md）
-│   │   ├── split.js            #   列拆分 + 列筛选 + 列顺序 + 列格式纯函数（测试整文件加载）
-│   │   ├── cell.js             #   单元格四通道取值
-│   │   ├── table.js            #   行获取 / 合并单元格展开 / 网格适配器注册表 / Sheet 命名
-│   │   ├── virtual.js          #   虚拟滚动表格采集
-│   │   ├── pagination.js       #   分页表格自动翻页采集
-│   │   ├── persist.js          #   拆分规则/列筛选/列顺序/列格式持久化（本机 + 随 Chrome 账号同步）
-│   │   ├── format.js           #   csv/tsv/json/md/html 导出格式序列化纯函数（tsv 供剪贴板）
-│   │   ├── panel.js            #   列设置面板（列筛选 + 列顺序 + 拆分配置 + 列格式）
-│   │   └── main.js             #   主 UI / 事件 / 导出
-│   ├── lib/xlsx.full.min.js    # SheetJS 0.20.3（Apache-2.0）
-│   └── icons/                  # 图标 16/32/48/128（test/gen-icon.ps1 生成）
-├── test/                       # 测试材料（不随插件分发，覆盖矩阵见 test/README.md）
-│   ├── algo-check.cjs          # 纯函数离线回归（采集/拆分/筛选/格式/分页/持久化，Node 直接运行）
-│   ├── fixture.html            # 基础测试页（合并单元格/控件取值/列拆分/列筛选/列格式）
-│   ├── virtual-fixture.html    # 虚拟滚动测试页（60 行，含 input 列）
-│   ├── {tablev2,antdv,aggrid,mui,tabulator}-fixture.html  # 五类组件表格 fixture
-│   ├── pagination-{el,ant,manual}-fixture.html  # 分页采集测试页（el / ant / 自建手动指定；el 与 manual 两页附 E2E harness）
-│   ├── auto-check.html         # DOM 层自动化回归（页内自判 PASS/FAIL）
-│   ├── e2e-harness*.js         # 九页 E2E 注入回归（无扩展环境：七页组件/虚拟 + 分页采集 el / manual）
-│   ├── run-all.ps1             # 一键回归（语法 + 算法 + 九页 E2E 并行）
-│   └── gen-icon.ps1            # 重新生成扩展图标（四尺寸）
-├── release/                    # Chrome Web Store 上架材料（商店文案/截图/打包脚本）
-└── docs/                       # 文档（架构 / 机制 / 设计决策 / 产品 / 控件规则 / GitHub 远程操作）
+├── extension/   # 插件本体（chrome://extensions 加载此目录）：manifest / _locales / background / content / lib / icons
+├── test/        # 测试材料（不随插件分发）：fixture 页、e2e-harness、algo-check、run-all.ps1，覆盖矩阵见 test/README.md
+├── release/     # Chrome Web Store 上架材料（商店文案 / 截图 / 打包脚本）
+└── docs/        # 文档（架构 / 机制 / 设计决策 / 产品 / 控件规则 / GitHub 远程操作）
 ```
+
+各模块职责见 [docs/architecture.md](docs/architecture.md)。
 
 ## 开发与测试
 
-```powershell
-# 语法检查（内容脚本 13 文件 + 后台脚本）
-Get-ChildItem extension/content/*.js | ForEach-Object { node --check $_.FullName }
-node --check extension/background/service-worker.js
-
-# 回归测试（采集算法 + 列拆分/列筛选 + 持久化 + 导出格式序列化纯函数）
-node test/algo-check.cjs
-
-# 一键回归（语法 + 算法 + 9 页 E2E 并行，约 5 秒）
-test/run-all.ps1
-
-# 启动本地静态服务后访问 http://localhost:3000/test/virtual-fixture.html
-npx -y serve .
-```
-
-修改代码后：`chrome://extensions` 刷新扩展 → 刷新目标页面。
+开发与测试命令（语法检查、algo-check、一键回归、本地静态服务、图标生成等）以 [test/README.md](test/README.md) 为唯一源；改代码后 `chrome://extensions` 刷新扩展 → 刷新目标页面。
 
 ## 文档
 

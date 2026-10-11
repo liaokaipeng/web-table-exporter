@@ -7,55 +7,30 @@
  * 合并单元格 merges、Sheet 名、自适应列宽、列拆分三模式、列筛选、列格式、
  * 分体表格合并、持久化保存/恢复/重置、复制到剪贴板（TSV/MD，v2.7）、
  * 清空已选与面板恢复默认（v2.7）。
+ * 基建：chrome 桩（local + sync 双区）/ 导出捕获桩 / 注入器 / UI 定位 / 轮次执行器
+ * （含轮次串行锁）/ 结果汇总均经 e2e-common.js 的 create() 装配，本文件只保留业务
+ * 轮次与 fixture 特有基建（SheetJS 加载、XLSX 解 zip 比对、面板工具）。
  * v2 加固：强制全新注入（预清 __html2xlsx/__h2x 与残留 host，entry 守卫永不误触发）、
  * 注入后隐藏 __html2xlsx（防外部脚本误退出本会话）、轮次串行锁、调试日志。
  * 提速（v2.2）：固定 sleep 改事件驱动 waitFor（exit/openPanel 均同步或微任务级），
- * 模块代码缓存（12 文件仅首轮拉取），导出轮询 25ms；配 run-all.ps1 headless
+ * 模块代码缓存（13 文件仅首轮拉取），导出轮询 25ms；配 run-all.ps1 headless
  * 虚拟时间模式整页约 1 秒跑完。
  */
 (async () => {
   if (window.__HARNESS_STARTED) return { error: 'harness 已在运行（并发守卫）' };
   window.__HARNESS_STARTED = true;
-  window.__TEST_LOG = [];
-  const log = (m) => window.__TEST_LOG.push(String(m));
-  const R = [];
-  const t = (name, pass, detail) => R.push({ name, pass: !!pass, detail: detail == null ? '' : String(detail) });
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  // 事件驱动等待：条件满足立即返回（替代固定 sleep，提速且比盲等更强：等不到会显式超时暴露）
-  const waitFor = async (cond, timeout) => {
-    const t0 = Date.now();
-    while (!cond() && Date.now() - t0 < (timeout || 3000)) await sleep(20);
-    return !!cond();
-  };
 
-  /* ---- 全局桩：chrome.storage（local + sync 各自内存实现，v2.8 跨设备同步回归）、
-          chrome.runtime.sendMessage（抛错走 blob 回退） ---- */
-  const memStore = {}; // local 区
-  const memSync = {};  // sync 区（独立，供「镜像 / 加载合并」断言）
-  const mkArea = (store) => ({
-    get: async (k) => {
-      const out = {};
-      if (k == null) { for (const key in store) out[key] = store[key]; return out; }
-      for (const key of (Array.isArray(k) ? k : [k])) if (store[key] != null) out[key] = store[key];
-      return out;
-    },
-    set: async (obj) => { for (const key in obj) store[key] = obj[key]; },
-    remove: async (keys) => { for (const k of (Array.isArray(keys) ? keys : [keys])) delete store[k]; }
+  /* ---- 共享基建：e2e-common.js（chrome 桩 / 导出捕获桩 / 注入器 / UI 定位 / 轮次
+         执行器与轮次串行锁 / 结果汇总；行为统一规格见该文件头）。已加载则跳过 ---- */
+  if (!window.__h2xT) (0, eval)(await (await fetch('/test/e2e-common.js?v=' + Date.now())).text());
+  const T = window.__h2xT.create({
+    sync: true,     // chrome 桩带 sync 双区（v2.8 跨设备同步回归：镜像 + 加载合并）
+    logRound: true, // 注入后打轮次日志（调试）
+    lock: true      // 轮次串行锁（防并发 harness 实例互相干扰；30 秒陈旧锁自动抢占）
   });
-  window.chrome = {
-    storage: { local: mkArea(memStore), sync: mkArea(memSync) },
-    runtime: { sendMessage: () => { throw new Error('E2E: 无扩展上下文（预期走 blob 回退）'); } }
-  };
-
-  /* ---- 捕获导出：桩 URL.createObjectURL + HTMLAnchorElement.prototype.click ---- */
-  const origCreate = URL.createObjectURL.bind(URL);
-  window.__exports = [];
-  const blobMap = new Map();
-  URL.createObjectURL = (b) => { const u = origCreate(b); blobMap.set(u, b); return u; };
-  HTMLAnchorElement.prototype.click = function () {
-    const b = blobMap.get(this.href);
-    if (b) window.__exports.push({ name: this.download, blob: b });
-  };
+  const FILES = T.FILES; // algo-check 模块清单一致性检查引用（清单唯一来源在 e2e-common.js）
+  const { log, R, t, sleep, waitFor, waitExports, csvLines, fire, click, clickCell, toastText, round, summarize } = T;
+  const { memStore, memSync } = T; // chrome.storage 内存桩双区（sync:true 时接入 sync）
 
   /* ---- 加载 SheetJS（xlsx 验证用） ---- */
   await new Promise((res, rej) => {
@@ -65,62 +40,6 @@
     document.head.appendChild(s);
   });
   log('XLSX 库已加载');
-
-  /* ---- 注入与 UI 定位 ---- */
-  const FILES = ['entry', 'i18n', 'util', 'controls', 'split', 'cell', 'table', 'virtual', 'pagination', 'persist', 'format', 'panel', 'main'];
-  const modCache = Object.create(null); // 模块代码缓存：13 文件只拉取一次，17 轮免重复网络往返
-  function staleHosts() {
-    return [...document.documentElement.children].filter(el => el.tagName === 'DIV' && el.style.zIndex === '2147483647');
-  }
-  async function inject(roundName) {
-    // 强制全新注入：先尝试退出旧会话、移除残留 host、清空守卫状态
-    // （exit 为同步清理，无需等待；残留兜底由 staleHosts 强删完成）
-    if (window.__html2xlsx) { try { window.__html2xlsx.toggle(); } catch (e) { /* 已失效 */ } }
-    staleHosts().forEach(el => el.remove());
-    window.__html2xlsx = null;   // entry 守卫永不触发退出语义
-    try { delete window.__h2x; } catch (e) { window.__h2x = undefined; }
-    // 后台/不可见标签页 rAF 不触发 → virtual.js settle 永久挂起；
-    // 测试环境用定时器替代（fixture 渲染走 scroll 事件，不依赖真实绘制）
-    window.requestAnimationFrame = (cb) => setTimeout(() => cb(performance.now()), 16);
-    for (const f of FILES) {
-      if (!modCache[f]) {
-        const r = await fetch('/extension/content/' + f + '.js');
-        if (!r.ok) throw new Error(f + '.js HTTP ' + r.status);
-        modCache[f] = await r.text();
-      }
-      try { (0, eval)(modCache[f]); }
-      catch (e) { log('[' + roundName + '] ' + f + '.js 求值异常: ' + e); throw e; }
-    }
-    const ok = !!window.__html2xlsx;
-    log('[' + roundName + '] 注入结果=' + ok + ' nsKeys=' + (window.__h2x ? Object.keys(window.__h2x).join(',') : '无'));
-    window.__html2xlsx = null; // 隐藏：防外部残留脚本误退出本会话（本会话经元素引用操作）
-    return ok;
-  }
-  function ui() {
-    const hosts = staleHosts();
-    const host = hosts[hosts.length - 1];
-    if (!host) throw new Error('未找到工具栏 host');
-    const sr = host.shadowRoot;
-    return {
-      host: host, sr: sr,
-      exportBtn: sr.querySelector('.h2x-actions > .h2x-primary'),
-      splitBtn: sr.querySelector('.h2x-split'),
-      cancelBtn: sr.querySelector('.h2x-actions > .h2x-ghost'),
-      fmtSel: sr.querySelector('.h2x-ext'),
-      count: sr.querySelector('.h2x-count b'),
-      hint: sr.querySelector('.h2x-hint'),
-      hoverBox: sr.querySelector('.h2x-hover')
-    };
-  }
-  const fire = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
-  const click = (el) => el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  const clickCell = (sel) => click(document.querySelector(sel));
-  async function waitExports(n, timeout) {
-    const t0 = Date.now();
-    while (window.__exports.length < n && Date.now() - t0 < (timeout || 8000)) await sleep(25);
-    return window.__exports.slice();
-  }
-  const csvLines = async (f) => (await f.blob.text()).replace(/^\uFEFF/, '').split('\r\n').filter(x => x !== '');
 
   /** 解析 xlsx zip 内首个 worksheet XML 的 <cols>（XLSX.read 不回填 !cols，
    *  需手工走本地文件头 + DecompressionStream('deflate-raw')） */
@@ -183,43 +102,6 @@
   }
   const gridEq = (ws, want) => gridDiff(sheetGrid(ws), want);
 
-  /* ---- 轮次串行锁（防并发 harness 实例互相干扰；30 秒陈旧锁自动抢占） ---- */
-  const MY = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  async function acquireLock() {
-    const t0 = Date.now();
-    while (Date.now() - t0 < 30000) {
-      const cur = window.__ROUND_LOCK;
-      if (!cur || (Date.now() - cur.at) > 30000 || cur.owner === MY) {
-        window.__ROUND_LOCK = { owner: MY, at: Date.now() };
-        return true;
-      }
-      await sleep(150);
-    }
-    return false;
-  }
-  function touchLock() { const cur = window.__ROUND_LOCK; if (cur && cur.owner === MY) cur.at = Date.now(); }
-
-  async function round(name, fn) {
-    log('=== 轮次开始: ' + name);
-    if (!(await acquireLock())) { t('【' + name + '】轮次锁超时', false, ''); return; }
-    try {
-      window.__exports.length = 0;
-      blobMap.clear();
-      touchLock();
-      if (!(await inject(name))) throw new Error('注入失败（main.js 未初始化）');
-      const h = ui();
-      log('[' + name + '] 工具栏已定位');
-      try { await fn(h, () => touchLock()); }
-      finally { try { click(h.cancelBtn); } catch (e) { /* 已退出 */ } await waitFor(() => !document.documentElement.contains(h.host), 1500); }
-      log('=== 轮次结束: ' + name);
-    } catch (e) {
-      t('【' + name + '】轮次执行异常', false, String((e && e.stack) || e));
-      log('[' + name + '] 异常: ' + e);
-    } finally {
-      if (window.__ROUND_LOCK && window.__ROUND_LOCK.owner === MY) window.__ROUND_LOCK = null;
-    }
-  }
-
   /* ---- 面板工具（v2.10.2：拆分控件 = 勾选框 + 收起/展开图标按钮，模式/分隔符收进 .h2x-sub 子行） ---- */
   const rowOf = (h, prefix) => [...h.sr.querySelectorAll('.h2x-col')].find(r => {
     const c = r.querySelector('.h2x-cname');
@@ -234,7 +116,6 @@
   const patOf = (r) => { const s = subOf(r); return s && s.querySelector('.h2x-pattern'); };
   const limOf = (r) => { const s = subOf(r); return s && s.querySelector('.h2x-limit'); };
   const fmtOf = (r) => r.querySelector('.h2x-fmt');
-  const toastText = (h) => [...h.sr.querySelectorAll('.h2x-toast')].map(x => x.textContent).join('|');
 
   /* ================= 轮次 A：基础交互 ================= */
   await round('基础交互', async (h) => {
@@ -969,5 +850,5 @@
   });
 
   log('=== harness 完成: ' + R.length + ' 项');
-  return { total: R.length, passed: R.filter(x => x.pass).length, results: R, logTail: window.__TEST_LOG.slice(-20) };
+  return summarize(R, { logTail: window.__TEST_LOG.slice(-20) });
 })();

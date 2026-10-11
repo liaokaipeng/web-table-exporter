@@ -4,31 +4,109 @@
 
 ## 关键机制
 
-- **UI/事件**（main.js）：单 Shadow DOM host（`all:initial`），含悬浮高亮层、已选覆盖层、底部工具栏、toast 容器。`mouseover` 委托找 table，`hitRoot()` 解析逻辑根（分体取包装容器；v2.1 无 table 命中回落网格表格根，v2.2 `gridRootOf()` 分发，内嵌 table 优先内层）；`click` v2.4 起捕获阶段放行：非表格点击不拦截（`pruneDetached()` 剔除被替换的选中表格，`exporting` 跳过），仅表格点选与链接 `a[href]` 拦截（红框 1s + toast）；采集中全拦截（2s 节流 toast）；`keydown` Esc 退出 / Enter 导出（焦点在页面元素时放行；拆分面板打开时关面板 / 保存）；`scroll`/`resize` rAF 节流重定位。v2.0：`toast()` 句柄、进度型复用同一条；hint 留引导/进行时、结果性通知走 toast；采集中「取消」变「停止采集」（`stopCollect()` 仅 genToken++）；选中徽标贴边翻内侧（flip-x/y）。v2.4：toast 语义色图标 + 浅底 + 加粗，warn 停留 8s；`doExport()` 迭代前快照表格列表（`yieldToMain()` 期间 prune 不影响导出范围与列设置）
+- **UI/事件**（main.js）
+  - 单 Shadow DOM host（`all:initial`），含悬浮高亮层、已选覆盖层、底部工具栏、toast 容器
+  - `mouseover` 委托找 table；`hitRoot()` 解析逻辑根（分体取包装容器；v2.1 无 table 命中回落网格表格根，v2.2 `gridRootOf()` 分发，内嵌 table 优先内层）
+  - `click`（v2.4 起捕获阶段放行）：非表格点击不拦截（`pruneDetached()` 剔除被替换的选中表格，`exporting` 跳过）；仅表格点选与链接 `a[href]` 拦截（红框 1s + toast）；采集中全拦截（2s 节流 toast）
+  - `keydown`：Esc 退出 / Enter 导出（焦点在页面元素时放行；拆分面板打开时关面板 / 保存）
+  - `scroll`/`resize` rAF 节流重定位
+  - v2.0：`toast()` 句柄、进度型复用同一条；hint 留引导/进行时、结果性通知走 toast；采集中「取消」变「停止采集」（`stopCollect()` 仅 genToken++）；选中徽标贴边翻内侧（flip-x/y）
+  - v2.4：toast 语义色图标 + 浅底 + 加粗，warn 停留 8s；`doExport()` 迭代前快照表格列表（`yieldToMain()` 期间 prune 不影响导出范围与列设置）
 
-- **分体表格合并**（table.js `splitGroupOf()`）：组件库（Element Plus el-table / vxe-table 等）把表头、表体渲染为两个独立 `<table>`。识别：成员须为片段（纯表头 / 纯数据），自最紧祖先向上找容器（首个命中即返回、深度 ≤12、容器顶层 table ≤8）；配对 = 纯表头表 + 纯数据表**视觉纵向拼接**（间隙 -10\~10px、左对齐、宽度相近、列数差 ≤1 容忍 gutter 列）。`visualRect`：数据表被垂直滚动容器裁剪时 top 取容器顶边，left/width 取 table 本身；水平滚动（scrollable-x）时表头/表体同步平移，容器宽度被裁剪不能用于宽度比较。`pairSplitGroup()` 纯函数（描述符入参不碰 DOM，algo-check.cjs 离线回归）。悬浮/点选/导出以包装容器为键（`hitRoot()`），`getRows()` 合并两表行（表头行在前），空 `gutter` 列跳过
+- **分体表格合并**（table.js `splitGroupOf()`）
+  - 场景：组件库（Element Plus el-table / vxe-table 等）把表头、表体渲染为两个独立 `<table>`
+  - 识别：成员须为片段（纯表头 / 纯数据）；自最紧祖先向上找容器（首个命中即返回、深度 ≤12、容器顶层 table ≤8）
+  - 配对 = 纯表头表 + 纯数据表**视觉纵向拼接**（间隙 -10\~10px、左对齐、宽度相近、列数差 ≤1 容忍 gutter 列）
+  - `pairSplitGroup()` 纯函数（描述符入参不碰 DOM，algo-check.cjs 离线回归）
+  - `visualRect`：数据表被垂直滚动容器裁剪时 top 取容器顶边，left/width 取 table 本身；水平滚动（scrollable-x）时表头/表体同步平移，容器宽度被裁剪不能用于宽度比较
+  - 悬浮/点选/导出以包装容器为键（`hitRoot()`），`getRows()` 合并两表行（表头行在前），空 `gutter` 列跳过
 
-- **div 网格表格**（table.js，v2.1 引入、v2.2 适配器注册表）：虚拟化表格无 `<table>`——div + ARIA role 模拟，只渲染可见窗口行。每组件一适配器（`name` + `rootSel` + 五钩子 `isRoot/headerRowsOf/bodyRowsOf/scrollElsOf/headerCellsOf`），注册表 `GRID_ADAPTERS` 按序分发；virtual/main/persist 经分发入口间接调用。识别 = 组件根特征类（`.el-table-v2__root` / `.ag-root-wrapper` / `.MuiDataGrid-root` / `.tabulator`，后者另校验 `.tabulator-tableHolder`）。`gridRowsOf()` = `headerRowsOf()` 表头行 + `bodyRowsOf()` 数据行：多分区组件（el-table-v2 left/main/right、AG Grid pinned/center）表头行按行号对齐拼接、数据行按视觉序 zip；行节点复用组件（AG Grid / MUI X）DOM 序非视觉序，先经 `rowsSortedByRowIndex()` 按 `aria-rowindex` 数值升序（全部行带该属性才排序，部分缺失保持 DOM 序）。`gridScrollEls()`：el-table-v2 多分区各返回一个（联动 scrollTop），其余单滚动容器
+- **div 网格表格**（table.js，v2.1 引入、v2.2 适配器注册表）
+  - 场景：虚拟化表格无 `<table>`——div + ARIA role 模拟，只渲染可见窗口行
+  - 每组件一适配器（`name` + `rootSel` + 五钩子 `isRoot/headerRowsOf/bodyRowsOf/scrollElsOf/headerCellsOf`），注册表 `GRID_ADAPTERS` 按序分发；virtual/main/persist 经分发入口间接调用
+  - 识别 = 组件根特征类（`.el-table-v2__root` / `.ag-root-wrapper` / `.MuiDataGrid-root` / `.tabulator`，后者另校验 `.tabulator-tableHolder`）
+  - `gridRowsOf()` = `headerRowsOf()` 表头行 + `bodyRowsOf()` 数据行：多分区组件（el-table-v2 left/main/right、AG Grid pinned/center）表头行按行号对齐拼接、数据行按视觉序 zip；行节点复用组件（AG Grid / MUI X）DOM 序非视觉序，先经 `rowsSortedByRowIndex()` 按 `aria-rowindex` 数值升序（全部行带该属性才排序，部分缺失保持 DOM 序）
+  - `gridScrollEls()`：el-table-v2 多分区各返回一个（联动 scrollTop），其余单滚动容器
 
 - **提取**（table.js `getRows()`）：兼容 thead 直接嵌 th（无 tr）；过滤 virtual-spacer 占位行、`display:none` 隐藏行；网格表格（v2.2 适配器命中）走 `gridRowsOf()`，普通 table / 分体结构走原路径
 
-- **单元格四通道**（cell.js `openBatch()` 批量两阶段）：merged（控件替换为实时值后的完整文本，默认导出，v1.2 行为不变）/ ctrl（控件实时值**数组**，按 DOM 顺序逐个保留、空值占位不串位，供 control 拆分每控件一列）/ text（移除命中控件后的页面文本）/ blocks（按换行切分的视觉文本块）。归一化：视觉分离的文本块（换行/连续空格/nbsp）压为单空格。控件值经 `controlValue()` 三层判定后**从原元素读实时值**（cloneNode 丢属性设值）替换克隆中的控件再离屏渲染取文本；未命中候选由 innerText 兜底；离屏容器**不能加 `visibility:hidden`**（innerText 排除不可见文本）。性能（v1.8）：逐格离屏挂载每格 2-3 次强制回流，万格表格上万次 reflow；批量两阶段（prepare 全表克隆 → resolve 一次挂载 + 两轮集中读取，写读分组）把整表回流降到常数 \~3 次，普通表（extractTable）与虚拟采集窗口（takeWindow）均受益
+- **单元格四通道**（cell.js `openBatch()` 批量两阶段）
+  - merged：控件替换为实时值后的完整文本（默认导出，v1.2 行为不变）
+  - ctrl：控件实时值**数组**，按 DOM 顺序逐个保留、空值占位不串位，供 control 拆分每控件一列
+  - text：移除命中控件后的页面文本；blocks：按换行切分的视觉文本块
+  - 归一化：视觉分离的文本块（换行/连续空格/nbsp）压为单空格
+  - 控件值经 `controlValue()` 三层判定后**从原元素读实时值**（cloneNode 丢属性设值）替换克隆中的控件再离屏渲染取文本；未命中候选由 innerText 兜底；离屏容器**不能加 `visibility:hidden`**（innerText 排除不可见文本）
+  - 性能（v1.8）：逐格离屏挂载每格 2-3 次强制回流，万格表格上万次 reflow；批量两阶段（prepare 全表克隆 → resolve 一次挂载 + 两轮集中读取，写读分组）把整表回流降到常数 \~3 次，普通表（extractTable）与虚拟采集窗口（takeWindow）均受益
 
 - **合并单元格**（table.js `extractTable()`）：rowspan/colspan 展开成网格（每格一次存四通道结果）+ 生成 SheetJS `!merges`，结尾按通道转置产出同形状 aoa/ctrl/text/blocks
 
-- **列拆分**（split.js `applyColumnSplits()` 纯函数 + panel.js 面板）：control 模式**每控件各成一列**（`ctrlCountOf()` 取数据行最大控件数，列名 `ctrlColNames()` 为「原名\_控件」单控件 / 「原名\_控件1..N」多控件，末尾追加「原名\_文本」；控件数不足补空）+ block 按 blocks 通道拆（行内空格不拆）+ delimiter 按分隔符拆段（段数上限并入末段）。block/delimiter 共用「最大段数对齐 + 原名+序号命名」骨架，段值与列名经 `splitSegments()`/`splitColName()` 统一供导出与预览（预览即所得）；多规则按目标列**从右到左**应用；原列保留、新列追加其后；含 merges 或规则解析不到时原样返回（零回归 + 二次防御）。面板交互（智能预填、全列预览、硬校验）见 [product.md](product.md)「列设置面板」
+- **列拆分**（split.js `applyColumnSplits()` 纯函数 + panel.js 面板）
+  - control 模式**每控件各成一列**（`ctrlCountOf()` 取数据行最大控件数，列名 `ctrlColNames()` 为「原名\_控件」单控件 / 「原名\_控件1..N」多控件，末尾追加「原名\_文本」；控件数不足补空）
+  - block 按 blocks 通道拆（行内空格不拆）；delimiter 按分隔符拆段（段数上限并入末段）
+  - block/delimiter 共用「最大段数对齐 + 原名+序号命名」骨架，段值与列名经 `splitSegments()`/`splitColName()` 统一供导出与预览（预览即所得）
+  - 多规则按目标列**从右到左**应用；原列保留、新列追加其后；含 merges 或规则解析不到时原样返回（零回归 + 二次防御）
+  - 面板交互（智能预填、全列预览、硬校验）见 [product.md](product.md)「列设置面板」
 
-- **导出列筛选**（split.js `colKeys()`/`columnLayout()`/`filterColumns()` + panel.js 面板）：列标识 `colKeys()` 与拆分规则 `resolveRuleCol()` 互逆（唯一非空表头文本 → 文本，否则列序号），拆分新列标识 `key#段号`。`columnLayout()` 模拟 `applyColumnSplits()` 的短路条件与段数计算，产出「输出列号 → 标识」映射；`filterColumns()` 按排除集过滤列。导出链路 `applyColumnSplits → columnLayout → filterColumns`，列号严格对齐（algo-check.cjs 端到端回归）。排除集与规则同存会话内存 Map（无记录 = 全列导出零回归）。含 merges 表跳过筛选（`!merges` 列号基于原始 aoa，过滤会错位；面板同步禁用）。v2.8 列顺序：`reorderColumns(aoa, layout, excluded, order)` 为管线最后一步（拆分 → 筛选 → 格式 → 重排）——按 colKey 排原列顺序、段列紧随原列（不可单独移动），`keep` 判定与 filterColumns 同算法、因入参 aoa 已过滤故按「过滤后位置」重排（无筛选时等价）；order 未命中的键静默忽略、其余按自然序补齐；顺序未变返回原引用（零回归）。含 merges 表面板禁用，`buildAoa()` 亦跳过
+- **导出列筛选**（split.js `colKeys()`/`columnLayout()`/`filterColumns()` + panel.js 面板）
+  - 列标识 `colKeys()` 与拆分规则 `resolveRuleCol()` 互逆（唯一非空表头文本 → 文本，否则列序号），拆分新列标识 `key#段号`
+  - `columnLayout()` 模拟 `applyColumnSplits()` 的短路条件与段数计算，产出「输出列号 → 标识」映射；`filterColumns()` 按排除集过滤列
+  - 导出链路 `applyColumnSplits → columnLayout → filterColumns`，列号严格对齐（algo-check.cjs 端到端回归）；排除集与规则同存会话内存 Map（无记录 = 全列导出零回归）
+  - 含 merges 表跳过筛选（`!merges` 列号基于原始 aoa，过滤会错位；面板同步禁用）
+  - v2.8 列顺序：`reorderColumns(aoa, layout, excluded, order)` 为管线最后一步（拆分 → 筛选 → 格式 → 重排）——按 colKey 排原列顺序、段列紧随原列（不可单独移动），`keep` 判定与 filterColumns 同算法、因入参 aoa 已过滤故按「过滤后位置」重排（无筛选时等价）；order 未命中的键静默忽略、其余按自然序补齐；顺序未变返回原引用（零回归）；含 merges 表面板禁用，`buildAoa()` 亦跳过
 
-- **列格式**（split.js `toNumValue()`/`formatColumns()`/`applyColFormats()` + panel.js 面板）：SheetJS `aoa_to_sheet` 对字符串一律写文本（实测 t:'s'），默认 = 全列文本（订单号/产品ID 前导零与长数字不变形，零回归）；「数字」= 导出前数据行数值化（`toNumValue()` 剥千分位逗号/空白后 Number 解析，空值/解析失败/非有限数保持原文本），表头行不动。格式以原列（colKey）为基准，该列及拆分新列（同源值）一并生效；`formatColumns()` 复用 `filterColumns` 保留判定把格式映射到筛选后输出列号。含 merges 表也可用（layout 给出原列映射；面板仅禁用拆分/筛选）
+- **列格式**（split.js `toNumValue()`/`formatColumns()`/`applyColFormats()` + panel.js 面板）
+  - SheetJS `aoa_to_sheet` 对字符串一律写文本（实测 t:'s'），默认 = 全列文本（订单号/产品ID 前导零与长数字不变形，零回归）
+  - 「数字」= 导出前数据行数值化（`toNumValue()` 剥千分位逗号/空白后 Number 解析，空值/解析失败/非有限数保持原文本），表头行不动
+  - 格式以原列（colKey）为基准，该列及拆分新列（同源值）一并生效；`formatColumns()` 复用 `filterColumns` 保留判定把格式映射到筛选后输出列号；含 merges 表也可用（layout 给出原列映射；面板仅禁用拆分/筛选）
 
-- **持久化**（persist.js）：拆分规则、列筛选、列格式与列顺序经 `chrome.storage.local` 跨会话保留，定位键 = 页面键（origin+pathname，忽略 query/hash）+ 表指纹（`tableKeyOf()` 取逻辑根内首个 table **表头**单元格文本归一化拼接，兼容 thead 直接嵌 th 无 tr 的 vxe-table 写法——`table.rows` 不含这类 th，取 tbody 首行在虚拟滚动下不稳定，指纹绝不落数据行；分体取表头表；v2.1 网格表格无 table，v2.2 经 `gridHeaderCellsOf()` 取组件表头格拼接（如 el-table-v2 取 `.el-table-v2__dynamic-header-row`），分区间 DOM 序固定故稳定）。数据流：会话内存 Map 是唯一会话真相，`addSelected()` 按指纹恢复（`getSaved()`），面板保存回写 Map 并 `save()` 异步落盘（失败降级当次会话）；`doExport()`/面板入口 `await ready()` 兜底注入初期加载竞态。取消选中/退出只清内存不清存储（重选自动恢复）；保存空配置 = 删记录。表头变更 → 指纹不匹配 → 不恢复（列定位另有 `resolveRuleCol` 静默跳过）。单页条目上限 50，超出按最新 `updatedAt` LRU 淘汰；损坏记录经 `sanitizeRecord()` 剔除自愈；扩展上下文失效读写失败自动降级。v2.8 跨设备同步：local 为真相源（唯一写入口 `scheduleWrite()`），写盘时 `writePage()` 镜像到 `chrome.storage.sync`（独立 20 页 LRU + 单项 ≤7KB 预检，超限只跳过镜像，不影响 local）；注入时 `loadRecords()` 依次读 local 与 sync，按表逐条取 `updatedAt` 更新者合并（相同则先读的 local 胜出）；sync 不可用（未登录/未授权）链路不动，行为与 v1.7 一致
+- **持久化**（persist.js）
+  - 范围：拆分规则、列筛选、列格式与列顺序经 `chrome.storage.local` 跨会话保留（用户向行为见 [product.md](product.md)「列设置面板」）
+  - 定位键 = 页面键 + 表指纹：
+    - 页面键（`pageKeyOf()`）= origin+pathname，忽略 query/hash
+    - 表指纹（`tableKeyOf()`）= 逻辑根内首个 table **表头**单元格文本归一化拼接——兼容 thead 直接嵌 th 无 tr 的 vxe-table 写法（`table.rows` 不含这类 th，取 tbody 首行在虚拟滚动下不稳定，指纹绝不落数据行）；分体取表头表；v2.1 网格表格无 table，v2.2 经 `gridHeaderCellsOf()` 取组件表头格拼接（如 el-table-v2 取 `.el-table-v2__dynamic-header-row`），分区间 DOM 序固定故稳定
+  - 数据流：会话内存 Map 是唯一会话真相，`addSelected()` 按指纹恢复（`getSaved()`），面板保存回写 Map 并 `save()` 异步落盘（失败降级当次会话）；`doExport()`/面板入口 `await ready()` 兜底注入初期加载竞态；取消选中/退出只清内存不清存储（重选自动恢复）；保存空配置 = 删记录
+  - 表头变更 → 指纹不匹配 → 不恢复（列定位另有 `resolveRuleCol` 静默跳过）
+  - 淘汰与自愈：单页条目上限 50，超出按最新 `updatedAt` LRU 淘汰；损坏记录经 `sanitizeRecord()` 剔除自愈；扩展上下文失效读写失败自动降级
+  - 跨设备同步（v2.8）：local 为真相源（唯一写入口 `scheduleWrite()`），写盘时 `writePage()` 镜像到 `chrome.storage.sync`（独立 20 页 LRU + 单项 ≤7KB 预检，超限只跳过镜像，不影响 local）；注入时 `loadRecords()` 依次读 local 与 sync，按表逐条取 `updatedAt` 更新者合并（相同则先读的 local 胜出）；sync 不可用（未登录/未授权）链路不动，行为与 v1.7 一致
 
-- **虚拟滚动**（virtual.js）：识别（v2.1 网格表格恒虚拟（只渲染可见窗口行）/ 类名含 virtual 的占位元素 / 带高度空 tr，宁可误报——误报时采集无损）→ `collectVirtual()`：回顶 → 按视口 80% 步长下滚 → 每窗口先比对**行 DOM 引用**（同批节点 = 无新行，补等 250ms 重试），再用后缀/前缀重叠合并衔接数据行（表头剥离只留一份，行以 { merged, ctrl, text, blocks } 对象累积）。采集期间锁交互，`genToken` 防退出后回调写入；v2.0「停止采集」复用同一令牌（`stopCollect()` 仅 genToken++，collectVirtual 下一检查点返回 null 且 finally 还原滚动，快照不写入、表格不选中）。快照 `{ rows, ctrl, text, blocks, headerRows }` 与 extractTable 同构。性能（v1.8）：分体组整个采集期解析一次逐窗复用（节点失联时重解析），窗内取值走 openBatch 批量两阶段，行签名数组随 data 同步增长。v2.1：网格表格滚动容器 = `gridScrollEls()` 各分区滚动 window（固定列多分区联动 scrollTop，否则 left/right 窗口与 main 错位丢行）
+- **虚拟滚动**（virtual.js）
+  - 识别：v2.1 起网格表格恒虚拟（只渲染可见窗口行）/ 类名含 virtual 的占位元素 / 带高度空 tr——宁可误报（误报时采集无损）
+  - 采集 `collectVirtual()`：回顶 → 按视口 80% 步长下滚 → 每窗口先比对**行 DOM 引用**（同批节点 = 无新行，补等 250ms 重试），再用后缀/前缀重叠合并衔接数据行（表头剥离只留一份，行以 { merged, ctrl, text, blocks } 对象累积）
+  - 窗口衔接（v2.9 起「元素身份优先、内容匹配兜底」）：`refOverlapLen()` 按窗口头部与上窗尾部的 DOM 行元素对齐数求重叠；`refTopsMatch()` 校验引用重叠的 k 行内容与已累积尾部一致，不符视为误判、回落内容匹配；「整窗同一批节点」不直接短路为零新增，交内容匹配判定（内容也相同 = 零新增，内容变了 = 按内容求重叠）
+  - 采集期间锁交互，`genToken` 防退出后回调写入；v2.0「停止采集」复用同一令牌（`stopCollect()` 仅 genToken++，collectVirtual 下一检查点返回 null 且 finally 还原滚动，快照不写入、表格不选中）
+  - 快照 `{ rows, ctrl, text, blocks, headerRows }` 与 extractTable 同构
+  - 性能（v1.8）：分体组整个采集期解析一次逐窗复用（节点失联时重解析），窗内取值走 openBatch 批量两阶段，行签名数组随 data 同步增长
+  - v2.1：网格表格滚动容器 = `gridScrollEls()` 各分区滚动 window（固定列多分区联动 scrollTop，否则 left/right 窗口与 main 错位丢行）
 
-- **分页翻页采集**（pagination.js，v2.5）：`collectPaged()` 把虚拟采集的「窗口」换成「页」——逐页 `extractTable` 后数据行经 `overlapLen` 重叠合并（页间通常无重叠 k=0 直接拼接；渲染未完成时窗口仍为上一页内容，重叠自然消重），表头只留第一页并逐页经 `tableKeyOf` 指纹校验。起点归一：不在第一页先回第一页再采集（v2.14 起优先直跳「1」页项、超过 10 页不归一，见节末）。停止四重兜底：下一页 disabled（适配器结构态）/ 连续 2 页无新行（手动按钮无 disabled 态时的行为判定）/ 500 页硬上限 / maxPages 页数上限（0 = 全部页）；结束后 prev 可用时逐页回退到起始页。取消分阶段：起点归一中取消返回 null（尚无数据）；开始后取消返回已采页的部分结果（note 注明「已停止采集，保留已采集的 N 页」，手动中止不丢已采页；退出选择模式由 main 侧 `!active` 短路整体丢弃）。翻页按钮编程式点击经 `isPagingClick()` 豁免采集期拦截（分页器常为 a\[href]，否则 v2.4 链接拦截会使翻页永不发生）。快照与 collectVirtual 同构（不含 merges——跨页拼接的合并行号无法稳定对齐），入 main.js `snapshots` 供导出与列设置取样；翻页中表格根被整段重建时经指纹重解析找回新根（`resolveRoot`），选中随之迁移。**v2.12 翻页等待改「页码变化 + 数据落地」双判定**：组件分页器（受控模式）点击后页码先更新、表体数据后到（异步拉取几百 ms~数秒），旧版点击后固定 sleep 350+500ms 就取数，慢站点连续两页取到的还是旧页 → 误判「连续翻页无新数据」停止（已知问题：51 页站点采到第 3 页只剩 40 行）。适配器增 `current(root)` 读当前页码（el 取 `.el-pager li.active`，ant 取 `.ant-pagination-item-active` 的 title；0 = 读不到）；点击后轮询（`waitPageData`，单页总预算 6s、250ms 步进）：页码不变超 1.2s = 点击被页面丢弃（加载中守卫/限流）→ 重新查找按钮重点（单页至多 3 次），新行落地即返回；取数不等页码（数据先于页码落地的站点也能采到，重叠合并幂等）。起点归一/回退每击等「页码真的动了 + 表体内容签名真的换了」（`waitTurn`，3s 预算）再点下一击——只等页码会被守卫吞点击、归一后取到旧页数据会污染整份采集；读不到页码（手动分页器/vxe）退化为固定 200ms 且不重点（无信号不猜，重点会跳页）。表头指纹校验仅在双方都读得到且不同时才中止（重建瞬时表头未渲染 = 读不到，不误判）；表格瞬时失联容错 1s 再判 tableLost。**v2.13 页间停顿**：采集面板「翻页间隔」（默认 0.5s，留空 = 默认，上限 600s）经 `collectPaged` 第六参 `pageSleep`（毫秒；undefined/负数/NaN 按 500ms）传入；主循环中「下一页」按钮可用且确定要点击前停顿一次（末页/达页数上限不浪费间隔），`pagePause()` 按 ≤100ms 分块等待——「停止采集」不必等满整个间隔，停顿中被取消返回已采页部分结果（reason `stopped`）；起点归一/回退与重点（reclick）不停顿（那是补救路径，放慢反而更容易被守卫吞）。**v2.14 起点归一升级**：① 直跳首页——统一 pager 接口增 `first(root)`（pageSel 内找文本/title=1 的页码项；无 pageSel 的 vxe/自建返回 null），归一时优先一次点击回第一页（`waitTurn` 等「页码+表体内容」双判定确认），直跳失败（守卫吞点击/首页项无效/cur0 已读数为 1 的不规范分页器）落回逐页回点；② 距第一页超过 `NORM_MAX=10` 页不自动归一——`collectPaged` 直接返回 `{ aborted:'tooFar', page }`（不采集、不写快照、next/prev/first 均不点击），由 main 侧右侧提醒框请用户手动回第一页后再点「开始采集」；③ 第七参 `onNorm(page)` 回调驱动 main 侧右侧提醒框（`renderSide()` 按 sideKind/sidePage 状态渲染，语言切换就地重取词）：归一开始与每次翻页后回传当前页（0 = 读不到页码；读数已是第 1 页时不回调——随即直断，避免提醒框瞬间闪），归一结束/放弃传 null 收框；④ 翻过页后等表体真正落地再取第一页（`waitLanded`，与主循环 `waitPageData` 同款 6s 预算、250ms 步进、整表重建按指纹重解析）：`waitTurn` 3s 预算内没落地的超慢站点（页码已回 1 但表体还是旧页），直接 `extractTable` 会把旧页行当第一页写进快照（页间重叠合并只去重相邻页，跨页旧数据会成重复行）；没翻过页不等（cur0 读数已是 1/prev 直断）、预算内没换不阻塞（按当前内容继续，重叠合并兜底）、取消即返回 null；tooFar 分支不写快照直接 return（按钮态由 finally 还原），其余路径（含停止/失败）统一收框
+- **分页翻页采集**（pagination.js，v2.5）
+  - 主流程：`collectPaged()` 把虚拟采集的「窗口」换成「页」——逐页 `extractTable` 后数据行经 `overlapLen` 重叠合并（页间通常无重叠 k=0 直接拼接；渲染未完成时窗口仍为上一页内容，重叠自然消重），表头只留第一页并逐页经 `tableKeyOf` 指纹校验；快照与 collectVirtual 同构（不含 merges——跨页拼接的合并行号无法稳定对齐），入 main.js `snapshots` 供导出与列设置取样
+  - 分页定位：`PAGER_ADAPTERS` 注册表三适配器（el-pagination / ant-pagination / vxe-pager），`detectPager()` 自表格根向上找分页器；`manualPager()` 用户指定按钮定位器（`locatorOf` / `resolveLocator` 跨页重解析），`pagerByLocator()` 解析不到返回 null，由主 UI 回落「指定翻页按钮」子模式
+  - 适配器钩子：`next`/`prev` 翻页按钮；`current(root)` 读当前页码（el 取 `.el-pager li.active`，ant 取 `.ant-pagination-item-active` 的 title；0 = 读不到）；`pageSel` 页码项选择器（末页号即总页数）+ `total(root)`（0 = 未知）；`first(root)`（pageSel 内找文本/title=1 的页码项；无 pageSel 的 vxe/自建返回 null）
+  - 翻页按钮编程式点击经 `isPagingClick()` 豁免采集期拦截（分页器常为 a\[href]，否则 v2.4 链接拦截会使翻页永不发生）
+  - 表格根重建：翻页中表格根被整段重建时经指纹重解析找回新根（`resolveRoot`），选中随之迁移
+  - 停止四重兜底：下一页 disabled（适配器结构态）/ 连续 2 页无新行（手动按钮无 disabled 态时的行为判定）/ 500 页硬上限 / maxPages 页数上限（0 = 全部页）；`collectPaged()` 结果含 `reason`（noNew / tableLost / headerChanged / stopped / maxPages / 空）与 `pages`；结束后 prev 可用时逐页回退到起始页
+  - 取消分阶段：起点归一中取消返回 null（尚无数据）；开始后取消返回已采页的部分结果（note 注明「已停止采集，保留已采集的 N 页」，手动中止不丢已采页；退出选择模式由 main 侧 `!active` 短路整体丢弃）
+  - 翻页等待（v2.12 起「页码变化 + 数据落地」双判定）：组件分页器（受控模式）点击后页码先更新、表体数据后到（异步拉取几百 ms~数秒），旧版点击后固定 sleep 350+500ms 就取数，慢站点连续两页取到的还是旧页 → 误判「连续翻页无新数据」停止（已知问题：51 页站点采到第 3 页只剩 40 行）。适配如下：
+    - 主循环点击后轮询 `waitPageData`：单页总预算 6s、250ms 步进；页码不变超 1.2s = 点击被页面丢弃（加载中守卫/限流）→ 重新查找按钮重点（单页至多 3 次），新行落地即返回；取数不等页码（数据先于页码落地的站点也能采到，重叠合并幂等）
+    - 起点归一/回退每击等「页码真的动了 + 表体内容签名真的换了」（`waitTurn`，3s 预算）再点下一击——只等页码会被守卫吞点击、归一后取到旧页数据会污染整份采集；签名 = 行数 + 首末行文本采样（替代早期整根 textContent——万行表在 150~250ms 轮询里反复全量序列化过重，无行元素的网格未渲染态回落文本长度）
+    - 读不到页码（手动分页器/vxe）退化为固定 200ms 且不重点（无信号不猜，重点会跳页）
+    - 表头指纹校验仅在双方都读得到且不同时才中止（重建瞬时表头未渲染 = 读不到，不误判）；表格瞬时失联容错 1s 再判 tableLost；提前停止原因增 noteNoTurn（翻页按钮点击后页面未变化）
+  - 页间停顿（v2.13）：采集面板「翻页间隔」（默认 0.5s，留空 = 默认，上限 600s）经 `collectPaged` 第六参 `pageSleep`（毫秒；undefined/负数/NaN 按 500ms）传入；主循环中「下一页」按钮可用且确定要点击前停顿一次（末页/达页数上限不浪费间隔），`pagePause()` 按 ≤100ms 分块等待——「停止采集」不必等满整个间隔，停顿中被取消返回已采页部分结果（reason `stopped`）；起点归一/回退与重点（reclick）不停顿（那是补救路径，放慢反而更容易被守卫吞）
+  - 起点归一（v2.14 升级）：
+    - ① 直跳首页——统一 pager 接口增 `first(root)`（pageSel 内找文本/title=1 的页码项），归一时优先一次点击回第一页（`waitTurn` 等「页码+表体内容」双判定确认），直跳失败（守卫吞点击/首页项无效/cur0 已读数为 1 的不规范分页器）落回逐页回点
+    - ② 距第一页超过 `NORM_MAX=10` 页不自动归一——`collectPaged` 直接返回 `{ aborted:'tooFar', page }`（不采集、不写快照、next/prev/first 均不点击），由 main 侧右侧提醒框请用户手动回第一页后再点「开始采集」
+    - ③ 第七参 `onNorm(page)` 回调驱动 main 侧右侧提醒框（`renderSide()` 按 sideKind/sidePage 状态渲染，语言切换就地重取词）：归一开始与每次翻页后回传当前页（0 = 读不到页码；读数已是第 1 页时不回调——随即直断，避免提醒框瞬间闪），归一结束/放弃传 null 收框
+    - ④ 翻过页后等表体真正落地再取第一页（`waitLanded`，与主循环 `waitPageData` 同款 6s 预算、250ms 步进、整表重建按指纹重解析）：`waitTurn` 3s 预算内没落地的超慢站点（页码已回 1 但表体还是旧页），直接 `extractTable` 会把旧页行当第一页写进快照（页间重叠合并只去重相邻页，跨页旧数据会成重复行）；没翻过页不等（cur0 读数已是 1/prev 直断）、预算内没换不阻塞（按当前内容继续，重叠合并兜底）、取消即返回 null；tooFar 分支不写快照直接 return（按钮态由 finally 还原），其余路径（含停止/失败）统一收框
 
-- **导出**（main.js + format.js）：导出按钮右侧分体下拉（Excel/CSV/JSON/Markdown/HTML；v2.10 起与导出按钮合并为一个控件）。统一管线：逐表 `buildAoa()`（拆分/筛选/格式已应用）组装 { name, aoa, headerRows, merges } → 生成文件列表 → 逐文件 base64 → 优先 `chrome.runtime.sendMessage` 走后台下载（携带 mime），失败回退页面内 `blob:` 链接；xlsx 多表 → 多 Sheet（caption/aria-label/id 命名，31 字符截断去重）+ `!cols` 自适应列宽（`autoColWidths()`）+ `!merges`。各格式序列化规则与列设置行为见 [product.md](product.md)「导出结果」。性能（v1.8）：逐表间让出主线程（MessageChannel，不受后台标签页定时器节流影响）；base64 用 FileReader 原生编码；`exporting` 重入标志防 yield 间隙双击。v2.0：导出中按钮「导出中…」+ hint 文案；多文件下载 toast 进度（句柄复用同一条）；成功后 `finish()` 保留选择不自动退出，toast 提供「退出」动作。v2.7 剪贴板：下拉末两项（`copy-tsv`/`copy-md`）走同一取数与 `buildAoa` 管线，在「生成文件」前分流——TSV 逐表 `toTsv(tb.aoa)` 空行拼接、Markdown 直接 `toMarkdown(tables)`，经 `writeClipboard()`（Clipboard API 优先 → `execCommand` 兜底 → 双失败常驻错误 toast）写剪贴板并 toast 行数；不下载、不动选择。v2.8 可中止：「取消」在 `exporting` 期变「停止导出」（`abortExport()` 仅 `exportToken++`），`doExport()` 各 yield 检查点比对 `gen !== exportToken` 即静默返回（已落盘文件保留、进度 toast 关闭），`finally` 中 `aborted && active` 补发「已停止导出（已下载 N 个文件）」（`copied` 排除剪贴板重复提示）；Esc 仍整体退出
+- **导出**（main.js + format.js）
+  - 导出按钮右侧分体下拉（Excel/CSV/JSON/Markdown/HTML；v2.10 起与导出按钮合并为一个控件，v2.11 起为自绘菜单）
+  - 统一管线：逐表 `buildAoa()`（拆分/筛选/格式已应用）组装 { name, aoa, headerRows, merges } → 生成文件列表 → 逐文件 base64 → 优先 `chrome.runtime.sendMessage` 走后台下载（携带 mime），失败回退页面内 `blob:` 链接
+  - xlsx 多表 → 多 Sheet（caption/aria-label/id 命名，31 字符截断去重）+ `!cols` 自适应列宽（`autoColWidths()`）+ `!merges`
+  - 各格式序列化规则与列设置行为见 [product.md](product.md)「导出结果」
+  - 性能（v1.8）：逐表间让出主线程（MessageChannel，不受后台标签页定时器节流影响）；base64 用 FileReader 原生编码；`exporting` 重入标志防 yield 间隙双击
+  - v2.0：导出中按钮「导出中…」+ hint 文案；多文件下载 toast 进度（句柄复用同一条）；成功后 `finish()` 保留选择不自动退出，toast 提供「退出」动作
+  - v2.7 剪贴板：下拉末两项（`copy-tsv`/`copy-md`）走同一取数与 `buildAoa` 管线，在「生成文件」前分流——TSV 逐表 `toTsv(tb.aoa)` 空行拼接、Markdown 直接 `toMarkdown(tables)`，经 `writeClipboard()`（Clipboard API 优先 → `execCommand` 兜底 → 双失败常驻错误 toast）写剪贴板并 toast 行数；不下载、不动选择
+  - v2.8 可中止：「取消」在 `exporting` 期变「停止导出」（`abortExport()` 仅 `exportToken++`），`doExport()` 各 yield 检查点比对 `gen !== exportToken` 即静默返回（已落盘文件保留、进度 toast 关闭），`finally` 中 `aborted && active` 补发「已停止导出（已下载 N 个文件）」（`copied` 排除剪贴板重复提示）；Esc 仍整体退出
 
 ## 已知限制（开发侧）
 

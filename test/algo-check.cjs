@@ -26,7 +26,7 @@ const {
   resolveRuleCol, colKeys, columnLayout, keepColIdx, filterColumns, reorderColumns, applyColumnSplits,
   toNumValue, formatColumns, applyColFormats, cellWidth, autoColWidths
 } = splitMod;
-const { pairSplitGroup, makeSheetName, gridHeaderCellsOf, rowsSortedByRowIndex,
+const { pairSplitGroup, makeSheetName, gridHeaderCellsOf, rowsSortedByRowIndex, columnsAligned,
   adapters: GRID_ADAPTERS, GRID_ROOT_SELECTOR } = loadModule('table.js', 'table');
 // persist 的 tableKeyOf 经 ns.table.gridHeaderCellsOf 分发（浏览器由注入序保证
 // table.js 先行；此处以 preNs 注入同一实现，离线等价）
@@ -1090,18 +1090,18 @@ check('模块清单：common FILES 与 service-worker 注入顺序一致（依�
 // service-worker/实际文件一致即等价于旧版逐 harness 比对，任何一份缺文件仍 FAIL
 const harnessFiles = fs.readdirSync(__dirname).filter(f => /^e2e-harness(-\w+)*\.js$/.test(f));
 const harnessSrcs = new Map(harnessFiles.map(f => [f, fs.readFileSync(path.join(__dirname, f), 'utf8')]));
-check('模块清单：e2e-harness 数量齐备（九个页面 harness）', harnessFiles.length, 9);
-check('模块清单：九个 harness 均经 __h2xT 加载守卫接入 common',
+check('模块清单：e2e-harness 数量齐备（十个页面 harness）', harnessFiles.length, 10);
+check('模块清单：十个 harness 均经 __h2xT 加载守卫接入 common',
   harnessFiles.filter(f => !harnessSrcs.get(f).includes('__h2xT')), []);
-check('模块清单：九个 harness 均以 const FILES = T.FILES 引用 common 清单',
+check('模块清单：十个 harness 均以 const FILES = T.FILES 引用 common 清单',
   harnessFiles.filter(f => !/const FILES = T\.FILES;/.test(harnessSrcs.get(f))), []);
 check('模块清单：注入顺序首尾正确（entry 先行守卫 / main 殿后建 UI）',
   [swModules[0], swModules[swModules.length - 1]], ['entry', 'main']);
 
 // 44. 网格适配器注册表（table.js v2.2：多组件 div 网格表格统一分发）
-check('注册表：四适配器齐备且命名稳定（增删组件须同步本用例）',
+check('注册表：五适配器齐备且命名稳定（增删组件须同步本用例）',
   GRID_ADAPTERS.map(a => a.name),
-  ['el-table-v2', 'ag-grid', 'mui-data-grid', 'tabulator']);
+  ['el-table-v2', 'ag-grid', 'mui-data-grid', 'tabulator', 'todo-grid']);
 check('注册表：每适配器五钩子齐备（rootSel/isRoot/headerRowsOf/bodyRowsOf/scrollElsOf/headerCellsOf）',
   GRID_ADAPTERS.map(a => [typeof a.rootSel, typeof a.isRoot, typeof a.headerRowsOf,
     typeof a.bodyRowsOf, typeof a.scrollElsOf, typeof a.headerCellsOf]),
@@ -1112,6 +1112,25 @@ check('注册表：GRID_ROOT_SELECTOR 由各 rootSel 组合（main.js hasTables 
   GRID_ROOT_SELECTOR, GRID_ADAPTERS.map(a => a.rootSel).join(', '));
 check('注册表：rootSel 均为单类名选择器（closest/querySelectorAll 可用）',
   GRID_ADAPTERS.every(a => /^\.[\w-]+$/.test(a.rootSel)), true);
+
+// 44b. 通用 div 网格兜底（v2.16）：视觉列对齐纯函数 + virtual 标记
+const rect = (left, width) => ({ left: left, width: width });
+check('columnsAligned：列边界/宽度一致判对齐',
+  columnsAligned([rect(0, 100), rect(100, 120), rect(220, 80)],
+    [rect(1, 100), rect(100, 120), rect(220, 80)]), true);
+check('columnsAligned：左边界超 8px / 宽度超 10% 判不对齐',
+  columnsAligned([rect(0, 100), rect(100, 100)], [rect(20, 100), rect(100, 140)]), false);
+check('columnsAligned：≥75% 同列容忍（4 列 3 列对齐）',
+  columnsAligned([rect(0, 80), rect(80, 80), rect(160, 80), rect(240, 80)],
+    [rect(0, 80), rect(80, 80), rect(160, 80), rect(240, 200)]), true);
+check('columnsAligned：列数不足 2 / 空数组返回 false',
+  [columnsAligned([rect(0, 100)], [rect(0, 100)]), columnsAligned([], [])], [false, false]);
+check('columnsAligned：宽度容差下限 12px（窄列）',
+  columnsAligned([rect(0, 20), rect(20, 20)], [rect(0, 30), rect(20, 30)]), true);
+check('适配器 virtual 标记：todo-grid 声明非虚拟，其余按虚拟',
+  [GRID_ADAPTERS.find(a => a.name === 'todo-grid').virtual,
+    GRID_ADAPTERS.filter(a => a.name !== 'todo-grid').every(a => a.virtual === undefined)],
+  [false, true]);
 
 // 45. 行序排序纯函数（rowsSortedByRowIndex：AG Grid / MUI 行节点复用，DOM 序非视觉序）
 const rowStub = (idx) => ({

@@ -15,7 +15,9 @@
    *  参数可为普通 table、分体包装容器或网格表格根。宁可误报——误报时采集流程无损
    *  （每窗口都返回全量行，重叠合并后不变） */
   function isVirtualTable(el) {
-    if (ns.table.isGridTable(el)) return true; // el-table-v2：只渲染可见窗口行，恒走滚动采集
+    // 网格表格：适配器声明 virtual:false（分页网格行全量渲染，如多客 todo 网格）
+    // 走普通取数；其余网格（含通用兜底）按虚拟处理
+    if (ns.table.isGridTable(el) && ns.table.gridIsVirtual(el)) return true;
     if (el.querySelector('[class*="virtual"]')) return true;
     const group = ns.table.splitGroupOf(el);
     const tables = group ? [group.headerTable, group.bodyTable] : (el.tBodies ? [el] : []);

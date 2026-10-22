@@ -47,6 +47,7 @@ try {
     @{ name = 'aggrid';    url = "$base/test/aggrid-fixture.html#e2e=1" },
     @{ name = 'mui';       url = "$base/test/mui-fixture.html#e2e=1" },
     @{ name = 'tabulator'; url = "$base/test/tabulator-fixture.html#e2e=1" },
+    @{ name = 'todo';      url = "$base/test/todo-fixture.html#e2e=1" },
     @{ name = 'paged-el';     url = "$base/test/pagination-el-fixture.html#e2e=1" },
     @{ name = 'paged-manual'; url = "$base/test/pagination-manual-fixture.html#e2e=1" }
   )
@@ -125,13 +126,13 @@ try {
     return @{ page = $pg; ok = $ok; complete = $complete; summary = $summary; fails = $fails; ms = $ms }
   }
 
-  # 首轮：九页并行启动后依次收割（各自独立 headless 进程 + 独立临时 profile）
+  # 首轮：十页并行启动后依次收割（各自独立 headless 进程 + 独立临时 profile）
   $runners = @()
   foreach ($pg in $pages) { $runners += Start-PageRun $pg }
   $results = @()
   foreach ($r in $runners) { $results += Read-PageResult $r }
 
-  # 补跑：九页并行偶发资源竞争致单页在虚拟时间预算内未跑完（本例为已踩过的抖动，
+  # 补跑：十页并行偶发资源竞争致单页在虚拟时间预算内未跑完（本例为已踩过的抖动，
   # 非代码问题）；仅对「未完成」页串行补跑一次，消除并行竞争
   $stuck = @($results | Where-Object { -not $_.complete })
   if ($stuck.Count -gt 0) {
@@ -142,7 +143,7 @@ try {
     }
   }
 
-  Write-Host "浏览器：$(Split-Path -Leaf $browser)，九页并行 headless 运行："
+  Write-Host "浏览器：$(Split-Path -Leaf $browser)，十页并行 headless 运行："
   foreach ($res in $results) {
     $mark = if ($res.ok) { 'PASS' } else { 'FAIL' }
     $color = if ($res.ok) { 'Green' } else { 'Red' }
@@ -150,8 +151,9 @@ try {
     foreach ($f in $res.fails) { Write-Host "      FAIL $f" -ForegroundColor Red }
     if (-not $res.ok) { $e2eFail++ }
   }
-  if ($e2eFail -eq 0) { Write-Host "`n全部通过：语法 + 算法 + E2E（fixture / virtual / tablev2 / antdv / aggrid / mui / tabulator / paged-el / paged-manual）" -ForegroundColor Green }
+  if ($e2eFail -eq 0) { Write-Host "`n全部通过：语法 + 算法 + E2E（fixture / virtual / tablev2 / antdv / aggrid / mui / tabulator / todo / paged-el / paged-manual）" -ForegroundColor Green }
 } finally {
   if ($srv -and -not $srv.HasExited) { taskkill /PID $srv.Id /T /F | Out-Null }
 }
 if ($e2eFail -gt 0) { exit 1 }
+

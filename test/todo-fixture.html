@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>多客 todo 网格 / 通用 div 网格测试页</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 40px auto; max-width: 980px; color: #333; }
+  h2 { border-left: 4px solid #2f9e6e; padding-left: 10px; font-size: 17px; }
+
+  /* 复刻多客客服工作台 todo 网格：div + flex 布局（无 <table>、无 role），
+   * 表头在滚动容器内粘性定位，每条记录 = 通栏摘要行 + 数据行，行全量渲染 */
+  .todo_grid { width: 760px; max-height: 250px; overflow-y: auto; border: 1px solid #dcdfe6; background: #fff; font-size: 13px; }
+  .todo_grid_inner { display: flex; flex-direction: column; }
+  .todo_grid_header { display: flex; position: sticky; top: 0; z-index: 2; background: #f4f5f7; }
+  .todo_grid_th, .todo_grid_td { box-sizing: border-box; padding: 0 8px; border-right: 1px solid #ebeef5; overflow: hidden; }
+  .todo_grid_th { height: 36px; line-height: 36px; font-weight: 600; }
+  .todo_grid_td { padding-top: 8px; padding-bottom: 8px; }
+  .todo_grid_th:nth-child(1), .todo_grid_td:nth-child(1) { width: 280px; }
+  .todo_grid_th:nth-child(2), .todo_grid_td:nth-child(2) { width: 120px; }
+  .todo_grid_th:nth-child(3), .todo_grid_td:nth-child(3) { width: 120px; }
+  .todo_grid_th:nth-child(4), .todo_grid_td:nth-child(4) { width: 110px; }
+  .todo_grid_th:nth-child(5), .todo_grid_td:nth-child(5) { width: 130px; }
+  .todo_grid_common_row { display: flex; gap: 16px; padding: 6px 8px; background: #fafafa; font-size: 12px; color: #666; }
+  .todo_grid_row { display: flex; }
+
+  /* 通用 div 网格（无组件特征类）：靠结构重复 + 表头列对齐识别 */
+  .gen-grid { width: 360px; border: 1px solid #dcdfe6; font-size: 13px; }
+  .gen-head, .gen-row { display: flex; }
+  .gen-head { background: #eef6ff; font-weight: 600; }
+  .gen-h, .gen-cell { box-sizing: border-box; width: 120px; padding: 6px 8px; border-right: 1px solid #ebeef5; }
+
+  /* 形似列表、无表头的负例：不应被识别为表格 */
+  .fake-list { width: 360px; border: 1px solid #eee; }
+  .fake-item { display: flex; justify-content: space-between; padding: 6px 8px; border-bottom: 1px solid #f2f2f2; }
+  .fake-name { color: #333; }
+  .fake-price { color: #999; }
+</style>
+</head>
+<body>
+<h1>多客 todo 网格 / 通用 div 网格测试页</h1>
+<p>上半部分复刻多客客服工作台退款订单列表：<code>.todo_grid</code> 为自绘 div 网格，
+表头 <code>.todo_grid_th</code>，每条记录为「通栏摘要行 + 数据行」（简化为 5 列）。
+走精确适配器识别（virtual:false），点选即取数、不触发滚动采集；摘要行导出为独立行，摘要落首列。</p>
+<p>下半部分为无组件特征类的通用 div 网格（<code>.gen-grid</code>），走通用兜底探测
+（结构重复 + 表头视觉列对齐）；最下方为无表头列表负例，不应被识别。</p>
+
+<h2>多客 todo 网格（3 条记录，导出 = 1 表头 + 6 行）</h2>
+<div class="todo_grid" id="todo">
+  <div class="todo_grid_inner">
+    <div class="todo_grid_header">
+      <div class="todo_grid_th todo_grid_sticky_first">商品信息</div>
+      <div class="todo_grid_th">付款/退款金额</div>
+      <div class="todo_grid_th">退款原因</div>
+      <div class="todo_grid_th">状态</div>
+      <div class="todo_grid_th todo_grid_sticky_last">时间</div>
+    </div>
+    <div class="todo_grid_record">
+      <div class="todo_grid_common_row">
+        <span>退货退款</span><span>退款单号:R-001</span><span>订单号:O-001</span><span>买家:alice</span><span>菲律宾</span><span>店铺A</span>
+      </div>
+      <div class="todo_grid_row">
+        <div class="todo_grid_td todo_grid_sticky_first">商品 A1 <div>x1</div></div>
+        <div class="todo_grid_td">100 PHP</div>
+        <div class="todo_grid_td">产品有缺陷</div>
+        <div class="todo_grid_td">待买家退货</div>
+        <div class="todo_grid_td">2026-10-01 10:00</div>
+      </div>
+    </div>
+    <div class="todo_grid_record">
+      <div class="todo_grid_common_row">
+        <span>仅退款</span><span>退款单号:R-002</span><span>订单号:O-002</span><span>买家:bob</span><span>泰国</span><span>店铺B</span>
+      </div>
+      <div class="todo_grid_row">
+        <div class="todo_grid_td todo_grid_sticky_first">商品 B2 <div>x2</div></div>
+        <div class="todo_grid_td">200 PHP</div>
+        <div class="todo_grid_td">产品与描述不符</div>
+        <div class="todo_grid_td">退款中</div>
+        <div class="todo_grid_td">2026-10-02 11:30</div>
+      </div>
+    </div>
+    <div class="todo_grid_record">
+      <div class="todo_grid_common_row">
+        <span>退货退款</span><span>退款单号:R-003</span><span>订单号:O-003</span><span>买家:carol</span><span>越南</span><span>店铺C</span>
+      </div>
+      <div class="todo_grid_row">
+        <div class="todo_grid_td todo_grid_sticky_first">商品 C3 <div>x1</div></div>
+        <div class="todo_grid_td">300 PHP</div>
+        <div class="todo_grid_td">包裹或产品损坏</div>
+        <div class="todo_grid_td">已交付</div>
+        <div class="todo_grid_td">2026-10-03 12:45</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h2>通用 div 网格（3 行，导出 4 行含表头）</h2>
+<div class="gen-grid" id="gen">
+  <div class="gen-head">
+    <div class="gen-h">姓名</div><div class="gen-h">部门</div><div class="gen-h">城市</div>
+  </div>
+  <div class="gen-body">
+    <div class="gen-row"><div class="gen-cell">张三</div><div class="gen-cell">研发部</div><div class="gen-cell">杭州</div></div>
+    <div class="gen-row"><div class="gen-cell">李四</div><div class="gen-cell">市场部</div><div class="gen-cell">上海</div></div>
+    <div class="gen-row"><div class="gen-cell">王五</div><div class="gen-cell">财务部</div><div class="gen-cell">北京</div></div>
+  </div>
+</div>
+
+<h2>负例：无表头列表（不应识别）</h2>
+<div class="fake-list" id="fake">
+  <div class="fake-item"><span class="fake-name">条目一</span><span class="fake-price">¥10</span></div>
+  <div class="fake-item"><span class="fake-name">条目二</span><span class="fake-price">¥20</span></div>
+  <div class="fake-item"><span class="fake-name">条目三</span><span class="fake-price">¥30</span></div>
+</div>
+
+<h2>普通表格（回归验证）</h2>
+<table id="normal">
+  <tr><th>姓名</th><th>部门</th></tr>
+  <tr><td>张三</td><td>研发部</td></tr>
+  <tr><td>李四</td><td>市场部</td></tr>
+</table>
+
+<script>window.__E2E_HARNESS = 'e2e-harness-todo.js';</script>
+<script src="/test/e2e-boot.js"></script>
+</body>
+</html>

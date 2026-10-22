@@ -352,28 +352,288 @@
     headerCellsOf: (root) => root.querySelectorAll('.tabulator-header .tabulator-col')
   };
 
-  const GRID_ADAPTERS = [GRID_ADAPTER_EL_V2, GRID_ADAPTER_AG_GRID, GRID_ADAPTER_MUI, GRID_ADAPTER_TABULATOR];
+  /* 通栏摘要格：原文全是 inline 元素、靠 CSS 间距分列，innerText 会粘成一串
+   * （「退货退款退款单号:…订单号:…」）。克隆子节点并以空格分隔，读起来可辨；
+   * 克隆只用于取值、不触碰原 DOM，摘要内无控件/图片（有图片时走 cell.js 图片通道） */
+  function spacedCell(el) {
+    if (!el.children.length) return el;
+    const box = document.createElement('div');
+    for (const child of el.children) {
+      box.appendChild(child.cloneNode(true));
+      box.appendChild(document.createTextNode(' '));
+    }
+    return box;
+  }
+
+  /* 适配器五：多客（Duoke）客服工作台自绘 todo 网格（v2.16）。结构：
+   *   div.todo_grid                     组件根 + 纵向滚动容器（overflow:auto）
+   *   └ div.todo_grid_inner
+   *     ├ div.todo_grid_header          粘性表头（在滚动容器内）
+   *     │ └ div.todo_grid_th ×N
+   *     └ div.todo_grid_record ×M       每条记录
+   *       ├ div.todo_grid_common_row    整行摘要（退款单号/订单号/买家/国家/店铺）
+   *       └ div.todo_grid_row > div.todo_grid_td ×N
+   * 行全量渲染（20 条/页，分页器 dk-pagination 自绘），故声明 virtual:false——
+   * 点选即取数、不触发滚动采集；「采集全部页」走手动指定翻页按钮（分页器无稳定
+   * 特征类，不另加分页适配器）。整行摘要在视觉上是表格上方一条通栏说明，导出为
+   * 独立行（摘要落首列、其余列补空），丢失它等于丢掉退款单号/订单号/买家 */
+  const GRID_ADAPTER_TODO = {
+    name: 'todo-grid',
+    rootSel: '.todo_grid',
+    virtual: false,
+    isRoot: (el) => !!(el && el.tagName === 'DIV' && el.classList.contains('todo_grid')),
+    headerRowsOf: (root) => {
+      const h = root.querySelector('.todo_grid_header');
+      const cells = h ? Array.from(h.children).filter(c => c.classList.contains('todo_grid_th')) : [];
+      return cells.length ? [{ cells: cells, el: h, isHeader: true }] : [];
+    },
+    bodyRowsOf: (root) => {
+      const out = [];
+      for (const rec of root.querySelectorAll('.todo_grid_record')) {
+        const row = rec.querySelector('.todo_grid_row');
+        if (!row) continue;
+        const cells = Array.from(row.children).filter(c => c.classList.contains('todo_grid_td'));
+        if (!cells.length) continue;
+        const sum = rec.querySelector('.todo_grid_common_row');
+        if (sum) { // 通栏摘要：首列放文本，其余列补空 div（保持行宽一致，不串列）
+          const padded = [spacedCell(sum)];
+          for (let i = 1; i < cells.length; i++) padded.push(document.createElement('div'));
+          out.push({ cells: padded, el: sum, isHeader: false });
+        }
+        out.push({ cells: cells, el: row, isHeader: false });
+      }
+      return out;
+    },
+    scrollElsOf: (root) => [root],
+    headerCellsOf: (root) => root.querySelectorAll('.todo_grid_header .todo_grid_th')
+  };
+
+  const GRID_ADAPTERS = [GRID_ADAPTER_EL_V2, GRID_ADAPTER_AG_GRID, GRID_ADAPTER_MUI, GRID_ADAPTER_TABULATOR, GRID_ADAPTER_TODO];
   const GRID_ROOT_SELECTOR = GRID_ADAPTERS.map(a => a.rootSel).join(', ');
+
+  /* ---------- 通用 div 网格兜底（v2.16） ----------
+   * 已知组件适配器都不命中时，按「结构重复 + 表头视觉列对齐」保守识别自绘 div
+   * 表格（宁漏不误）：
+   *   ① 单元格：父级下 ≥2 个同标签 + 同首类名的兄弟（首类名空的不参与，防误判）
+   *   ② 行：该父级；向上逐层找同类名重复行（≥2 行、每行列数一致、可见）
+   *   ③ 表头：首个可视行上方最近一组同列数、整组文字非空、左边界 ±8px /
+   *     宽度 ±max(12px, 10%) 对齐的兄弟组
+   * 任一条件不满足即放弃。识别结果按根缓存（根/行/单元格 → 根），取数时按选择器
+   * 重查，翻页重建后仍可用；已知组件适配器优先级更高，不受影响。
+   * 通用网格按虚拟表格处理（滚动采集）——宁可多滚一轮（非虚拟时按行元素重叠合并
+   * 后零新增），不冒「只取到可见行」的风险；「采集全部页」仍走手动指定翻页按钮。 */
+
+  const GENERIC_ROOT = new WeakMap(); // 元素（根/行/单元格）→ 通用网格根
+  const GENERIC_INFO = new WeakMap(); // 根 → { rowSel, cellSel, n, headerEl, headerCellSel }
+  const GENERIC_MISS = new WeakSet(); // 已判定非网格的候选行（负缓存）
+
+  /** 首类名（className 字符串首个 token；SVG 的 SVGAnimatedString 返回空） */
+  function firstClassOf(el) {
+    const c = el && el.className;
+    return (typeof c === 'string' && c.trim() ? c.trim().split(/\s+/)[0] : '');
+  }
+
+  /** 元素族选择器：标签 + 首类名（同列/同行共用；首 token 最稳定，状态类常追加在后） */
+  function familySelOf(el) {
+    const c = firstClassOf(el);
+    const esc = (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(c) : c;
+    return el.tagName.toLowerCase() + (c ? '.' + esc : '');
+  }
+
+  function rectInfo(el) {
+    const r = el.getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+  }
+
+  /** 视觉列对齐纯函数（algo-check 离线回归）：hdr/data 为 { left, width } 数组；
+   *  左边界差 ≤8px、宽度差 ≤max(12px, 数据列宽 10%) 记为同列，
+   *  同列数 ≥ max(2, ceil(n*0.75)) 判定对齐 */
+  function columnsAligned(hdr, data) {
+    const n = Math.min(hdr.length, data.length);
+    if (n < 2) return false;
+    let ok = 0;
+    for (let i = 0; i < n; i++) {
+      const h = hdr[i];
+      const d = data[i];
+      if (!h || !d) continue;
+      if (Math.abs(h.left - d.left) <= 8 && Math.abs(h.width - d.width) <= Math.max(12, d.width * 0.1)) ok++;
+    }
+    return ok >= Math.max(2, Math.ceil(n * 0.75));
+  }
+
+  /** 候选行（自鼠标元素向上 ≤8 层）：父级下同标签同首类名兄弟 2~30 个，
+   *  且过半兄弟有文本（滤掉图标/装饰容器）；首类名为空的层不参与 */
+  function candidateRows(el) {
+    const out = [];
+    let depth = 0;
+    for (let a = el; a && a !== document.body && depth < 8; a = a.parentElement, depth++) {
+      if (!firstClassOf(a)) continue;
+      const p = a.parentElement;
+      if (!p) break;
+      const sel = familySelOf(a);
+      const sibs = Array.from(p.children).filter(c => familySelOf(c) === sel);
+      if (sibs.length < 2 || sibs.length > 30) continue;
+      const withText = sibs.filter(c => (c.textContent || '').trim()).length;
+      if (withText >= Math.max(2, Math.ceil(sibs.length * 0.6))) out.push({ row: p, cellSel: sel, n: sibs.length });
+    }
+    return out;
+  }
+
+  /** 候选行 → { root, rows }：向上 ≤6 层找同类重复行（取行数最多的一层），
+   *  rows 按视觉 top 升序（行节点可能被复用重排） */
+  function repeatedRows(cand) {
+    const rowSel = familySelOf(cand.row);
+    let best = null;
+    let node = cand.row.parentElement;
+    let depth = 0;
+    for (; node && node !== document.body && depth < 6; node = node.parentElement, depth++) {
+      const rows = [];
+      for (const r of node.querySelectorAll(rowSel)) {
+        const cells = Array.from(r.children).filter(c => familySelOf(c) === cand.cellSel);
+        if (cells.length !== cand.n) continue;
+        const rr = r.getBoundingClientRect();
+        if (rr.width <= 0 || rr.height <= 0) continue; // 隐藏/未布局行
+        rows.push({ el: r, top: rr.top });
+      }
+      if (rows.length > 500) return null; // 异常规模，放弃（防超慢查询）
+      if (rows.length >= 2 && (!best || rows.length > best.rows.length)) {
+        rows.sort((a, b) => a.top - b.top);
+        best = { root: node, rows: rows.map(x => x.el) };
+      }
+    }
+    return best;
+  }
+
+  /** 首行上方找表头：沿首行祖先的「前面的兄弟」逐层找同列数、整组文字非空、
+   *  同标签、视觉列对齐且位于数据行上方的一组元素；找不到返回 null */
+  function headerOf(firstRow, cand, dataRects) {
+    let node = firstRow;
+    let depth = 0;
+    while (node && node.parentElement && depth < 8) {
+      let p = node.previousElementSibling;
+      for (let k = 0; p && k < 8; p = p.previousElementSibling, k++) {
+        const kids = Array.from(p.children);
+        if (kids.length !== cand.n) continue;
+        if (kids.some(c => !(c.textContent || '').trim())) continue;
+        const tag0 = kids[0].tagName;
+        if (kids.some(c => c.tagName !== tag0)) continue;
+        const rects = kids.map(rectInfo);
+        if (rects.some(r => r.height <= 0 || r.width <= 0)) continue;
+        if (rects[0].top > dataRects[0].top - 1) continue; // 必须在数据行上方
+        if (!columnsAligned(rects, dataRects)) continue;
+        return { el: p, cells: kids, cellSel: familySelOf(kids[0]) };
+      }
+      node = node.parentElement;
+      depth++;
+    }
+    return null;
+  }
+
+  /** 通用网格探测入口：命中返回根元素并写缓存，否则 null */
+  function detectGenericGrid(el) {
+    if (!(el && el.nodeType === 1)) return null;
+    for (const cand of candidateRows(el)) {
+      if (GENERIC_MISS.has(cand.row)) continue;
+      const rep = repeatedRows(cand);
+      if (!rep) { GENERIC_MISS.add(cand.row); continue; }
+      const dataRects = Array.from(rep.rows[0].children)
+        .filter(c => familySelOf(c) === cand.cellSel).map(rectInfo);
+      const head = headerOf(rep.rows[0], cand, dataRects);
+      if (!head) { GENERIC_MISS.add(cand.row); continue; }
+      const info = {
+        rowSel: familySelOf(cand.row), cellSel: cand.cellSel, n: cand.n,
+        headerEl: head.el, headerCellSel: head.cellSel
+      };
+      GENERIC_INFO.set(rep.root, info);
+      GENERIC_ROOT.set(rep.root, rep.root);
+      for (const r of rep.rows) GENERIC_ROOT.set(r, rep.root);
+      return rep.root;
+    }
+    return null;
+  }
+
+  /** 已识别根的元素查询（只查缓存，不触发探测） */
+  function genericRootOf(el) {
+    for (let a = el; a && a !== document.body; a = a.parentElement) {
+      const r = GENERIC_ROOT.get(a);
+      if (r) return r;
+    }
+    return null;
+  }
+
+  /** 通用网格根 → 与组件适配器同构的钩子（不注册进 GRID_ADAPTERS，按需生成） */
+  function genericAdapterOf(root) {
+    const info = GENERIC_INFO.get(root);
+    if (!info) return null;
+    const headerEl = () => {
+      if (info.headerEl && info.headerEl.isConnected) return info.headerEl;
+      const first = root.querySelector(info.rowSel); // 翻页整根重建：按首行重找表头
+      if (!first) return null;
+      const rects = Array.from(first.children)
+        .filter(c => familySelOf(c) === info.cellSel).map(rectInfo);
+      const head = headerOf(first, { n: info.n, cellSel: info.cellSel }, rects);
+      if (head) { info.headerEl = head.el; info.headerCellSel = head.cellSel; }
+      return head ? head.el : null;
+    };
+    return {
+      name: 'generic-div-grid',
+      rootSel: '',
+      virtual: true,
+      isRoot: () => false,
+      headerRowsOf: () => {
+        const h = headerEl();
+        const cells = h ? Array.from(h.children).filter(c => familySelOf(c) === info.headerCellSel) : [];
+        return cells.length ? [{ cells: cells, el: h, isHeader: true }] : [];
+      },
+      bodyRowsOf: (r) => {
+        const out = [];
+        for (const row of r.querySelectorAll(info.rowSel)) {
+          const cells = Array.from(row.children).filter(c => familySelOf(c) === info.cellSel);
+          if (cells.length === info.n) out.push({ cells: cells, el: row, isHeader: false });
+        }
+        return out;
+      },
+      scrollElsOf: (r) => {
+        for (let x = r; x && x !== document.body; x = x.parentElement) {
+          const st = getComputedStyle(x);
+          if ((st.overflowY === 'auto' || st.overflowY === 'scroll') && x.scrollHeight > x.clientHeight + 4) return [x];
+        }
+        return [];
+      },
+      headerCellsOf: () => {
+        const h = headerEl();
+        return h ? Array.from(h.children).filter(c => familySelOf(c) === info.headerCellSel) : [];
+      }
+    };
+  }
 
   /** 网格适配器分发（按注册序首个命中） */
   function gridAdapterOf(el) {
     for (const a of GRID_ADAPTERS) if (a.isRoot(el)) return a;
-    return null;
+    return genericAdapterOf(el); // v2.16：通用兜底（仅对已探测并缓存的根生效）
   }
 
-  /** div 网格表格判定：任一适配器根特征命中 */
+  /** div 网格表格判定：组件适配器根特征命中，或已识别的通用网格根 */
   function isGridTable(el) {
     return !!gridAdapterOf(el);
   }
 
-  /** 命中解析入口（main.js hitRoot 用）：最近的网格组件根 */
+  /** 网格是否恒虚拟（virtual.js 滚动采集判定）：适配器可声明 virtual:false
+   *  （分页网格行全量渲染，点选即取数）；未声明与通用网格按虚拟处理 */
+  function gridIsVirtual(root) {
+    const a = gridAdapterOf(root);
+    return !a || a.virtual !== false;
+  }
+
+  /** 命中解析入口（main.js hitRoot 用）：最近的网格组件根；已知组件优先，
+   *  都不命中时尝试通用兜底探测（结果缓存，失败不重复扫） */
   function gridRootOf(el) {
     if (!(el && typeof el.closest === 'function')) return null;
     for (const a of GRID_ADAPTERS) {
       const r = el.closest(a.rootSel);
       if (r) return r;
     }
-    return null;
+    return genericRootOf(el) || detectGenericGrid(el);
   }
 
   /** div 网格表格行获取：表头行 + 数据行（getRows 分发入口，返回与 rowsOfTable 同构） */
@@ -396,7 +656,9 @@
       const cells = a.headerCellsOf(root);
       if (cells && cells.length) return cells;
     }
-    return null;
+    const g = genericAdapterOf(root); // v2.16：通用网格也提供稳定表头指纹
+    const cells = g ? g.headerCellsOf(root) : null;
+    return cells && cells.length ? cells : null;
   }
 
   /** 单个物理 table 的行收集：常规 thead>tr>th；部分组件库 thead 直接嵌 th（无 tr 包裹）；
@@ -507,9 +769,9 @@
   ns.table = {
     getRows: getRows, extractTable: extractTable, makeSheetName: makeSheetName,
     splitGroupOf: splitGroupOf, pairSplitGroup: pairSplitGroup,
-    isGridTable: isGridTable, gridScrollEls: gridScrollEls,
+    isGridTable: isGridTable, gridScrollEls: gridScrollEls, gridIsVirtual: gridIsVirtual,
     gridRootOf: gridRootOf, gridHeaderCellsOf: gridHeaderCellsOf,
-    rowsSortedByRowIndex: rowsSortedByRowIndex,
+    rowsSortedByRowIndex: rowsSortedByRowIndex, columnsAligned: columnsAligned,
     GRID_ROOT_SELECTOR: GRID_ROOT_SELECTOR, adapters: GRID_ADAPTERS
   };
 })();

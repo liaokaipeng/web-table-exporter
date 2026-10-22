@@ -76,17 +76,17 @@
 
 - `getRows()` / `extractTable()` / `makeSheetName()` / `splitGroupOf()` / `pairSplitGroup()`（分体识别 + 纯函数配对，模块级零 DOM 引用，algo-check.cjs 离线回归）
 - 表头行判定 = thead/tfoot 行 + tbody 全 th 行（extractTable 取前导连续段）
-- v2.1 新增 div 网格表格，v2.2 重构为适配器注册表（el-table-v2 / AG Grid / MUI X DataGrid / Tabulator）：
+- v2.1 新增 div 网格表格，v2.2 重构为适配器注册表（el-table-v2 / AG Grid / MUI X DataGrid / Tabulator），v2.16 增第五个精确适配器 `todo-grid`（多客自绘网格）与通用兜底探测：
   - `isGridTable()` 根特征类分发
-  - `gridRowsOf()` 取行 + `gridScrollEls()` 滚动容器
-  - `gridRootOf()` / `GRID_ROOT_SELECTOR` 命中入口
-  - `gridHeaderCellsOf()` 指纹表头分发
-  - `rowsSortedByRowIndex()` 行序排序纯函数（aria-rowindex，复用行节点组件）
+  - `gridRowsOf()` 取行 + `gridScrollEls()` 滚动容器 + `gridIsVirtual()` 是否恒虚拟（适配器可声明 `virtual:false`）
+  - `gridRootOf()` / `GRID_ROOT_SELECTOR` 命中入口（已知适配器 → 通用缓存 → `detectGenericGrid()` 兜底）
+  - `gridHeaderCellsOf()` 指纹表头分发（通用网格同样给表头格）
+  - `rowsSortedByRowIndex()` 行序排序纯函数（aria-rowindex，复用行节点组件）；`columnsAligned()` 视觉列对齐纯函数（通用兜底，algo-check 离线回归）
 
 #### virtual.js（依赖：table）
 
 - 虚拟滚动采集：`isVirtualTable()` 识别 → `collectVirtual()` 回顶、按视口 80% 步长下滚、逐窗提取并经 `overlapLen()` 重叠合并衔接（v2.9 起「元素身份优先、内容匹配兜底」：`refOverlapLen()` / `refTopsMatch()`）
-- v2.1：网格表格恒走滚动采集，固定列多分区（left/main/right）联动设置 scrollTop
+- v2.1：网格表格恒走滚动采集，固定列多分区（left/main/right）联动设置 scrollTop；v2.16 起 `virtual:false` 的网格（多客 todo 网格，行全量渲染）点选即取数，不进滚动采集
 - 机制与参数（识别规则、窗口衔接、停止与快照结构）见 [mechanisms.md](mechanisms.md)「虚拟滚动」
 
 #### pagination.js（依赖：table, persist, virtual）

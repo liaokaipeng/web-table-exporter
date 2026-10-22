@@ -24,7 +24,9 @@
 - **div 网格表格**（table.js，v2.1 引入、v2.2 适配器注册表）
   - 场景：虚拟化表格无 `<table>`——div + ARIA role 模拟，只渲染可见窗口行
   - 每组件一适配器（`name` + `rootSel` + 五钩子 `isRoot/headerRowsOf/bodyRowsOf/scrollElsOf/headerCellsOf`），注册表 `GRID_ADAPTERS` 按序分发；virtual/main/persist 经分发入口间接调用
-  - 识别 = 组件根特征类（`.el-table-v2__root` / `.ag-root-wrapper` / `.MuiDataGrid-root` / `.tabulator`，后者另校验 `.tabulator-tableHolder`）
+  - 识别 = 组件根特征类（`.el-table-v2__root` / `.ag-root-wrapper` / `.MuiDataGrid-root` / `.tabulator`，后者另校验 `.tabulator-tableHolder`；v2.16 增 `.todo_grid`，后者为「通栏摘要行 + 数据行」结构，摘要行导出为独立行、摘要落首列其余补空）
+  - 适配器可声明 `virtual:false`（v2.16）：该网格行全量渲染、按分页取数，`isVirtualTable()` 不再恒判虚拟——点选即取数不滚动，「采集全部页」可用（多客 todo 网格即此类）
+  - 通用兜底（v2.16）：已知适配器都不命中时，`detectGenericGrid()` 按「结构重复 + 表头视觉列对齐」识别自绘 div 表格——①单元格 = 父级下 ≥2 个同标签同首类名兄弟；②向上逐层找同类名重复行（≥2 行、列数一致、可见）；③首行上方最近一组同列数、整组文字非空、左边界 ±8px / 宽度 ±max(12px,10%) 对齐的兄弟组（`columnsAligned()` 纯函数）。任一不满足即放弃（宁漏不误）；结果按根缓存在 WeakMap（根/行/单元格 → 根，候选行负缓存），取数时按选择器重查。通用网格无精确适配器的 `virtual` 声明，仍按虚拟滚动采集（滚动无新行时重叠合并零新增），分页走手动指定按钮
   - `gridRowsOf()` = `headerRowsOf()` 表头行 + `bodyRowsOf()` 数据行：多分区组件（el-table-v2 left/main/right、AG Grid pinned/center）表头行按行号对齐拼接、数据行按视觉序 zip；行节点复用组件（AG Grid / MUI X）DOM 序非视觉序，先经 `rowsSortedByRowIndex()` 按 `aria-rowindex` 数值升序（全部行带该属性才排序，部分缺失保持 DOM 序）
   - `gridScrollEls()`：el-table-v2 多分区各返回一个（联动 scrollTop），其余单滚动容器
 

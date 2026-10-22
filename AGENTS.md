@@ -27,7 +27,7 @@ node test/algo-check.cjs
 
 注意：PowerShell 不支持 `&&` 和 heredoc；多行提交信息用 `git commit -F <文件>`。
 
-改代码后的浏览器回归：`chrome://extensions` 刷新扩展 → 刷新目标页 → 按 [test/README.md](test/README.md) 回归。现行规模：9 个 fixture + auto-check + 9 个 E2E harness + algo-check，一键跑 `.\test\run-all.ps1`（细则见 test/README.md）。控件取值规则见 [docs/controls.md](docs/controls.md)。
+改代码后的浏览器回归：`chrome://extensions` 刷新扩展 → 刷新目标页 → 按 [test/README.md](test/README.md) 回归。现行规模：10 个 fixture + auto-check + 10 个 E2E harness + algo-check，一键跑 `.\test\run-all.ps1`（细则见 test/README.md）。控件取值规则见 [docs/controls.md](docs/controls.md)。
 
 测试范围：简单功能或小改动不必补自动化测试，至少完成上述语法检查；涉及取值、解析等核心逻辑的改动须跑 `node test/algo-check.cjs` 并做浏览器回归。
 

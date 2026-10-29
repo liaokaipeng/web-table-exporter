@@ -182,6 +182,18 @@
     return rows;
   }
 
+  /** 容器内行取数公共步（各适配器 bodyRowsOf 共用）：行选择器 + 格选择器 →
+   *  [{ el, cells }]；空行过滤 / 行序排序 / 最终包装由调用方按组件语义组合 */
+  function rowsWithCells(container, rowSel, cellSel) {
+    return Array.from(container.querySelectorAll(rowSel))
+      .map(r => ({ el: r, cells: Array.from(r.querySelectorAll(cellSel)) }));
+  }
+
+  /** 适配器根特征判定（isRoot）工厂：DIV + 特征类即命中；extra 为组件附加结构
+   *  校验（可省，如 Tabulator 须含 tableHolder 防同页普通元素类名形似误报） */
+  const divRootIs = (cls, extra) => (el) =>
+    !!(el && el.tagName === 'DIV' && el.classList.contains(cls) && (!extra || extra(el)));
+
   /** 多分区数据行按下标 zip 拼接（各分区渲染同一数据的行区间，行数一致）：
    *  rowLists 为各分区已按视觉序排好的 [{ el, cells }] */
   function zipBodyRows(rowLists) {
@@ -236,7 +248,7 @@
   const GRID_ADAPTER_EL_V2 = {
     name: 'el-table-v2',
     rootSel: '.el-table-v2__root',
-    isRoot: (el) => !!(el && el.tagName === 'DIV' && el.classList.contains('el-table-v2__root')),
+    isRoot: divRootIs('el-table-v2__root'),
     headerRowsOf: (root) => mergeHeaderRows(elv2PartsOf(root), '.el-table-v2__dynamic-header-row', '.el-table-v2__header-cell'),
     bodyRowsOf: (root) => zipBodyRows(elv2PartsOf(root).map(p =>
       Array.from(p.querySelectorAll('.el-table-v2__body .el-table-v2__row'))
@@ -276,16 +288,15 @@
   const GRID_ADAPTER_AG_GRID = {
     name: 'ag-grid',
     rootSel: '.ag-root-wrapper',
-    isRoot: (el) => !!(el && el.tagName === 'DIV' && el.classList.contains('ag-root-wrapper')),
+    isRoot: divRootIs('ag-root-wrapper'),
     headerRowsOf: (root) => mergeHeaderRows([
       root.querySelector('.ag-pinned-left-header'),
       root.querySelector('.ag-header .ag-header-container'), // 中区表头（pinned 表头为其兄弟节点）
       root.querySelector('.ag-pinned-right-header')
     ], '.ag-header-row', '.ag-header-cell'),
     bodyRowsOf: (root) => zipBodyRows(['.ag-pinned-left-cols-container', '.ag-center-cols-container', '.ag-pinned-right-cols-container']
-      .map(s => root.querySelector('.ag-body-viewport ' + s)).filter(Boolean).map(c =>
-        rowsSortedByRowIndex(Array.from(c.querySelectorAll('.ag-row'))
-          .map(r => ({ el: r, cells: Array.from(r.querySelectorAll('.ag-cell')) }))))),
+      .map(s => root.querySelector('.ag-body-viewport ' + s)).filter(Boolean)
+      .map(c => rowsSortedByRowIndex(rowsWithCells(c, '.ag-row', '.ag-cell')))),
     scrollElsOf: (root) => { const vp = root.querySelector('.ag-body-viewport'); return vp ? [vp] : []; },
     headerCellsOf: (root) => root.querySelectorAll('.ag-header-row .ag-header-cell')
   };
@@ -306,14 +317,13 @@
   const GRID_ADAPTER_MUI = {
     name: 'mui-data-grid',
     rootSel: '.MuiDataGrid-root',
-    isRoot: (el) => !!(el && el.tagName === 'DIV' && el.classList.contains('MuiDataGrid-root')),
+    isRoot: divRootIs('MuiDataGrid-root'),
     headerRowsOf: (root) => mergeHeaderRows([root.querySelector('.MuiDataGrid-columnHeaders')],
       '.MuiDataGrid-row', '.MuiDataGrid-columnHeader'),
     bodyRowsOf: (root) => {
       const zone = root.querySelector('.MuiDataGrid-virtualScrollerRenderZone');
       if (!zone) return [];
-      return rowsSortedByRowIndex(Array.from(zone.querySelectorAll('.MuiDataGrid-row'))
-        .map(r => ({ el: r, cells: Array.from(r.querySelectorAll('.MuiDataGrid-cell')) })))
+      return rowsSortedByRowIndex(rowsWithCells(zone, '.MuiDataGrid-row', '.MuiDataGrid-cell'))
         .filter(r => r.cells.length)
         .map(r => ({ cells: r.cells, el: r.el, isHeader: false }));
     },
@@ -335,16 +345,14 @@
   const GRID_ADAPTER_TABULATOR = {
     name: 'tabulator',
     rootSel: '.tabulator',
-    isRoot: (el) => !!(el && el.tagName === 'DIV' && el.classList.contains('tabulator') &&
-      !!el.querySelector('.tabulator-tableHolder')),
+    isRoot: divRootIs('tabulator', (el) => !!el.querySelector('.tabulator-tableHolder')),
     headerRowsOf: (root) => mergeHeaderRows([root.querySelector('.tabulator-header')],
       '.tabulator-headers', '.tabulator-col',
       (c) => !c.parentElement.closest('.tabulator-col')), // 分组表头取顶层 col（嵌套子 col 剔除）
     bodyRowsOf: (root) => {
       const tbl = root.querySelector('.tabulator-tableHolder .tabulator-table');
       if (!tbl) return [];
-      return Array.from(tbl.querySelectorAll('.tabulator-row'))
-        .map(r => ({ el: r, cells: Array.from(r.querySelectorAll('.tabulator-cell')) }))
+      return rowsWithCells(tbl, '.tabulator-row', '.tabulator-cell')
         .filter(r => r.cells.length)
         .map(r => ({ cells: r.cells, el: r.el, isHeader: false }));
     },
@@ -381,7 +389,7 @@
     name: 'todo-grid',
     rootSel: '.todo_grid',
     virtual: false,
-    isRoot: (el) => !!(el && el.tagName === 'DIV' && el.classList.contains('todo_grid')),
+    isRoot: divRootIs('todo_grid'),
     headerRowsOf: (root) => {
       const h = root.querySelector('.todo_grid_header');
       const cells = h ? Array.from(h.children).filter(c => c.classList.contains('todo_grid_th')) : [];

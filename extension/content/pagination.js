@@ -81,7 +81,7 @@
       // v2.12 当前页码：active 项 title="N"（ant 页码项恒带 title）
       current: (pr) => {
         const li = pr.querySelector('.ant-pagination-item-active');
-        const n = li ? parseInt(String(li.getAttribute('title') || li.textContent || '').trim(), 10) : NaN;
+        const n = li ? pageNumOf(li) : NaN;
         return Number.isFinite(n) ? n : 0;
       }
     },
@@ -97,12 +97,18 @@
     }
   ];
 
+  /** 页码项文本 → 数字（title 优先——ant 页码项恒带 title；均无则退 textContent）。
+   *  非数字返回 NaN，由调用方决定按未知处理 */
+  function pageNumOf(el) {
+    return parseInt(String(el.getAttribute('title') || el.textContent || '').trim(), 10);
+  }
+
   /** 分页器内页码项的最大值 = 总页数（组件分页器都会渲染出末页项）；无页码项/
    *  均无法解析返回 0——0 表示总页数未知，采集进度只显示当前页，绝不猜数 */
   function maxPageNum(pagerRoot, sel) {
     let max = 0;
     for (const el of pagerRoot.querySelectorAll(sel)) {
-      const n = parseInt(String(el.getAttribute('title') || el.textContent || '').trim(), 10);
+      const n = pageNumOf(el);
       if (Number.isFinite(n) && n > max) max = n;
     }
     return max;
@@ -152,8 +158,7 @@
           const pr = findPagerRoot(r, a);
           if (!pr) return null;
           for (const el of pr.querySelectorAll(a.pageSel)) {
-            const n = parseInt(String(el.getAttribute('title') || el.textContent || '').trim(), 10);
-            if (n === 1) return el;
+            if (pageNumOf(el) === 1) return el;
           }
           return null;
         },
@@ -473,6 +478,12 @@
       return win.length - k;
     };
 
+    // 首页快照并入；总页数（v2.9，0 = 未知）与页计数——result / waitPageData /
+    // noteStopped 等闭包均引用后两者，声明置于全部闭包定义之前（不依赖调用顺序）
+    takePage(first);
+    const totalPages = pager.total ? (pager.total(root) || 0) : 0;
+    let page = 1;
+
     const result = (extra, reason) => {
       if (extra) addNote(extra);
       const all = headers.concat(data);
@@ -543,9 +554,6 @@
       return { added: 0, turned };
     };
 
-    takePage(first);
-    const totalPages = pager.total ? (pager.total(root) || 0) : 0; // v2.9：总页数（0 = 未知）
-    let page = 1;
     // 停止/失联附注（主循环与回退多处复用，集中一处保证口径一致）
     const noteStopped = () => t('noteStopped', '已停止采集，保留已采集的 ' + page + ' 页', page);
     const noteLost = () => t('noteTableLost', '翻页后表格失联，已保留已采集的 ' + page + ' 页', page);

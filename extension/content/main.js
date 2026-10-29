@@ -173,6 +173,13 @@
   const colFormats = new Map();  // table -> 列格式 Map<colKey,'number'>（会话内存，持久化同上；文本为默认不记录）
   const colOrders = new Map();   // table -> 列顺序 colKey 数组（v2.8；与自然序相同则不记录，持久化同上）
 
+  /** 错误消息提取（toast/console 文案统一）：Error 取 message，其余 String 化 */
+  const errMsg = (e) => (e && e.message ? e.message : String(e));
+
+  /** 忙碌判定（主工具栏按钮态/语言开关/分页采集入口共用同一表达式，防口径漂移）：
+   *  采集 / 导出 / 列设置面板 / 指定翻页按钮任一进行中 */
+  const busyNow = () => collecting || exporting || panel.isOpen() || specifying;
+
   /* ---------------- UI 构建（Shadow DOM 隔离页面样式） ---------------- */
 
   function buildUI() {
@@ -611,24 +618,30 @@
     resetHint(); // 空闲态提示回默认引导文案（语言切换不改变状态）
   }
 
+  /** 生效语言变化后的就地重取词（pickLang 与启动时偏好恢复共用同一刷新序列，
+   *  防双写漂移）：收拢两个自绘弹层（静态文案随 refreshTexts 重取）→ 重刷静态与
+   *  状态文案 → 同步工具栏；语言未变化时不做任何事 */
+  function applyLangIfChanged(before) {
+    if (ns.i18n.langOf() === before) return;
+    closePageMenu();
+    closeExpMenu();
+    refreshTexts();
+    updateBar(); // 同步计数/主按钮 title/开关禁用态（语言变化后文案重取词）
+  }
+
   /** 语言切换入口：点未激活语言 = 切换过去并持久化；已是手动语言时再点 =
    *  回到自动（跟随浏览器）；自动模式下点当前生效语言无操作。
    *  手动英文需先经后台拉词表（异步），完成前生效语言不变，避免首帧闪中文 */
   async function pickLang(code) {
     if (!ns.i18n) return;
-    if (collecting || exporting || panel.isOpen() || specifying) return; // 防御：开关已禁用
+    if (busyNow()) return; // 防御：开关已禁用
     const manual = ns.i18n.lang();
     if (manual === null && ns.i18n.langOf() === code) return; // 自动且正是当前语言：无操作
     const target = manual === code ? 'auto' : code; // 点当前手动语言 → 跟随浏览器
     const before = ns.i18n.langOf();
     await ns.i18n.setLang(target);
     if (!active) return; // await 间隙用户已退出
-    if (ns.i18n.langOf() !== before) {
-      closePageMenu();
-      closeExpMenu();
-      refreshTexts();
-      updateBar(); // 同步计数/主按钮 title/开关禁用态（语言变化后文案重取词）
-    }
+    applyLangIfChanged(before);
     syncLangUI();
   }
 
@@ -1018,8 +1031,9 @@
     try {
       await fn(gen);
     } catch (err) {
+      const m = errMsg(err);
       console.error('[HTML2XLSX] ' + label + '采集失败：', err);
-      toast(t('toastCollectFail', '采集失败：' + (err && err.message ? err.message : err), err && err.message ? err.message : err), { type: 'error' });
+      toast(t('toastCollectFail', '采集失败：' + m, m), { type: 'error' });
       resetHint();
     } finally {
       collecting = false;
@@ -1089,7 +1103,7 @@
    *  命中即直接采集、不再要求指定；都不可用才进入「指定翻页按钮」子模式兜底
    *  （用户点击下一页控件，跨页经定位器重解析）。虚拟滚动表格不经此入口 */
   function onCollectAllPages() {
-    if (collecting || exporting || panel.isOpen() || specifying || !selected.size) return;
+    if (busyNow() || !selected.size) return;
     const table = [...selected.keys()].pop(); // 唯一选中的表
     if (isVirtualTable(table)) {
       toast(t('toastVirtualAuto', '虚拟滚动表格点选时已自动采集全部行'), { type: 'info' });
@@ -1196,7 +1210,7 @@
       box.firstChild.textContent = String(++i);
     }
     countEl.textContent = String(selected.size);
-    const busy = collecting || exporting || panel.isOpen() || specifying; // 面板/导出/子模式期间主工具栏同步禁用
+    const busy = busyNow(); // 面板/导出/子模式期间主工具栏同步禁用
     clearBtn.hidden = selected.size === 0; // v2.7 无选中不占位（隐藏而非禁用，工具栏更干净）
     clearBtn.disabled = busy;
     // v2.10：导出按钮与输出方式下拉合并为一个控件，启用/禁用同源——未选表或忙态整体灰置
@@ -1456,7 +1470,7 @@
         try {
           await writeClipboard(text);
         } catch (err) {
-          const m = err && err.message ? err.message : String(err);
+          const m = errMsg(err);
           console.error('[HTML2XLSX] 复制到剪贴板失败：', err);
           showError(t('toastCopyFail', '复制失败：' + m, m));
           return;
@@ -1480,8 +1494,9 @@
       try {
         files = fmtKey === 'xlsx' ? [buildXlsxFile(tables, base)] : buildTextFiles(fmtKey, base, tables);
       } catch (err) {
+        const m = errMsg(err);
         console.error('[HTML2XLSX] 生成导出文件失败：', err);
-        showError(t('toastExportFail', '导出失败：' + (err && err.message ? err.message : err), err && err.message ? err.message : err));
+        showError(t('toastExportFail', '导出失败：' + m, m));
         return;
       }
 
@@ -1580,12 +1595,7 @@
     const langBefore = ns.i18n.langOf();
     ns.i18n.init().then(() => {
       if (!active) return;
-      if (ns.i18n.langOf() !== langBefore) {
-        closePageMenu();
-        closeExpMenu();
-        refreshTexts();
-        updateBar();
-      }
+      applyLangIfChanged(langBefore);
       syncLangUI();
     });
   }

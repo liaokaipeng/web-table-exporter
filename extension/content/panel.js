@@ -114,12 +114,12 @@
    *  v2.11.2：skipSegs 兼作输出列跳过集，索引 0 = 原列本身（1..n 为各拆分段），
    *  取消原列勾选只跳过原列、新列照常导出 */
   function prefillDrafts(cols) {
-    return cols.map(col => {
-      const base = { export: true, skipSegs: new Set(), fmt: 'text', open: false };
-      if (col.multiBlock) return Object.assign(base, { checked: false, mode: 'block', pattern: '', limit: '10' });
-      if (col.hasCtrl) return Object.assign(base, { checked: false, mode: 'control', pattern: '', limit: '10' });
-      return Object.assign(base, { checked: false, mode: 'delimiter', pattern: '', limit: '10' });
-    });
+    return cols.map(col => ({
+      export: true, skipSegs: new Set(), fmt: 'text', open: false,
+      checked: false,
+      mode: col.multiBlock ? 'block' : (col.hasCtrl ? 'control' : 'delimiter'),
+      pattern: '', limit: '10'
+    }));
   }
 
   /** 已保存规则与列筛选 → 面板草稿（未配置的列回落到智能预填）
@@ -579,6 +579,11 @@
     if (el) el.textContent = kept + '/' + total;
   }
 
+  /** 拆分配置子行折叠按钮 title（splitCtlHtml 构建与 syncSplitCtl 局部同步共用，防双写漂移） */
+  const foldTitleOf = (d) => d.open
+    ? t('collapseCfgTitle', '收起配置（拆分仍生效）')
+    : t('expandCfgTitle', '展开拆分配置');
+
   /** 主行拆分控件 HTML（v2.10.2，单控件）：
    *  勾选框 = 拆分开关（勾选=拆分并展开配置；取消=删规则、恢复原样导出）；
    *  chevron 图标按钮 = 只控配置子行显隐（收起后拆分仍生效），未拆分时隐藏。
@@ -587,7 +592,7 @@
   function splitCtlHtml(col, d, hasMerges) {
     const dis = hasMerges ? ' disabled' : '';
     const hint = hasMerges ? t('noSplitMerges', '含合并单元格的表格不可拆分') : splitHint(col);
-    const foldTitle = d.open ? t('collapseCfgTitle', '收起配置（拆分仍生效）') : t('expandCfgTitle', '展开拆分配置');
+    const foldTitle = foldTitleOf(d);
     return '<span class="h2x-sctl">' +
       '<input type="checkbox" class="h2x-ck-sp"' + (d.checked ? ' checked' : '') + dis +
       ' title="' + escapeHtml(d.checked ? t('cancelSplitTitle', '取消勾选即取消该列拆分，恢复原样导出') : hint) + '"' +
@@ -604,7 +609,7 @@
   function syncSplitCtl(col, row, d) {
     const fold = row.querySelector('.h2x-sfold');
     if (!fold) return;
-    const title = d.open ? t('collapseCfgTitle', '收起配置（拆分仍生效）') : t('expandCfgTitle', '展开拆分配置');
+    const title = foldTitleOf(d);
     fold.hidden = !d.checked;
     fold.title = title;
     fold.setAttribute('aria-label', title);
@@ -1103,10 +1108,7 @@
     }
     // v2.7：保存后本面板各表均无配置 = 走了「恢复默认」/重置，提示改口径
     // （否则「已保存并记住」会让人以为旧配置还在）
-    let anyCfg = false;
-    for (const table of panelDrafts.keys()) {
-      if (deps.hasColCfg(table)) { anyCfg = true; break; }
-    }
+    const anyCfg = [...panelDrafts.keys()].some(tbl => deps.hasColCfg(tbl));
     closeSplitPanel();
     deps.toast(anyCfg ? t('toastSaved', '列设置已保存并记住，导出时生效')
       : t('toastResetDone', '已清除本页列设置记忆，恢复默认导出'),
@@ -1139,11 +1141,6 @@
     if (panelOpen && panelTable) renderPanel();
   }
 
-  /** 退出选择模式时清面板状态（面板 DOM 随主 UI 的 host 一并移除，此处只清引用） */
-  function resetPanel() {
-    clearPanelState();
-  }
-
   /** 主 UI 装配依赖接口（main.js 在 buildUI 后调用一次） */
   function initPanel(d) {
     deps = d;
@@ -1156,6 +1153,7 @@
     save: saveSplitPanel,
     isOpen: () => panelOpen,
     onTableRemoved: onTableRemoved,
-    reset: resetPanel
+    // 退出选择模式时清面板状态（面板 DOM 随主 UI 的 host 一并移除，此处只清引用）
+    reset: clearPanelState
   };
 })();

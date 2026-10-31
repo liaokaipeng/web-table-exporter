@@ -20,6 +20,8 @@
  * 按钮易混淆（误把「收起」当「取消拆分」），且「取消拆分」是不可逆操作。
  * v2.15：对话框可按住标题栏拖动移动（util.draggable：关闭按钮不启动拖动，落点视口
  * 钳制；遮罩仍全屏覆盖，移动不改变面板内的焦点圈定与交互）。
+ * v2.17：视觉随主 UI 新设计 token 升级（下划线式页签、列行 hover、遮罩加深 +
+ * 毛玻璃、语义浅底走 --c-*-fill 消去逐类暗色覆写）；结构/类名/交互逻辑零改动。
  * 保存时草稿回写主 UI 内存 Map，并经 persist 模块落盘（跨会话恢复）。
  * 依赖：主 UI 经 init() 注入 { host, selected, snapshots, splitRules,
  *   colFilters, colFormats, colOrders, hasColCfg, isBusy, updateBar, toast }
@@ -280,25 +282,28 @@
       // shadowRoot 共享，深色模式经 main.js 的 prefers 覆写自动生效）；
       // 按钮样式（h2x-btn/primary/ghost）由主 UI的 <style> 提供
       '<style>',
-      '  .h2x-mask{position:fixed;inset:0;pointer-events:auto;background:rgba(0,0,0,.28);display:flex;align-items:center;justify-content:center;z-index:1;animation:h2x-fade .15s ease-out;}',
-      '  .h2x-panel{background:var(--c-bg);color:var(--c-text);border-radius:var(--r-lg);box-shadow:var(--sh-3);width:min(1000px,95vw);max-height:86vh;overflow:auto;padding:18px 20px 16px;box-sizing:border-box;font:13px/1.5 var(--ff);animation:h2x-pop .15s ease-out;}',
+      // v2.17 面板视觉升级（随主 UI 新设计 token）：下划线式页签、行 hover、
+      // 语义浅底走 --c-*-fill token（浅深同源，不再逐类写 @media 覆写）；
+      // 结构/类名/交互逻辑零改动
+      '  .h2x-mask{position:fixed;inset:0;pointer-events:auto;background:rgba(15,23,42,.42);display:flex;align-items:center;justify-content:center;z-index:1;animation:h2x-fade .16s ease-out;}',
+      '  .h2x-panel{background:var(--c-bg);color:var(--c-text);border:1px solid var(--c-border-2);border-radius:var(--r-xl);box-shadow:var(--sh-3);width:min(1000px,95vw);max-height:86vh;overflow:auto;padding:18px 22px 16px;box-sizing:border-box;font:13px/1.5 var(--ff);animation:h2x-pop .18s var(--ease);}',
       '  .h2x-panel-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-3);cursor:move;touch-action:none;}',  /* v2.15：标题栏即拖动把手（touch-action:none 防触摸拖拽被滚动手势抢走） */
       '  .h2x-panel-top h3{margin:0;font-size:15px;font-weight:600;}',
-      '  .h2x-px{border:none;background:none;color:var(--c-text-3);cursor:pointer;font:18px/1 var(--ff);padding:2px 6px;border-radius:var(--r-xs);}',
-      '  .h2x-px:hover{color:var(--c-text);}',
-      '  .h2x-tabs{display:flex;gap:var(--sp-2);overflow-x:auto;margin-bottom:var(--sp-3);padding-bottom:2px;scrollbar-width:thin;}',
-      '  .h2x-tab{flex:none;display:inline-flex;align-items:center;gap:6px;max-width:240px;padding:5px 12px;border:1px solid var(--c-border);border-radius:var(--r-pill);background:var(--c-bg);color:var(--c-text-2);cursor:pointer;font:12px/1.4 var(--ff);}',
+      '  .h2x-px{border:none;background:none;color:var(--c-text-3);cursor:pointer;font:18px/1 var(--ff);width:28px;height:28px;padding:0;border-radius:var(--r-s);}',
+      '  .h2x-px:hover{background:var(--c-bg-3);color:var(--c-text);}',
+      // v2.17 页签改下划线式：容器底边细分割线，激活页签主色下划线
+      '  .h2x-tabs{display:flex;gap:var(--sp-4);overflow-x:auto;margin-bottom:var(--sp-3);border-bottom:1px solid var(--c-border-2);scrollbar-width:thin;}',
+      '  .h2x-tab{flex:none;display:inline-flex;align-items:center;gap:6px;max-width:240px;padding:6px 2px 8px;margin-bottom:-1px;border:none;border-bottom:2px solid transparent;background:none;color:var(--c-text-2);cursor:pointer;font:12px/1.4 var(--ff);}',
       '  .h2x-tab span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-      '  .h2x-tab:hover{border-color:var(--c-primary);color:var(--c-primary);}',
-      '  .h2x-tab.h2x-tab-on{border-color:var(--c-primary);color:var(--c-primary);background:var(--c-bg-2);font-weight:600;}',
+      '  .h2x-tab:hover{color:var(--c-text);}',
+      '  .h2x-tab.h2x-tab-on{border-bottom-color:var(--c-primary);color:var(--c-primary);font-weight:600;}',
       '  .h2x-tab-dot{width:6px;height:6px;flex:none;border-radius:50%;background:var(--c-info);}',
       '  .h2x-tab-dot.h2x-off{opacity:0;}',  /* 未配置：占位不显点，页签宽度稳定 */
-      '  .h2x-note{background:rgba(141,110,0,.12);color:var(--c-warn);border-radius:var(--r-s);padding:6px var(--sp-3);margin-bottom:var(--sp-3);}',
-      '  @media (prefers-color-scheme: dark){.h2x-note{background:rgba(255,213,79,.14);}}',
+      '  .h2x-note{background:var(--c-warn-fill);color:var(--c-warn);border-radius:var(--r-s);padding:6px var(--sp-3);margin-bottom:var(--sp-3);}',
       '  .h2x-cols{border:1px solid var(--c-border-2);border-radius:var(--r);margin-bottom:var(--sp-3);max-height:38vh;overflow-y:auto;}',
       '  .h2x-cols select,.h2x-cols input[type=text],.h2x-cols input[type=number]{height:var(--h-ctl-s);padding:0 8px;border:1px solid var(--c-border);border-radius:var(--r-s);font:12px/1.4 var(--ff);color:var(--c-text);box-sizing:border-box;background:var(--c-input);min-width:0;}',
       '  .h2x-cols select:focus,.h2x-cols input[type=text]:focus,.h2x-cols input[type=number]:focus{border-color:var(--c-primary);}',
-      '  .h2x-tools{display:flex;align-items:center;gap:var(--sp-2);padding:6px var(--sp-3);background:var(--c-bg-3);color:var(--c-text-2);font-size:12px;border-bottom:1px solid var(--c-border-2);position:sticky;top:0;z-index:1;}',
+      '  .h2x-tools{display:flex;align-items:center;gap:var(--sp-2);padding:7px var(--sp-3);background:var(--c-bg-3);color:var(--c-text-2);font-size:12px;border-bottom:1px solid var(--c-border-2);position:sticky;top:0;z-index:1;}',
       '  .h2x-tools b{color:var(--c-primary);}',
       '  .h2x-mini{display:inline-flex;align-items:center;height:var(--h-ctl-s);padding:0 10px;border:1px solid var(--c-border);border-radius:var(--r-s);background:var(--c-bg);cursor:pointer;font:12px/1.4 var(--ff);color:var(--c-text);}',
       '  .h2x-mini:hover:not(:disabled){border-color:var(--c-primary);color:var(--c-primary);}',
@@ -308,7 +313,8 @@
       '  .h2x-h2{flex:1;min-width:0;}',
       '  .h2x-h3{width:86px;flex:none;box-sizing:border-box;}',
       '  .h2x-h4{width:136px;flex:none;text-align:center;}',
-      '  .h2x-col{display:flex;gap:var(--sp-2);align-items:center;padding:6px var(--sp-3);border-bottom:1px solid var(--c-border-2);background:var(--c-bg);}',
+      '  .h2x-col{display:flex;gap:var(--sp-2);align-items:center;padding:6px var(--sp-3);border-bottom:1px solid var(--c-border-2);background:var(--c-bg);transition:background-color var(--t-fast) ease;}',
+      '  .h2x-col:hover{background:var(--c-bg-2);}',  /* v2.17 行 hover 反馈（拖拽落点更易辨认） */
       '  .h2x-col.noexp .h2x-cname{color:var(--c-text-3);}',
       '  .h2x-ckw{width:34px;flex:none;display:flex;justify-content:center;}',
       // v2.8 列顺序拖拽：手柄 16px（表头以 .h2x-hgrip 同宽占位保持列对齐）；
@@ -321,8 +327,7 @@
       '  .h2x-col.h2x-drop-before{box-shadow:inset 0 2px 0 var(--c-primary);}',
       '  .h2x-col.h2x-drop-after{box-shadow:inset 0 -2px 0 var(--c-primary);}',
       '  .h2x-cname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}',
-      '  .h2x-tag{display:inline-block;background:rgba(25,118,210,.12);color:var(--c-info);border-radius:8px;padding:0 6px;font-size:11px;font-weight:400;font-style:normal;margin-left:4px;}',
-      '  @media (prefers-color-scheme: dark){.h2x-tag{background:rgba(100,181,246,.18);}}',
+      '  .h2x-tag{display:inline-block;background:var(--c-info-fill);color:var(--c-info);border-radius:8px;padding:0 6px;font-size:11px;font-weight:400;font-style:normal;margin-left:4px;}',
       '  .h2x-fmt{width:86px;flex:none;}',
       // v2.10.2 拆分控件：勾选框（拆分/取消拆分）+ 折线 chevron 图标按钮（收起/展开配置）
       // 单控件同宽对齐；未拆分时图标按钮 hidden（占位 width 由勾选框居中）
@@ -337,8 +342,8 @@
       '  .h2x-chev{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .15s ease;}',
       '  .h2x-sfold[aria-expanded="true"] .h2x-chev{transform:rotate(180deg);}',
       '  @media (prefers-reduced-motion: reduce){.h2x-chev{transition:none;}}',
-      '  .h2x-sub{padding:8px var(--sp-3) 8px 52px;background:var(--c-bg-2);border-bottom:1px solid var(--c-border-2);border-left:3px solid rgba(46,125,50,.4);}',  /* 左缘竖线：标示拆分配置从属于上方列 */
-      '  @media (prefers-color-scheme: dark){.h2x-sub{border-left-color:rgba(76,175,80,.5);}}',
+      '  .h2x-sub{padding:8px var(--sp-3) 8px 52px;background:var(--c-bg-2);border-bottom:1px solid var(--c-border-2);border-left:3px solid rgba(21,128,61,.35);}',  /* 左缘竖线：标示拆分配置从属于上方列 */
+      '  @media (prefers-color-scheme: dark){.h2x-sub{border-left-color:rgba(34,197,94,.4);}}',
       '  .h2x-sub-cfg{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;}',
       '  .h2x-sub-cfg label{display:flex;align-items:center;gap:5px;color:var(--c-text-2);font-size:12px;}',
       // 模式下拉 / 分隔符 / 段数上限统一宽度，三控件对齐（140px 兼容英文选项与占位文案）
@@ -365,7 +370,7 @@
       '  .h2x-panel-foot{display:flex;align-items:center;gap:var(--sp-3);}',
       '  .h2x-err{color:var(--c-danger);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
       '  @keyframes h2x-fade{from{opacity:0;}}',
-      '  @keyframes h2x-pop{from{opacity:0;transform:scale(.98);}}',
+      '  @keyframes h2x-pop{from{opacity:0;transform:scale(.97);}}',
       '  .h2x-panel.h2x-dragging{user-select:none;}',  /* v2.15 拖拽中禁选（标题栏文本不被拖选） */
       '</style>',
       '<div class="h2x-panel">',

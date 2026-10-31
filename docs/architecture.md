@@ -107,12 +107,13 @@
 
 #### panel.js（依赖：util, table, split, persist）
 
-- 「列设置」面板：导出列筛选 + 拆分配置 + 列格式 + 列顺序（v2.8），保存经 `ns.persist.save()` 落盘；依赖经 `panel.init({ host, selected, snapshots, splitRules, colFilters, colFormats, colOrders, hasColCfg, isBusy, updateBar, toast })` 注入（`isBusy` 与主工具栏 `updateBar()` 的 busy 同源：采集中/导出中/子模式中）；面板样式自持，按钮样式共用主 UI 的 `<style>`
+- 「列设置」面板：导出列筛选 + 拆分配置 + 列格式 + 列顺序（v2.8），保存经 `ns.persist.save()` 落盘；依赖经 `panel.init({ host, selected, snapshots, splitRules, colFilters, colFormats, colOrders, hasColCfg, isBusy, updateBar, toast })` 注入（`isBusy` 与主工具栏 `updateBar()` 的 busy 同源：采集中/导出中/子模式中）；面板样式自持，按钮样式共用主 UI 的 `<style>`（v2.17 面板视觉随新 token 升级：下划线式页签、行 hover、语义浅底走 `--c-*-fill`，逻辑零改动）
 - 交互行为（页签、全列预览、校验、拆分控件、列序手柄、恢复默认、可拖动）见 [product.md](product.md)「列设置面板」；拆分/筛选/列顺序/列格式机制见 [mechanisms.md](mechanisms.md)「列拆分 / 导出列筛选 / 列格式」
 
 #### main.js（依赖：其余全部）
 
-- 主 UI / 事件 / 选中管理 / 导出 / 分页采集入口 / 退出清理 / 启动装配：`buildUI()` 组装 Shadow DOM 单 host（高亮层、已选覆盖层、底部工具栏、toast 容器），`hitRoot()` 解析表格逻辑根，按钮态经 `updateBar()` 单一状态源驱动（未选 / 忙态禁用）
+- 主 UI / 事件 / 选中管理 / 导出 / 分页采集入口 / 退出清理 / 启动装配：`buildUI()` 组装 Shadow DOM 单 host（高亮层、已选覆盖层、底部工具栏、toast 容器），`hitRoot()` 解析表格逻辑根，按钮态经 `updateBar()` 单一状态源驱动（未选 / 忙态禁用）。v2.17：工具栏两行式（状态行 hint/计数/清空 + 操作行按钮组），文件名模板与语言开关收进「⋯」更多菜单（`toggleMoreMenu()`，与输出方式菜单/分页面板互斥，Esc 分层收拢）；忙碌进度条 `showProg()/hideProg()`（分页采集确定性 i/N，其余微光）；首次使用引导经 `persist.prefs` 的 `introSeen` 标记（`resetHint()` 分支，选中首个表格落盘）
+- 设计 token（v2.17 现代精致风）：颜色/圆角/阴影/控件尺寸/动效 easing 与时长集中定义于 `:host`（浅深两套 `prefers-color-scheme`），语义浅底走 `--c-*-fill`（浅深同源，面板不再逐类写暗色覆写）；`.h2x-*` class 名为 E2E 选择器契约，重构只动样式与骨架布局不改名
 - 导出编排：`doExport()` 走统一管线（取值 → `buildAoa()` → 生成文件 → 后台下载，v2.7 起剪贴板分流、v2.8 起可中止）；虚拟 / 分页采集入口与进度提示
 - 机制细节（事件放行规则、采集与导出中止、翻页等待、语言切换重取词）见 [mechanisms.md](mechanisms.md)；用户向行为（工具栏各控件、toast/hint 文案）见 [product.md](product.md)「选择模式 / 分页表格 / 导出结果 / 状态反馈」
 
@@ -124,7 +125,7 @@
 
 - 语言解析三层（i18n.js `t()`）：① 手动 zh → 回落代码内中文（zh 无独立词表）② 手动 en → 按 en 词表取词——词表经后台消息 `h2x-i18n-catalog` 拉取 `_locales/en/messages.json`（词表就绪前生效语言不变；拉取失败时复位加载 Promise，后续切换/init 可重试，不判整会话死刑）③ auto（默认；`chrome.storage.local` 偏好键 `h2x.uiLang` 缺省/删除即 auto）→ `chrome.i18n.getMessage` 按浏览器 UI 语言，v2.6 语义零回归。占位符替换按 placeholders.content 的 `$1/$2` 序号（与 chrome.i18n 一致），非声明顺序
 
-- 切换控件在工具栏最右（「中文 | EN」分段按钮，main.js `pickLang()`）：按钮文案即语言自称（双语恒定、不随界面语言取词），`aria-pressed` 标注生效语言（`syncLangUI()`）；点未激活语言 = 切换并持久化，再点当前**手动**语言 = 回到跟随浏览器（auto），auto 模式点当前语言无操作。忙态禁用开关——`refreshTexts()` 只在空闲态重取词（`updateBar()` 单一状态源同步禁用态）。用户向行为见 [product.md](product.md)「选择模式」
+- 切换控件在工具栏「⋯」更多菜单内（v2.17 收纳；「中文 | EN」分段按钮，main.js `pickLang()`）：按钮文案即语言自称（双语恒定、不随界面语言取词），`aria-pressed` 标注生效语言（`syncLangUI()`）；点未激活语言 = 切换并持久化，再点当前**手动**语言 = 回到跟随浏览器（auto），auto 模式点当前语言无操作。忙态禁用开关（「⋯」入口同源灰置）——`refreshTexts()` 只在空闲态重取词（`updateBar()` 单一状态源同步禁用态）。用户向行为见 [product.md](product.md)「选择模式」
 
 - 算法层文案一并取词（导出文件内容）：控件值「是/否」、列名兜底「列N」、Sheet 名兜底「表格N」、control 拆分后缀「\_控件/\_文本」、无表头 JSON/MD 列名「列N」、HTML 默认标题「导出表格」、分页采集附注等——手动切换后导出内容同步换语言。持久化列键/表指纹取**页面表头原文**，不受 UI 语言影响
 

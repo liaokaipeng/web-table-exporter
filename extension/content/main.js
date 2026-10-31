@@ -57,6 +57,13 @@
  * 语言切换经 renderSide 按状态就地重取词
  * v2.15：底部工具栏可拖动移动（util.draggable：提示区/空白处按住拖动，按钮与
  * 输入不启动拖动，落点视口钳制；位置仅当次会话有效，退出重进回默认底部居中）
+ * v2.17：全新 UI（现代精致风）+ 渐进披露——① 设计 token 全量重校（emerald 主色
+ * 系 + slate 中性阶、多层柔和阴影、大圆角、动效 easing/时长 token，浅深两套）；
+ * ② 工具栏改两行式（状态行 hint/计数/清空 + 操作行按钮组），文件名输入框与
+ * 语言开关收进「⋯」更多菜单（低频项收纳，导出主按钮突出，class 名契约不变）；
+ * ③ 忙碌期工具栏底部细进度条（分页采集确定性 i/N，其余微光动画）；④ 首次使用
+ * 引导文案（introSeen 偏好，选中首个表格后落盘不再显示）；⑤ 面板/toast/提醒框/
+ * 选区视觉随新 token 统一升级
  */
 (() => {
   'use strict';
@@ -110,6 +117,10 @@
   const NAME_TPL_DEFAULT = '{title}_{date}-{time}'; // {title} 已清洗，整体与旧默认名等价
   let fmtTouched = false; // 本次会话用户改过输出方式：异步加载偏好不覆盖用户操作
   let nameDirty = false;  // 本次会话用户改过文件名：blur 时记住为模板
+  // v2.17 首次使用引导标记：默认已见（loadPrefs 按存储纠正为未见）——启动瞬间
+  // hint 先显示常规文案，存储读取完成（毫秒级）后未见过才切换为引导文案，
+  // 已见用户零闪动
+  let introSeen = true;
 
   /** 文件名模板渲染：{title} 页面标题（先清洗非法字符）/ {date} yyyymmdd /
    *  {time} hhmmss。单遍替换——标题里带「{date}」这类字样不会被二次替换 */
@@ -128,7 +139,19 @@
    *  await 期间用户可能已退出选择模式（active 兜底） */
   async function loadPrefs() {
     const p = await persist.prefs.load();
-    if (!p || !active) return;
+    if (!active) return;
+    // v2.17 首次使用引导：无存储记录（全新用户）或未见标记 → hint 切换为一步式
+    // 引导。await 间隙用户可能已选中表格（选中即「会用」，addSelected 置位并
+    // 落盘）——此时不再进引导态，防异步返回把已选中场景的 hint 覆盖成引导文案
+    if (!p || !p.introSeen) {
+      if (selected.size === 0) {
+        introSeen = false;
+        resetHint();
+      } else {
+        persist.prefs.save({ introSeen: 1 });
+      }
+    }
+    if (!p) return; // 无存储记录 = 全新用户：fmt/name 无可回填
     if (!fmtTouched && (FORMATS[p.fmt] || CLIPBOARD[p.fmt])) {
       fmtSel.value = p.fmt;
       syncExportBtn();
@@ -142,7 +165,10 @@
   let clearBtn = null; // v2.7 已选计数旁的「清空」小按钮（无选中时隐藏）
   let expDrop = null;   // v2.10 导出按钮右侧的输出方式下拉区（v2.11 起为箭头按钮，开合自绘菜单）
   let expWrap = null, expMenu = null; // v2.11 下拉包装（定位锚点）与自绘菜单
-  let langZhBtn = null, langEnBtn = null; // v2.6.1 工具栏语言开关（中文 | EN）
+  let langZhBtn = null, langEnBtn = null; // v2.6.1 工具栏语言开关（中文 | EN，v2.17 起收进「⋯」菜单）
+  // v2.17「⋯」更多菜单（文件名模板/语言/快捷键提示）与忙碌进度条节点
+  let moreWrap = null, moreBtn = null, moreMenu = null, moreNameLabel = null, moreLangLabel = null, moreHintEl = null;
+  let progWrap = null, progBar = null;
   let menuTitleEl = null, menuSubEl = null, pageLimitLabelEl = null, pageUnitEl = null; // 分页面板静态文案节点（语言切换就地重取词）
   let sleepInput = null, pageSleepLabelEl = null, sleepUnitEl = null; // v2.13 翻页间隔行节点（同上，语言切换就地重取词）
   let toastRoot = null;
@@ -151,7 +177,7 @@
   let disposeBarDrag = null;
   // 工具栏拖拽忽略区：交互控件与两个自绘弹层不启动拖动（点选/输入/菜单照常）；
   // 提示区与空白处即为把手（move 光标 + title 提示）
-  const BAR_DRAG_IGNORE = 'button,input,select,textarea,a,label,[role=listbox],[role=dialog]';
+  const BAR_DRAG_IGNORE = 'button,input,select,textarea,a,label,[role=listbox],[role=dialog],[role=menu]';
   // v2.14 右侧提醒框（起点归一进行中 / 距第一页过远需手动归一）
   let sideBox = null, sideIcoEl = null, sideTitleEl = null, sideMsgEl = null, sideXBtn = null;
   let sideKind = '';   // '' = 隐藏 | 'norm' 归一进行中 | 'toofar' 距第一页过远待手动归一
@@ -196,48 +222,84 @@
     // 覆写 token，color-scheme 同步原生控件配色（下拉/滚动条/勾选框）
     root.innerHTML = [
       '<style>',
+      // v2.17 设计 token 重校（现代精致风）：emerald 主色系 + slate 中性阶 +
+      // 多层柔和阴影 + 动效 easing/时长。主色白字对比度：浅色 #15803d ≥4.5:1；
+      // 深色按钮改深色字（--c-on-primary）贴合暗色系现代按钮模式。
+      // --c-*-fill 为语义色浅底（选中覆盖/toast 染底/悬停底，浅深各自调 alpha），
+      // 深色模式不再逐类写 @media 覆写
       '  :host{--ff:-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;',
-      '    --c-primary:#2e7d32;--c-info:#1976d2;--c-danger:#c62828;--c-warn:#8d6e00;',
-      '    --c-text:#1f2328;--c-text-2:#57606a;--c-text-3:#8c959f;--c-border:#c9ced6;--c-border-2:#e6e9ed;',
-      '    --c-bg:#fff;--c-bg-2:#f6f8fa;--c-bg-3:#f0f2f5;--c-input:#fff;',
-      '    --c-disable-bg:#9aa0a6;--c-disable-fg:#8b949e;',
-      '    --r-lg:10px;--r:8px;--r-s:6px;--r-xs:4px;--r-pill:999px;',
-      '    --sh-1:0 1px 3px rgba(0,0,0,.22);--sh-2:0 6px 22px rgba(0,0,0,.16);--sh-3:0 12px 34px rgba(0,0,0,.2);',
-      '    --h-ctl:30px;--h-ctl-s:26px;--sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;color-scheme:light;}',
-      '  @media (prefers-color-scheme: dark){:host{--c-primary:#4caf50;--c-info:#64b5f6;--c-danger:#ef5350;--c-warn:#ffd54f;',
-      '    --c-text:#e6edf3;--c-text-2:#b1bac4;--c-text-3:#8b949e;--c-border:#4b5259;--c-border-2:#333a42;',
-      '    --c-bg:#1e1e1e;--c-bg-2:#2a2a2a;--c-bg-3:#252525;--c-input:#30363d;',
-      '    --c-disable-bg:#555;--c-disable-fg:#8b949e;',
-      '    --sh-1:0 1px 3px rgba(0,0,0,.5);--sh-2:0 6px 22px rgba(0,0,0,.45);--sh-3:0 12px 34px rgba(0,0,0,.5);',
+      '    --c-primary:#15803d;--c-on-primary:#fff;--c-primary-soft:rgba(21,128,61,.32);--c-on-primary-soft:rgba(255,255,255,.35);',
+      '    --c-info:#2563eb;--c-danger:#dc2626;--c-warn:#b45309;',
+      '    --c-primary-fill:rgba(21,128,61,.09);--c-info-fill:rgba(37,99,235,.09);',
+      '    --c-warn-fill:rgba(180,83,9,.10);--c-danger-fill:rgba(220,38,38,.09);',
+      '    --c-text:#0f172a;--c-text-2:#475569;--c-text-3:#94a3b8;--c-border:#cbd5e1;--c-border-2:#e2e8f0;',
+      '    --c-bg:#fff;--c-bg-2:#f8fafc;--c-bg-3:#f1f5f9;--c-input:#fff;',
+      '    --c-disable-bg:#94a3b8;--c-disable-fg:#94a3b8;',
+      '    --r-xl:14px;--r-lg:12px;--r:8px;--r-s:6px;--r-xs:4px;--r-pill:999px;',
+      '    --sh-1:0 1px 2px rgba(15,23,42,.07),0 1px 3px rgba(15,23,42,.09);',
+      '    --sh-2:0 1px 2px rgba(15,23,42,.05),0 10px 28px rgba(15,23,42,.13);',
+      '    --sh-3:0 2px 8px rgba(15,23,42,.07),0 18px 50px rgba(15,23,42,.18);',
+      '    --h-ctl:34px;--h-ctl-s:28px;--sp-1:4px;--sp-2:8px;--sp-3:12px;--sp-4:16px;',
+      '    --ease:cubic-bezier(.2,.8,.2,1);--t-fast:120ms;--t-med:200ms;color-scheme:light;}',
+      '  @media (prefers-color-scheme: dark){:host{--c-primary:#22c55e;--c-on-primary:#052e16;--c-primary-soft:rgba(34,197,94,.28);--c-on-primary-soft:rgba(5,46,22,.28);',
+      '    --c-info:#60a5fa;--c-danger:#f87171;--c-warn:#fbbf24;',
+      '    --c-primary-fill:rgba(34,197,94,.14);--c-info-fill:rgba(96,165,250,.14);',
+      '    --c-warn-fill:rgba(251,191,36,.13);--c-danger-fill:rgba(248,113,113,.13);',
+      '    --c-text:#e8ecf2;--c-text-2:#aeb7c2;--c-text-3:#7e8794;--c-border:#3d4450;--c-border-2:#2c313b;',
+      '    --c-bg:#1b1e24;--c-bg-2:#242831;--c-bg-3:#20242c;--c-input:#242831;',
+      '    --c-disable-bg:#3d4450;--c-disable-fg:#7e8794;',
+      '    --sh-1:0 1px 2px rgba(0,0,0,.4);',
+      '    --sh-2:0 1px 2px rgba(0,0,0,.35),0 10px 28px rgba(0,0,0,.5);',
+      '    --sh-3:0 2px 8px rgba(0,0,0,.4),0 18px 50px rgba(0,0,0,.55);',
       '    color-scheme:dark;}}',
-      '  .h2x-hover{position:absolute;pointer-events:none;box-sizing:border-box;border:2px solid #1976d2;background:rgba(25,118,210,.14);border-radius:2px;transition:left .08s,top .08s,width .08s,height .08s;}',
-      '  .h2x-sel{position:absolute;pointer-events:none;box-sizing:border-box;border:2px solid #2e7d32;background:rgba(46,125,50,.10);border-radius:2px;}',
-      '  .h2x-badge{position:absolute;top:-12px;left:-12px;min-width:22px;height:22px;padding:0 6px;box-sizing:border-box;border-radius:11px;background:#2e7d32;color:#fff;font:700 12px/22px var(--ff);text-align:center;box-shadow:var(--sh-1);}',
+      '  .h2x-hover{position:absolute;pointer-events:none;box-sizing:border-box;border:2px solid var(--c-info);background:var(--c-info-fill);border-radius:6px;transition:left .08s,top .08s,width .08s,height .08s;}',
+      '  .h2x-sel{position:absolute;pointer-events:none;box-sizing:border-box;border:2px solid var(--c-primary);background:var(--c-primary-fill);border-radius:6px;}',
+      '  .h2x-badge{position:absolute;top:-12px;left:-12px;min-width:22px;height:22px;padding:0 6px;box-sizing:border-box;border-radius:var(--r-pill);background:var(--c-primary);color:var(--c-on-primary);font:700 12px/22px var(--ff);text-align:center;box-shadow:var(--sh-1);animation:h2x-popin .18s var(--ease);}',  /* v2.17 徽标 pop-in 入场 */
       '  .h2x-sel.h2x-flip-x .h2x-badge{left:auto;right:-12px;}',   /* 表格贴左边缘：徽标翻内侧 */
       '  .h2x-sel.h2x-flip-y .h2x-badge{top:auto;bottom:-12px;}',   /* 表格贴上边缘：徽标翻内侧 */
-      '  .h2x-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);pointer-events:auto;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;width:max-content;max-width:96vw;box-sizing:border-box;padding:10px 14px;background:var(--c-bg);border-radius:var(--r-lg);box-shadow:var(--sh-2);gap:var(--sp-2) var(--sp-3);font:13px/1.4 var(--ff);color:var(--c-text);cursor:move;touch-action:none;}',  /* v2.6.1 消除英文折行两侧空白：width:max-content 让单行内容恰可放下（中文一行外观零变化），只有超出 max-width 才折行；折行后各行剩余空间经 space-between 分布到行内间隙、两端贴边，替代默认 auto 宽度收缩成多条窄行 + center 空洞；v2.15 cursor:move + touch-action:none：整栏可拖动移动（交互控件自带 cursor 覆盖，触摸拖拽不被滚动手势抢走） */
+      // v2.17 两行式工具栏：状态行（hint/计数/清空，兼拖动把手）+ 操作行（按钮组）。
+      // v2.6.1 width:max-content 保留：单行内容恰可放下、超出 max-width 才折行
+      '  .h2x-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);pointer-events:auto;display:flex;flex-direction:column;gap:9px;width:max-content;max-width:96vw;box-sizing:border-box;padding:11px 14px 13px;background:var(--c-bg);border:1px solid var(--c-border-2);border-radius:var(--r-xl);box-shadow:var(--sh-2);font:13px/1.4 var(--ff);color:var(--c-text);cursor:move;touch-action:none;}',  /* v2.15 cursor:move + touch-action:none：整栏可拖动移动（交互控件自带 cursor 覆盖，触摸拖拽不被滚动手势抢走） */
       '  .h2x-bar.h2x-dragging{user-select:none;}',  /* v2.15 拖拽中禁选（防拖过提示文字时选中） */
-      '  .h2x-hint{color:var(--c-text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',  /* 空间不足先截断提示文案，按钮不被迫换行 */
+      '  .h2x-bar-top{display:flex;align-items:center;gap:var(--sp-2);min-width:0;}',
+      '  .h2x-bar-ops{display:flex;align-items:center;}',
+      '  .h2x-hint{flex:1 1 auto;color:var(--c-text-2);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',  /* 状态行 hint 占满剩余宽，空间不足先截断提示文案 */
       '  .h2x-count{flex:none;white-space:nowrap;}',
       '  .h2x-count b{color:var(--c-primary);}',
       '  .h2x-clear{flex:none;width:20px;height:20px;padding:0;border:none;border-radius:50%;background:var(--c-bg-3);color:var(--c-text-3);cursor:pointer;font:12px/1 var(--ff);}',  /* v2.7 清空已选：贴计数右侧的小圆钮，无选中时隐藏（空间零占用） */
       '  .h2x-clear:hover:not(:disabled){background:var(--c-danger);color:#fff;}',
       '  .h2x-clear:disabled{opacity:.5;cursor:not-allowed;}',
       '  .h2x-clear[hidden]{display:none;}',
-      '  .h2x-name{flex:1 1 150px;min-width:110px;max-width:260px;height:var(--h-ctl);padding:0 10px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 var(--ff);color:var(--c-text);outline:none;background:var(--c-input);box-sizing:border-box;cursor:text;}',  /* cursor:text：覆盖工具栏的 move 光标（v2.15），文件名是可编辑文本 */
+      // v2.17 忙碌进度条：贴工具栏底边的 3px 细条（分页采集确定性 i/N，其余微光动画）
+      '  .h2x-bar-prog{position:absolute;left:14px;right:14px;bottom:5px;height:3px;border-radius:2px;overflow:hidden;pointer-events:none;}',
+      '  .h2x-bar-prog[hidden]{display:none;}',
+      '  .h2x-bar-prog-i{height:100%;width:100%;border-radius:2px;background:var(--c-primary);opacity:.9;transition:width .25s var(--ease);}',
+      '  .h2x-bar-prog.h2x-indet .h2x-bar-prog-i{width:34%;animation:h2x-indet 1.2s var(--ease) infinite;}',
+      '  @keyframes h2x-indet{from{transform:translateX(-110%);}to{transform:translateX(340%);}}',
+      // v2.17「⋯」更多菜单：文件名模板 + 语言开关等低频项收纳（渐进披露）
+      '  .h2x-morewrap{position:relative;display:inline-flex;flex:none;}',
+      '  .h2x-morebtn{display:inline-flex;align-items:center;justify-content:center;width:var(--h-ctl);height:var(--h-ctl);padding:0;border:1px solid transparent;border-radius:var(--r);background:transparent;color:var(--c-text-2);cursor:pointer;font:700 15px/1 var(--ff);letter-spacing:1px;}',
+      '  .h2x-morebtn:hover:not(:disabled),.h2x-morewrap.h2x-open .h2x-morebtn{background:var(--c-bg-3);color:var(--c-text);}',
+      '  .h2x-morebtn:disabled{color:var(--c-disable-fg);cursor:not-allowed;}',
+      '  .h2x-moremenu{position:absolute;right:0;bottom:calc(100% + 8px);width:max-content;min-width:300px;max-width:calc(100vw - 24px);box-sizing:border-box;padding:var(--sp-3);background:var(--c-bg);border:1px solid var(--c-border-2);border-radius:var(--r-lg);box-shadow:var(--sh-3);z-index:2;display:flex;flex-direction:column;gap:10px;text-align:left;animation:h2x-in .16s var(--ease);}',
+      '  .h2x-moremenu[hidden]{display:none;}',
+      '  .h2x-morerow{display:flex;align-items:center;gap:var(--sp-2);}',
+      '  .h2x-morelabel{flex:none;min-width:52px;font-size:12px;color:var(--c-text-2);}',
+      '  .h2x-morehint{padding-top:9px;border-top:1px solid var(--c-border-2);font-size:12px;color:var(--c-text-3);white-space:nowrap;}',
+      '  .h2x-name{flex:1 1 auto;min-width:0;height:var(--h-ctl);padding:0 10px;border:1px solid var(--c-border);border-radius:var(--r-s);font:13px/1.2 var(--ff);color:var(--c-text);outline:none;background:var(--c-input);box-sizing:border-box;cursor:text;}',  /* cursor:text：覆盖工具栏的 move 光标（v2.15），文件名是可编辑文本 */
       '  .h2x-name:focus{border-color:var(--c-primary);}',
       // v2.11 输出方式下拉改自绘菜单：原生 select 弹层在部分浏览器中内容贴边且无法定制内边距。
       // 主按钮（导出当前格式）+ 右侧箭头按钮开合菜单；隐藏的原生 select 保留为格式状态与词条来源
-      '  .h2x-btn.h2x-exp{border-top-right-radius:0;border-bottom-right-radius:0;}',
+      '  .h2x-btn.h2x-exp{border-top-right-radius:0;border-bottom-right-radius:0;font-weight:600;}',
       '  .h2x-expwrap{position:relative;display:inline-flex;align-items:stretch;flex:none;margin-left:-8px;}',
-      '  .h2x-expdrop{display:inline-flex;align-items:center;justify-content:center;width:28px;padding:0;box-sizing:border-box;background:var(--c-primary);color:#fff;border:none;border-left:1px solid rgba(255,255,255,.38);border-radius:0 var(--r-s) var(--r-s) 0;cursor:pointer;}',
+      '  .h2x-expdrop{display:inline-flex;align-items:center;justify-content:center;width:28px;padding:0;box-sizing:border-box;background:var(--c-primary);color:var(--c-on-primary);border:none;border-left:1px solid var(--c-on-primary-soft,rgba(255,255,255,.35));border-radius:0 var(--r-s) var(--r-s) 0;cursor:pointer;}',
       '  .h2x-expdrop:hover:not(:disabled){filter:brightness(1.06);}',
       '  .h2x-expdrop:active:not(:disabled){filter:brightness(.94);}',
-      '  .h2x-expdrop:disabled{background:var(--c-disable-bg);border-left-color:rgba(255,255,255,.25);cursor:not-allowed;filter:none;}',
+      '  .h2x-expdrop:disabled{background:var(--c-disable-bg);border-left-color:transparent;cursor:not-allowed;filter:none;color:#fff;}',
       '  .h2x-expdrop:focus-visible{outline:2px solid var(--c-info);outline-offset:1px;}',
       '  .h2x-expcare{font-style:normal;font-size:10px;line-height:1;opacity:.9;pointer-events:none;transition:transform .15s;}',
       '  .h2x-expwrap.h2x-open .h2x-expcare{transform:rotate(180deg);}',
-      '  .h2x-expmenu{position:absolute;right:0;bottom:calc(100% + 8px);width:max-content;min-width:184px;max-width:calc(100vw - 24px);box-sizing:border-box;padding:6px;background:var(--c-bg);border:1px solid var(--c-border-2);border-radius:var(--r-lg);box-shadow:var(--sh-3);z-index:2;display:flex;flex-direction:column;gap:var(--sp-1);}',  /* 上移弹层：与「采集全部页」面板同款圆角/描边/阴影 */
+      '  .h2x-expmenu{position:absolute;right:0;bottom:calc(100% + 8px);width:max-content;min-width:184px;max-width:calc(100vw - 24px);box-sizing:border-box;padding:6px;background:var(--c-bg);border:1px solid var(--c-border-2);border-radius:var(--r-lg);box-shadow:var(--sh-3);z-index:2;display:flex;flex-direction:column;gap:var(--sp-1);animation:h2x-in .16s var(--ease);}',  /* 上移弹层：与「采集全部页」面板同款圆角/描边/阴影 */
       '  .h2x-expmenu[hidden]{display:none;}',
       '  .h2x-expopt{display:flex;align-items:center;gap:8px;width:100%;height:var(--h-ctl-s);box-sizing:border-box;padding:0 10px;border:none;border-radius:var(--r-s);background:transparent;color:var(--c-text);font:13px/1.3 var(--ff);text-align:left;white-space:nowrap;cursor:pointer;}',
       '  .h2x-expopt:hover{background:var(--c-bg-2);}',
@@ -246,25 +308,31 @@
       '  .h2x-expopt[aria-selected="true"]::after{content:"✓";margin-left:auto;font-size:12px;font-weight:400;}',
       '  .h2x-expsep{height:1px;margin:4px 2px;background:var(--c-border-2);}',
       '  .h2x-ext{display:none;}',  /* 仅作格式状态与词条来源：不参与交互与显示 */
-      '  .h2x-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--h-ctl);padding:0 16px;border:none;border-radius:var(--r-s);cursor:pointer;font:13px/1.2 var(--ff);}',
-      '  .h2x-btn:hover:not(:disabled){filter:brightness(1.06);}',
+      // v2.17 按钮体系：统一 34px 高 + 8px 圆角 + 透明描边占位（描边型按钮不改变
+      // 高度）；primary hover 补柔光投影（现代精致）；ghost 改无边框安静文本钮
+      '  .h2x-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:var(--h-ctl);padding:0 14px;border:1px solid transparent;border-radius:var(--r);cursor:pointer;font:500 13px/1.2 var(--ff);transition:box-shadow var(--t-fast) var(--ease),background-color var(--t-fast) var(--ease),border-color var(--t-fast) var(--ease),color var(--t-fast) var(--ease);}',
+      '  .h2x-btn:hover:not(:disabled){filter:brightness(1.05);}',
       '  .h2x-btn:active:not(:disabled){filter:brightness(.94);}',
-      '  .h2x-primary{background:var(--c-primary);color:#fff;}',
-      '  .h2x-primary:disabled{background:var(--c-disable-bg);color:#fff;cursor:not-allowed;filter:none;}',
-      '  .h2x-ghost{background:var(--c-bg-3);color:var(--c-text-2);border:1px solid var(--c-border);}',
-      '  .h2x-ghost:disabled{color:var(--c-disable-fg);cursor:not-allowed;}',
-      '  .h2x-split{background:var(--c-bg);color:var(--c-primary);border:1px solid var(--c-primary);position:relative;}',
-      '  .h2x-split:disabled{background:var(--c-bg-3);color:var(--c-disable-fg);border-color:var(--c-border);cursor:not-allowed;filter:none;}',
+      '  .h2x-primary{background:var(--c-primary);color:var(--c-on-primary);font-weight:600;}',
+      '  .h2x-primary:hover:not(:disabled){box-shadow:0 2px 10px var(--c-primary-soft);}',
+      '  .h2x-primary:disabled{background:var(--c-disable-bg);color:#fff;cursor:not-allowed;filter:none;box-shadow:none;}',
+      '  .h2x-ghost{background:transparent;color:var(--c-text-2);}',
+      '  .h2x-ghost:hover:not(:disabled){background:var(--c-bg-3);color:var(--c-text);filter:none;}',
+      '  .h2x-ghost:disabled{color:var(--c-disable-fg);cursor:not-allowed;background:transparent;}',
+      '  .h2x-ghost.h2x-danger{color:var(--c-danger);font-weight:600;}',  /* v2.17 忙碌三态（停止采集/停止导出）danger 强调 */
+      '  .h2x-ghost.h2x-danger:hover:not(:disabled){background:var(--c-danger-fill);color:var(--c-danger);}',
+      '  .h2x-split{background:var(--c-primary-fill);color:var(--c-primary);position:relative;}',
+      '  .h2x-split:disabled{background:var(--c-bg-3);color:var(--c-disable-fg);cursor:not-allowed;filter:none;}',
       '  .h2x-split.h2x-has-cfg::after{content:"";position:absolute;top:-4px;right:-4px;width:8px;height:8px;border-radius:50%;background:var(--c-info);box-shadow:0 0 0 2px var(--c-bg);}',  /* 已配置徽标点 */
-      '  .h2x-actions{display:flex;gap:var(--sp-2);flex:none;}',  /* 按钮组：极窄屏整组换行，不出现孤立按钮 */
+      '  .h2x-actions{display:flex;flex-wrap:wrap;gap:var(--sp-2);flex:none;}',  /* 按钮组：极窄屏整组换行，不出现孤立按钮 */
       '  .h2x-pagewrap{position:relative;flex:none;}',
-      '  .h2x-pagebtn{display:inline-flex;align-items:center;gap:6px;height:var(--h-ctl);padding:0 12px;background:var(--c-bg);color:var(--c-info);border:1px solid var(--c-info);border-radius:var(--r-s);cursor:pointer;font:13px/1.2 var(--ff);white-space:nowrap;}',  /* v2.5.2 采集全部页按钮：分页采集下拉入口（信息蓝描边，与列设置的绿区分） */
-      '  .h2x-pagebtn:hover:not(:disabled){filter:brightness(1.06);}',
+      '  .h2x-pagebtn{display:inline-flex;align-items:center;gap:6px;height:var(--h-ctl);padding:0 12px;background:var(--c-bg);color:var(--c-info);border:1px solid var(--c-border);border-radius:var(--r);cursor:pointer;font:500 13px/1.2 var(--ff);white-space:nowrap;}',  /* v2.5.2 采集全部页按钮：分页采集下拉入口（信息蓝文字，与列设置的绿区分）；v2.17 描边中性、hover 换 info 描边 */
+      '  .h2x-pagebtn:hover:not(:disabled){border-color:var(--c-info);background:var(--c-info-fill);filter:none;}',
       '  .h2x-pagebtn:active:not(:disabled){filter:brightness(.94);}',
-      '  .h2x-pagebtn:disabled{background:var(--c-bg-3);color:var(--c-disable-fg);border-color:var(--c-border);cursor:not-allowed;filter:none;}',
+      '  .h2x-pagebtn:disabled{background:var(--c-bg-3);color:var(--c-disable-fg);border-color:transparent;cursor:not-allowed;filter:none;}',
       '  .h2x-pagebtn .h2x-care{flex:none;font-style:normal;font-size:10px;line-height:1;opacity:.85;transition:transform .15s;}',  /* 下拉箭头随展开旋转 */
       '  .h2x-pagewrap.h2x-open .h2x-care{transform:rotate(180deg);}',
-      '  .h2x-pagemenu{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);width:346px;max-width:calc(100vw - 24px);box-sizing:border-box;padding:var(--sp-3);background:var(--c-bg);border:1px solid var(--c-border-2);border-radius:var(--r-lg);box-shadow:var(--sh-3);z-index:2;text-align:left;}',  /* 下拉面板：上移弹层，深色/浅色随 token；v2.6 加宽至 346px（英文文案更长防文字溢出）+ 窄屏上限 */
+      '  .h2x-pagemenu{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);width:346px;max-width:calc(100vw - 24px);box-sizing:border-box;padding:var(--sp-3);background:var(--c-bg);border:1px solid var(--c-border-2);border-radius:var(--r-lg);box-shadow:var(--sh-3);z-index:2;text-align:left;animation:h2x-in .16s var(--ease);}',  /* 下拉面板：上移弹层，深色/浅色随 token；v2.6 加宽至 346px（英文文案更长防文字溢出）+ 窄屏上限 */
       '  .h2x-pagemenu[hidden]{display:none;}',
       '  .h2x-pagemenu-title{font-size:13px;font-weight:700;color:var(--c-text);}',
       '  .h2x-pagemenu-sub{font-size:12px;color:var(--c-text-3);margin:4px 0 12px;line-height:1.5;}',
@@ -277,20 +345,20 @@
       '  .h2x-pageunit{font-size:12px;color:var(--c-text-2);flex:none;white-space:nowrap;}',  /* 页数单位按内容自适应宽（中文「页」短、英文 pages 长，固定宽会溢出） */
       '  .h2x-pagemenu-actions{display:flex;gap:var(--sp-2);justify-content:flex-end;}',
       '  .h2x-pagemenu-actions .h2x-btn{font-size:12px;height:var(--h-ctl-s);padding:0 12px;}',
-      '  .h2x-lang{flex:none;display:inline-flex;align-items:center;gap:1px;height:var(--h-ctl);padding:2px;border:1px solid var(--c-border);border-radius:var(--r-s);background:var(--c-bg-3);box-sizing:border-box;}',  /* v2.6.1 语言分段开关：紧凑胶囊，中文/EN 各自独立按钮 */
+      '  .h2x-lang{flex:none;display:inline-flex;align-items:center;gap:1px;height:var(--h-ctl);padding:3px;border:1px solid var(--c-border-2);border-radius:var(--r-s);background:var(--c-bg-3);box-sizing:border-box;}',  /* v2.6.1 语言分段开关：紧凑胶囊，中文/EN 各自独立按钮 */
       '  .h2x-langbtn{border:none;background:transparent;color:var(--c-text-2);font:12px/1 var(--ff);padding:4px 9px;border-radius:var(--r-xs);cursor:pointer;}',
       '  .h2x-langbtn:hover:not(:disabled){color:var(--c-text);}',
-      '  .h2x-langbtn[aria-pressed="true"]{background:var(--c-primary);color:#fff;}',
+      '  .h2x-langbtn[aria-pressed="true"]{background:var(--c-primary);color:var(--c-on-primary);font-weight:600;}',
       '  .h2x-langbtn:disabled{opacity:.5;cursor:not-allowed;}',
       '  .h2x-toasts{position:fixed;top:16px;right:16px;display:flex;flex-direction:column;gap:var(--sp-2);z-index:1;pointer-events:none;font:13px/1.4 var(--ff);}',
-      '  .h2x-toast{pointer-events:auto;display:flex;align-items:center;gap:11px;max-width:min(460px,86vw);padding:11px 14px 11px 12px;border-radius:var(--r);background:var(--c-bg);color:var(--c-text);box-shadow:var(--sh-3);animation:h2x-in .18s ease-out;border-left:4px solid var(--c-info);font-weight:600;}',
-      '  .h2x-toast-ico{flex:none;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;background:var(--c-info);font:700 13px/22px var(--ff);text-align:center;}',
-      '  .h2x-toast-info{background:linear-gradient(0deg,rgba(25,118,210,.10),rgba(25,118,210,.10)),var(--c-bg);}',
-      '  .h2x-toast-success{border-left-color:var(--c-primary);background:linear-gradient(0deg,rgba(46,125,50,.10),rgba(46,125,50,.10)),var(--c-bg);}',
-      '  .h2x-toast-success .h2x-toast-ico{background:var(--c-primary);}',
-      '  .h2x-toast-warn{border-left-color:var(--c-warn);background:linear-gradient(0deg,rgba(141,110,0,.12),rgba(141,110,0,.12)),var(--c-bg);}',
+      '  .h2x-toast{pointer-events:auto;display:flex;align-items:center;gap:11px;max-width:min(460px,86vw);padding:11px 14px 11px 12px;border-radius:var(--r);background:var(--c-bg);color:var(--c-text);box-shadow:var(--sh-3);animation:h2x-in .2s var(--ease);border-left:3px solid var(--c-info);font-weight:600;}',
+      '  .h2x-toast-ico{flex:none;width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;color:#fff;background:var(--c-info);font:700 13px/22px var(--ff);text-align:center;}',  /* v2.17 圆角方形徽标（现代精致） */
+      '  .h2x-toast-info{background:linear-gradient(0deg,var(--c-info-fill),var(--c-info-fill)),var(--c-bg);}',
+      '  .h2x-toast-success{border-left-color:var(--c-primary);background:linear-gradient(0deg,var(--c-primary-fill),var(--c-primary-fill)),var(--c-bg);}',
+      '  .h2x-toast-success .h2x-toast-ico{background:var(--c-primary);color:var(--c-on-primary);}',
+      '  .h2x-toast-warn{border-left-color:var(--c-warn);background:linear-gradient(0deg,var(--c-warn-fill),var(--c-warn-fill)),var(--c-bg);}',
       '  .h2x-toast-warn .h2x-toast-ico{background:var(--c-warn);}',
-      '  .h2x-toast-error{border-left-color:var(--c-danger);background:linear-gradient(0deg,rgba(198,40,40,.10),rgba(198,40,40,.10)),var(--c-bg);}',
+      '  .h2x-toast-error{border-left-color:var(--c-danger);background:linear-gradient(0deg,var(--c-danger-fill),var(--c-danger-fill)),var(--c-bg);}',
       '  .h2x-toast-error .h2x-toast-ico{background:var(--c-danger);}',
       '  .h2x-toast-msg{flex:1;min-width:0;color:var(--c-text);}',
       '  .h2x-toast-btn{height:var(--h-ctl-s);padding:0 10px;border:1px solid var(--c-border);border-radius:var(--r-s);background:var(--c-bg);color:var(--c-text-2);cursor:pointer;font:12px/1.4 var(--ff);}',
@@ -299,7 +367,7 @@
       '  .h2x-toast-x:hover{color:var(--c-text);}',
       // v2.14 右侧提醒框：起点归一进行中 / 距第一页过远需手动归一时驻屏提示。
       // 右侧垂直居中（与右上角 toast 错开、不挡底部工具栏），警示态用琥珀色系
-      '  .h2x-side{position:fixed;right:16px;top:50%;transform:translateY(-50%);width:min(300px,calc(100vw - 32px));box-sizing:border-box;padding:13px 14px;background:var(--c-bg);border:1px solid var(--c-border-2);border-left:4px solid var(--c-info);border-radius:var(--r-lg);box-shadow:var(--sh-3);z-index:2;pointer-events:auto;font:13px/1.5 var(--ff);color:var(--c-text);animation:h2x-slide .2s ease-out;}',
+      '  .h2x-side{position:fixed;right:16px;top:50%;transform:translateY(-50%);width:min(300px,calc(100vw - 32px));box-sizing:border-box;padding:13px 14px;background:var(--c-bg);border:1px solid var(--c-border-2);border-left:3px solid var(--c-info);border-radius:var(--r-lg);box-shadow:var(--sh-3);z-index:2;pointer-events:auto;font:13px/1.5 var(--ff);color:var(--c-text);animation:h2x-slide .22s var(--ease);}',
       '  .h2x-side[hidden]{display:none;}',
       '  .h2x-side-warn{border-left-color:var(--c-warn);}',
       '  .h2x-side-warn .h2x-side-ico{background:var(--c-warn);}',
@@ -312,65 +380,88 @@
       '  @keyframes h2x-slide{from{opacity:0;transform:translate(24px,-50%);}}',
       '  input[type=checkbox],input[type=radio]{width:15px;height:15px;margin:0;accent-color:var(--c-primary);}',
       '  button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--c-info);outline-offset:1px;}',
-      '  @keyframes h2x-in{from{opacity:0;transform:translateY(-8px);}}',
+      '  @keyframes h2x-in{from{opacity:0;transform:translateY(-6px);}}',
+      '  @keyframes h2x-popin{from{opacity:0;transform:scale(.5);}}',
       '  @media (prefers-reduced-motion: reduce){:host *{animation:none!important;transition:none!important;}}',
       '</style>',
       // 骨架只放结构与数据驱动内容（格式选项列表）；全部静态文案经
       // fillStaticTexts() 统一填充——与语言切换的 refreshTexts 同一入口，
       // 杜绝同一批 t() 在 buildUI / refreshTexts 双写（改一处漏一处）
       '<div class="h2x-hover" hidden></div>',
+      // v2.17 两行式工具栏：状态行（hint/计数/清空，兼拖动把手）+ 操作行（按钮组，
+      // 直系子级选择器契约不变：.h2x-actions > .h2x-primary / .h2x-ghost）；
+      // 文件名输入框与语言开关收进「⋯」更多菜单（低频项收纳）
       '<div class="h2x-bar">',
-      '  <span class="h2x-hint"></span>',
-      '  <span class="h2x-count"></span>',
-      '  <button type="button" class="h2x-clear" hidden>✕</button>',
-      '  <input class="h2x-name" type="text" spellcheck="false" />',
-      '  <div class="h2x-actions">',
-      '    <button class="h2x-btn h2x-split" disabled></button>',
-      '    <div class="h2x-pagewrap">',
-      '      <button type="button" class="h2x-btn h2x-pagebtn" aria-haspopup="dialog" aria-expanded="false" disabled></button>',
-      '      <div class="h2x-pagemenu" role="dialog" hidden>',
-      '        <div class="h2x-pagemenu-title"></div>',
-      '        <div class="h2x-pagemenu-sub"></div>',
-      '        <div class="h2x-pagemenu-row">',
-      '          <label for="h2x-pages"></label>',
-      '          <input class="h2x-pages" id="h2x-pages" type="number" min="1" step="1" />',
-      '          <span class="h2x-pageunit"></span>',
-      '        </div>',
-      '        <div class="h2x-pagemenu-row h2x-sleeprow">',
-      '          <label for="h2x-sleep"></label>',
-      '          <input class="h2x-sleep" id="h2x-sleep" type="number" min="0" step="0.1" value="0.5" />',
-      '          <span class="h2x-pageunit"></span>',
-      '        </div>',
-      '        <div class="h2x-pagemenu-actions">',
-      '          <button type="button" class="h2x-btn h2x-ghost h2x-pagecancel"></button>',
-      '          <button type="button" class="h2x-btn h2x-primary h2x-pagego"></button>',
+      '  <div class="h2x-bar-top">',
+      '    <span class="h2x-hint"></span>',
+      '    <span class="h2x-count"></span>',
+      '    <button type="button" class="h2x-clear" hidden>✕</button>',
+      '  </div>',
+      '  <div class="h2x-bar-ops">',
+      '    <div class="h2x-actions">',
+      '      <button class="h2x-btn h2x-split" disabled></button>',
+      '      <div class="h2x-pagewrap">',
+      '        <button type="button" class="h2x-btn h2x-pagebtn" aria-haspopup="dialog" aria-expanded="false" disabled></button>',
+      '        <div class="h2x-pagemenu" role="dialog" hidden>',
+      '          <div class="h2x-pagemenu-title"></div>',
+      '          <div class="h2x-pagemenu-sub"></div>',
+      '          <div class="h2x-pagemenu-row">',
+      '            <label for="h2x-pages"></label>',
+      '            <input class="h2x-pages" id="h2x-pages" type="number" min="1" step="1" />',
+      '            <span class="h2x-pageunit"></span>',
+      '          </div>',
+      '          <div class="h2x-pagemenu-row h2x-sleeprow">',
+      '            <label for="h2x-sleep"></label>',
+      '            <input class="h2x-sleep" id="h2x-sleep" type="number" min="0" step="0.1" value="0.5" />',
+      '            <span class="h2x-pageunit"></span>',
+      '          </div>',
+      '          <div class="h2x-pagemenu-actions">',
+      '            <button type="button" class="h2x-btn h2x-ghost h2x-pagecancel"></button>',
+      '            <button type="button" class="h2x-btn h2x-primary h2x-pagego"></button>',
+      '          </div>',
       '        </div>',
       '      </div>',
-      '    </div>',
-      '    <button class="h2x-btn h2x-primary h2x-exp" disabled></button>',
+      '      <button class="h2x-btn h2x-primary h2x-exp" disabled></button>',
       // v2.11 右侧箭头按钮开合自绘菜单；隐藏 select 仅作格式状态与词条来源（不参与交互）
-      '    <span class="h2x-expwrap">',
-      '      <button type="button" class="h2x-expdrop" disabled aria-haspopup="listbox" aria-expanded="false"></button>',
-      '        <i class="h2x-expcare" aria-hidden="true">▾</i>',
-      '      </button>',
-      '      <select class="h2x-ext" hidden tabindex="-1" aria-hidden="true">' +
+      '      <span class="h2x-expwrap">',
+      '        <button type="button" class="h2x-expdrop" disabled aria-haspopup="listbox" aria-expanded="false"></button>',
+      '          <i class="h2x-expcare" aria-hidden="true">▾</i>',
+      '        </button>',
+      '        <select class="h2x-ext" hidden tabindex="-1" aria-hidden="true">' +
       Object.keys(FORMATS).map(k => '<option value="' + k + '">' + FORMATS[k].label + ' (.' + FORMATS[k].ext + ')</option>').join('') +
       Object.keys(CLIPBOARD).map(k => '<option value="' + k + '">' + t(CLIPBOARD[k].key, CLIPBOARD[k].fb) + '</option>').join('') +
       '</select>',
-      '      <div class="h2x-expmenu" role="listbox" hidden>' +
+      '        <div class="h2x-expmenu" role="listbox" hidden>' +
       Object.keys(FORMATS).map(k => '<button type="button" class="h2x-expopt" role="option" data-k="' + k + '" aria-selected="false">' + FORMATS[k].label + ' (.' + FORMATS[k].ext + ')</button>').join('') +
       '<div class="h2x-expsep" aria-hidden="true"></div>' +
       Object.keys(CLIPBOARD).map(k => '<button type="button" class="h2x-expopt" role="option" data-k="' + k + '" aria-selected="false">' + t(CLIPBOARD[k].key, CLIPBOARD[k].fb) + '</button>').join('') +
       '</div>',
-      '    </span>',
-      '    <button class="h2x-btn h2x-ghost"></button>',
+      '      </span>',
+      // v2.17「⋯」更多菜单：文件名模板 + 语言开关（低频项收纳）+ 快捷键提示。
+      // 语言分段开关按钮文案即语言自称（中文/EN），刻意双语恒定、不随界面语言
+      // 取词——任何语言下都能自指其名；aria-pressed 标注当前生效语言
+      '      <div class="h2x-morewrap">',
+      '        <button type="button" class="h2x-morebtn" disabled aria-haspopup="menu" aria-expanded="false">⋯</button>',
+      '        <div class="h2x-moremenu" role="menu" hidden>',
+      '          <div class="h2x-morerow">',
+      '            <label class="h2x-morelabel" for="h2x-name"></label>',
+      '            <input class="h2x-name" id="h2x-name" type="text" spellcheck="false" />',
+      '          </div>',
+      '          <div class="h2x-morerow">',
+      '            <span class="h2x-morelabel"></span>',
+      '            <div class="h2x-lang" role="group" aria-label="界面语言 / Language">' +
+      '              <button type="button" class="h2x-langbtn h2x-langzh" aria-pressed="false">中文</button>' +
+      '              <button type="button" class="h2x-langbtn h2x-langen" aria-pressed="false">EN</button>' +
+      '            </div>',
+      '          </div>',
+      '          <div class="h2x-morehint"></div>',
+      '        </div>',
+      '      </div>',
+      '      <button class="h2x-btn h2x-ghost"></button>',
+      '    </div>',
       '  </div>',
-      // v2.6.1 语言分段开关：按钮文案即语言自称（中文/EN），刻意双语恒定、不随
-      // 界面语言取词——任何语言下都能自指其名；aria-pressed 标注当前生效语言
-      '  <div class="h2x-lang" role="group" aria-label="界面语言 / Language">' +
-      '    <button type="button" class="h2x-langbtn h2x-langzh" aria-pressed="false">中文</button>' +
-      '    <button type="button" class="h2x-langbtn h2x-langen" aria-pressed="false">EN</button>' +
-      '  </div>',
+      // v2.17 忙碌进度条：贴底边细条（采集/导出期间显示，见 showProg/hideProg）
+      '  <div class="h2x-bar-prog" hidden><div class="h2x-bar-prog-i"></div></div>',
       '</div>',
       '<div class="h2x-toasts"></div>',
       // v2.14 右侧提醒框（起点归一进行中 / 距第一页过远需手动归一；role 按
@@ -415,6 +506,15 @@
     sleepUnitEl = root.querySelector('.h2x-sleeprow .h2x-pageunit');
     langZhBtn = root.querySelector('.h2x-langzh');
     langEnBtn = root.querySelector('.h2x-langen');
+    // v2.17「⋯」更多菜单与忙碌进度条节点
+    moreWrap = root.querySelector('.h2x-morewrap');
+    moreBtn = root.querySelector('.h2x-morebtn');
+    moreMenu = root.querySelector('.h2x-moremenu');
+    moreNameLabel = root.querySelector('label.h2x-morelabel'); // 语言行的标签是 span，label 唯一
+    moreLangLabel = root.querySelector('span.h2x-morelabel');
+    moreHintEl = root.querySelector('.h2x-morehint');
+    progWrap = root.querySelector('.h2x-bar-prog');
+    progBar = root.querySelector('.h2x-bar-prog-i');
     toastRoot = root.querySelector('.h2x-toasts');
     // v2.14 右侧提醒框节点
     sideBox = root.querySelector('.h2x-side');
@@ -458,6 +558,10 @@
     expMenu.addEventListener('keydown', onExpMenuKey);
     expWrap.addEventListener('focusout', e => { if (!expWrap.contains(e.relatedTarget)) closeExpMenu(); });
     root.addEventListener('click', e => { if (!expWrap.contains(e.target)) closeExpMenu(); });
+    // v2.17「⋯」菜单：开合 + 焦点移出/点击菜单外收拢（与输出方式菜单同款模式）
+    moreBtn.addEventListener('click', toggleMoreMenu);
+    moreMenu.addEventListener('focusout', e => { if (!moreWrap.contains(e.relatedTarget)) closeMoreMenu(); });
+    root.addEventListener('click', e => { if (!moreWrap.contains(e.target)) closeMoreMenu(); });
     // v2.9 文件名：编辑过即记住为模板（blur 时落盘，点导出按钮会先触发 blur）；
     // 清空输入框 = 回落默认命名
     nameInput.addEventListener('input', () => { nameDirty = true; });
@@ -511,6 +615,13 @@
     sleepUnitEl.textContent = t('pageSleepUnit', '秒');
     pageCancelBtn.textContent = t('btnCancelShort', '取消');
     pageGoBtn.textContent = t('btnStart', '开始采集');
+    // v2.17 「⋯」更多菜单静态文案（文件名槽 title/aria 同前：模板占位符说明）
+    moreBtn.title = t('moreBtnTitle', '更多设置');
+    moreBtn.setAttribute('aria-label', moreBtn.title);
+    moreMenu.setAttribute('aria-label', t('moreMenuAria', '更多设置'));
+    moreNameLabel.textContent = t('moreNameLabel', '文件名');
+    moreLangLabel.textContent = t('moreLangLabel', '语言');
+    moreHintEl.textContent = t('moreKeysHint', 'Enter 导出 · Esc 退出');
     sideXBtn.setAttribute('aria-label', t('closeAria', '关闭'));
   }
 
@@ -556,6 +667,7 @@
 
   function openExpMenu() {
     if (expDrop.disabled) return;
+    closeMoreMenu(); // v2.17 弹层互斥：同时只开一个
     syncExpMenu();
     expMenu.hidden = false;
     expWrap.classList.add('h2x-open');
@@ -593,6 +705,51 @@
     if (next) next.focus();
   }
 
+  /* ---------------- 「⋯」更多菜单（v2.17：低频项收纳） ----------------
+   * 文件名模板 + 语言开关 + 快捷键提示收进单一弹层，工具栏操作行只留高频项。
+   * 开合/外点收拢/焦点移出收拢与输出方式菜单同款模式；三个弹层（输出方式/
+   * 分页设置/更多）互斥 */
+
+  function openMoreMenu() {
+    if (moreBtn.disabled) return;
+    closeExpMenu(); // 弹层互斥：同时只开一个
+    closePageMenu();
+    moreMenu.hidden = false;
+    moreWrap.classList.add('h2x-open');
+    moreBtn.setAttribute('aria-expanded', 'true');
+    nameInput.focus(); // 进入即聚焦文件名槽（菜单内最高频编辑项）
+  }
+
+  function closeMoreMenu() {
+    if (moreMenu.hidden) return;
+    moreMenu.hidden = true;
+    moreWrap.classList.remove('h2x-open');
+    moreBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  function toggleMoreMenu() {
+    moreMenu.hidden ? openMoreMenu() : closeMoreMenu();
+  }
+
+  /* ---------------- 忙碌进度条（v2.17） ----------------
+   * 采集/导出期间贴工具栏底边显示：showProg(cur, total) 确定性（分页采集
+   * onProgress 驱动，total > 0 时按页数比例）；showProg() 无参 = 微光动画
+   * （虚拟滚动/导出等总量未知场景）。hideProg 在 withCollecting / doExport
+   * 的 finally 无条件收起 */
+
+  function showProg(cur, total) {
+    progWrap.hidden = false;
+    const det = Number(total) > 0;
+    progWrap.classList.toggle('h2x-indet', !det);
+    progBar.style.width = det ? Math.min(100, Math.round((cur / total) * 100)) + '%' : '';
+  }
+
+  function hideProg() {
+    progWrap.hidden = true;
+    progWrap.classList.remove('h2x-indet');
+    progBar.style.width = '';
+  }
+
   /* ---------------- 界面语言开关（v2.6.1） ---------------- */
 
   /** 语言开关高亮同步：aria-pressed 标注当前生效语言（手动选择优先，否则浏览器） */
@@ -625,6 +782,7 @@
     if (ns.i18n.langOf() === before) return;
     closePageMenu();
     closeExpMenu();
+    closeMoreMenu(); // v2.17 三个自绘弹层一并收拢（静态文案随 refreshTexts 重取）
     refreshTexts();
     updateBar(); // 同步计数/主按钮 title/开关禁用态（语言变化后文案重取词）
   }
@@ -704,14 +862,21 @@
     };
   }
 
-  // 工具栏提示统一入口：文案 + 语义色（默认灰）；引导/进行时文案经此写入
+  // 工具栏提示统一入口：文案 + 语义色（默认空 = 走 .h2x-hint 的 token 灰，
+  // v2.17 不再内联硬编码灰值）；引导/进行时文案经此写入
   function setHint(msg, color) {
     hintEl.textContent = msg;
-    hintEl.style.color = color || '#666';
+    hintEl.style.color = color || '';
   }
 
   function resetHint() {
-    setHint(hasTables ? t('hintSelect', '点击选择表格（可多选）') : t('hintNoTables', '页面未找到表格'));
+    // v2.17 首次使用引导：未见引导时 hint 给一步式完整指引，选中首个表格后
+    // （addSelected 落盘 introSeen）回落常规短文案
+    setHint(hasTables
+      ? (introSeen
+        ? t('hintSelect', '点击选择表格（可多选）')
+        : t('hintIntro', '点击网页中的表格选中（可多选），然后点「导出」；按 Esc 退出'))
+      : t('hintNoTables', '页面未找到表格'));
   }
 
   /* ---------------- 右侧提醒框（v2.14：起点归一进行中 / 需手动归一） ----------------
@@ -861,7 +1026,7 @@
   function flashLink(link) {
     const prevOutline = link.style.getPropertyValue('outline');
     const prevOffset = link.style.getPropertyValue('outline-offset');
-    link.style.setProperty('outline', '3px solid #c62828', 'important');
+    link.style.setProperty('outline', '3px solid #dc2626', 'important');
     link.style.setProperty('outline-offset', '2px', 'important');
     setTimeout(() => {
       link.style.removeProperty('outline');
@@ -897,6 +1062,13 @@
       return;
     }
     if (e.key === 'Escape') {
+      if (!moreMenu.hidden) { // v2.17 「⋯」菜单优先收拢（避免误退出选择模式），焦点回按钮
+        e.preventDefault();
+        e.stopPropagation();
+        closeMoreMenu();
+        moreBtn.focus();
+        return;
+      }
       if (!expMenu.hidden) { // v2.11 输出方式菜单优先收拢（避免误退出选择模式），焦点回箭头
         e.preventDefault();
         e.stopPropagation();
@@ -960,8 +1132,13 @@
     host.shadowRoot.appendChild(box);
     selected.set(table, box);
     positionBox(box, table);
+    if (!introSeen) { // v2.17 用户已会选表：落盘引导已见标记，hint 回常规文案
+      introSeen = true;
+      persist.prefs.save({ introSeen: 1 });
+    }
     restoreFromPersist(table); // 持久化恢复：按表指纹回填该表的拆分规则/列筛选
     updateBar();
+    resetHint(); // v2.17：引导文案在首次选中后即回落常规文案（introSeen 已置位）
   }
 
   /** 该表是否配置了拆分/列筛选/列格式/列顺序（持久化恢复判重与「列设置」徽标点共用） */
@@ -1028,6 +1205,8 @@
     lockExpDrop();
     splitBtn.disabled = true;
     cancelBtn.textContent = t('btnStop', '停止采集'); // v2.0：采集中可中止（不退出选择模式）
+    cancelBtn.classList.add('h2x-danger'); // v2.17 停止态 danger 强调
+    showProg(); // v2.17 进度条默认微光（分页采集 onProgress 升级为确定性 i/N）
     try {
       await fn(gen);
     } catch (err) {
@@ -1038,16 +1217,18 @@
     } finally {
       collecting = false;
       cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
+      cancelBtn.classList.remove('h2x-danger');
+      hideProg();
       updateBar();
     }
   }
 
   function startCollect(table) {
     return withCollecting(async (gen) => {
-      setHint(t('hintVirtual', '虚拟表格采集滚动中…'), '#1976d2');
+      setHint(t('hintVirtual', '虚拟表格采集滚动中…'), '#2563eb');
       const snap = await collectVirtual(
         table,
-        (n) => { if (gen === genToken) setHint(t('hintVirtualN', '虚拟表格采集滚动中… 已采集 ' + n + ' 行', n), '#1976d2'); },
+        (n) => { if (gen === genToken) setHint(t('hintVirtualN', '虚拟表格采集滚动中… 已采集 ' + n + ' 行', n), '#2563eb'); },
         () => !active || gen !== genToken
       );
       if (!active || gen !== genToken) return; // 已退出/已作废（含「停止采集」）
@@ -1082,6 +1263,7 @@
    *  UI 状态，不进入选择模式；「开始采集」才触发 onCollectAllPages */
   function openPageMenu() {
     if (pageBtn.disabled) return;
+    closeMoreMenu(); // v2.17 弹层互斥：同时只开一个
     pageMenu.hidden = false;
     pageWrap.classList.add('h2x-open');
     pageBtn.setAttribute('aria-expanded', 'true');
@@ -1127,7 +1309,7 @@
     specifying = true;
     hoverTable = null;
     hoverBox.hidden = true;
-    setHint(t('hintSpecify', '未识别到分页器，请点击「下一页」按钮（Esc 取消）'), '#1976d2');
+    setHint(t('hintSpecify', '未识别到分页器，请点击「下一页」按钮（Esc 取消）'), '#2563eb');
     updateBar();
   }
 
@@ -1150,7 +1332,7 @@
     await withCollecting(async (gen) => {
       closePageMenu(); // v2.5.2 采集中收拢下拉并禁用主按钮（updateBar 同步）
       pageBtn.disabled = true;
-      setHint(t('hintPaged', '分页采集翻页中…'), '#1976d2');
+      setHint(t('hintPaged', '分页采集翻页中…'), '#2563eb');
       const manual = pager.name === 'manual' && pager.loc; // 手动指定/记忆复用的翻页按钮
       if (manual) persist.pager.save(table, pager.loc); // 记住用户指定的按钮（复用路径写入最新定位器，索引漂移自愈）
       // 页数上限：输入框留空/非法值 = 0 = 采集全部页
@@ -1166,7 +1348,8 @@
           if (gen !== genToken) return;
           setHint(total > 0
             ? t('hintPagedTotal', '分页采集翻页中… 第 ' + page + '/' + total + ' 页，已采集 ' + rows + ' 行', page, total, rows)
-            : t('hintPagedN', '分页采集翻页中… 第 ' + page + ' 页，已采集 ' + rows + ' 行', page, rows), '#1976d2');
+            : t('hintPagedN', '分页采集翻页中… 第 ' + page + ' 页，已采集 ' + rows + ' 行', page, rows), '#2563eb');
+          showProg(page, total); // v2.17：有总页数 → 进度条按页数比例；否则保持微光
         },
         () => !active || gen !== genToken,
         maxPages,
@@ -1234,6 +1417,9 @@
     // 防「切一半」——refreshTexts 只按空闲态就地重取词）
     langZhBtn.disabled = busy;
     langEnBtn.disabled = busy;
+    // v2.17：「⋯」更多菜单同源禁用；忙碌期弹层不可留在屏上
+    moreBtn.disabled = busy;
+    if (busy) closeMoreMenu();
     // v2.0：已选表中存在拆分/筛选/格式配置 → 「列设置」按钮带徽标点
     const cfg = [...selected.keys()].some(hasColCfg);
     splitBtn.classList.toggle('h2x-has-cfg', cfg);
@@ -1428,7 +1614,9 @@
     lockExpDrop();
     exportBtn.textContent = copyKey ? t('copyBtnBusy', '复制中…') : t('exportBtnBusy', '导出中…');
     cancelBtn.textContent = t('btnStopExport', '停止导出'); // v2.8：导出可中止（对齐「停止采集」交互）
-    setHint(copyKey ? t('hintCopying', '正在复制到剪贴板…') : t('hintGenerating', '正在生成导出文件…'), '#1976d2');
+    cancelBtn.classList.add('h2x-danger'); // v2.17 停止态 danger 强调
+    showProg(); // v2.17 导出总量未知：微光进度条
+    setHint(copyKey ? t('hintCopying', '正在复制到剪贴板…') : t('hintGenerating', '正在生成导出文件…'), '#2563eb');
     try {
       await persist.ready(); // 兜底注入初期的存储加载竞态（正常情况早已就绪）
       if (collecting || !selected.size) return; // await 期间状态可能变化
@@ -1520,6 +1708,8 @@
       const aborted = !copied && gen !== exportToken; // v2.8：本任务被「停止导出」作废（退出场景由 active 兜底区分）
       exporting = false;
       cancelBtn.textContent = t('btnCancel', '取消 (Esc)');
+      cancelBtn.classList.remove('h2x-danger');
+      hideProg();
       syncExportBtn(); // 恢复按钮文案（导出中… → 导出 <格式>）
       updateBar();
       if (active) {

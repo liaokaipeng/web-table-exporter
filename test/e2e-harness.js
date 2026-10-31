@@ -143,7 +143,7 @@
     const link = document.querySelector('a');
     const notPrevented = link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     t('选择模式下链接点击被拦截（preventDefault + toast 提示）', notPrevented === false && toastText(h).indexOf('链接已停用') >= 0, toastText(h));
-    t('被拦链接就地红框高亮（flashLink）', /#c62828|rgb\(198, ?40, ?40\)/.test(link.style.outline), link.style.outline);
+    t('被拦链接就地红框高亮（flashLink）', /#c62828|#dc2626|rgb\(198, ?40, ?40\)|rgb\(220, ?38, ?38\)/.test(link.style.outline), link.style.outline);
     await sleep(1100); // 等 1s 闪烁结束
     t('红框高亮 1s 后还原（页面不留痕）', link.style.outline === '', link.style.outline);
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
@@ -650,6 +650,33 @@
     mask = h.sr.querySelector('.h2x-mask');
     t('恢复默认后重开面板无子行（记忆已清）', mask.querySelectorAll('.h2x-sub').length === 0);
     click(mask.querySelector('.h2x-pcancel'));
+  });
+
+  /* ================= 轮次 S2：「⋯」更多菜单（v2.17 渐进披露） ================= */
+  await round('更多菜单（文件名/语言收纳）', async (h) => {
+    const moreBtn = h.sr.querySelector('.h2x-morebtn');
+    const moreMenu = h.sr.querySelector('.h2x-moremenu');
+    const nameEl = h.sr.querySelector('.h2x-name');
+    t('初始收拢且空闲态可开（moreBtn 未禁用）', moreMenu.hidden === true && moreBtn.disabled === false);
+    click(moreBtn);
+    t('点「⋯」展开菜单并聚焦文件名槽', moreMenu.hidden === false && h.sr.activeElement === nameEl,
+      'active=' + (h.sr.activeElement && h.sr.activeElement.className));
+    t('菜单内含语言分段开关（中文/EN 两枚按钮）', moreMenu.querySelectorAll('.h2x-langbtn').length === 2);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    t('Esc 收拢菜单且不退出选择模式', moreMenu.hidden === true && document.documentElement.contains(h.host));
+    click(moreBtn);
+    nameEl.value = '菜单改名_{date}';
+    fire(nameEl, 'input');
+    fire(nameEl, 'blur');
+    await waitFor(() => (memStore['h2x.prefs'] || {}).name === '菜单改名_{date}', 2000);
+    t('菜单内编辑文件名照常记忆为模板（占位符原样保存）',
+      (memStore['h2x.prefs'] || {}).name === '菜单改名_{date}', JSON.stringify(memStore['h2x.prefs'] || null));
+    nameEl.value = ''; // 清空 = 回落默认命名（还原偏好，不影响后续轮次默认名断言）
+    fire(nameEl, 'input');
+    fire(nameEl, 'blur');
+    await waitFor(() => (memStore['h2x.prefs'] || {}).name === '', 2000);
+    click(moreBtn); // 再点按钮 = 开合收拢
+    t('再点「⋯」收拢菜单', moreMenu.hidden === true);
   });
 
   /* ================= 轮次 T：导出可中止（v2.8） ================= */

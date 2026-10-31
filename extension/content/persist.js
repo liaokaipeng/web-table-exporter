@@ -297,17 +297,18 @@
   }
 
   /* ---------------- 界面偏好（v2.9 起，自 main.js 迁入） ----------------
-   * chrome.storage.local 'h2x.prefs'：{ fmt, name }——fmt 为输出方式下拉值
-   * （五种导出格式 + 两种剪贴板模式），name 为文件名模板（用户编辑过的原文，
-   * 空串 = 用默认模板）。文件名支持 {title}/{date}/{time} 三个占位符。
+   * chrome.storage.local 'h2x.prefs'：{ fmt, name, introSeen }——fmt 为输出方式
+   * 下拉值（五种导出格式 + 两种剪贴板模式），name 为文件名模板（用户编辑过的
+   * 原文，空串 = 用默认模板），文件名支持 {title}/{date}/{time} 三个占位符；
+   * introSeen 为 v2.17 首次使用引导标记（1 = 已显示过，不再重复引导）。
    * 本模块只存不渲染：模板渲染（document.title）与「用户已动过控件」的会话
    * 守卫（fmtTouched/nameDirty）属 UI 关注点，留在 main.js */
   const PREF_KEY = 'h2x.prefs';
-  let prefs = { fmt: '', name: '' };
+  let prefs = { fmt: '', name: '', introSeen: 0 };
 
-  /** 读取界面偏好（注入时一次）：返回归一化补丁 { fmt, name } 或 null（无记录/
-   *  无存储/读取失败）。同时合并进模块内 prefs——后续 save 的增量补丁以此为
-   *  基准，避免只存一个字段时丢掉另一个（如改了 fmt 不丢 name 模板） */
+  /** 读取界面偏好（注入时一次）：返回归一化补丁 { fmt, name, introSeen } 或
+   *  null（无记录/无存储/读取失败）。同时合并进模块内 prefs——后续 save 的
+   *  增量补丁以此为基准，避免只存一个字段时丢掉另一个（如改了 fmt 不丢 name 模板） */
   async function prefsLoad() {
     if (!hasStorage()) return null;
     try {
@@ -316,9 +317,10 @@
       if (!p || typeof p !== 'object') return null;
       prefs = {
         fmt: typeof p.fmt === 'string' ? p.fmt : '',
-        name: typeof p.name === 'string' ? p.name : ''
+        name: typeof p.name === 'string' ? p.name : '',
+        introSeen: p.introSeen ? 1 : 0
       };
-      return { fmt: prefs.fmt, name: prefs.name };
+      return { fmt: prefs.fmt, name: prefs.name, introSeen: prefs.introSeen };
     } catch (e) {
       console.warn('[HTML2XLSX] 界面偏好读取失败（按默认值）：', e);
       return null;

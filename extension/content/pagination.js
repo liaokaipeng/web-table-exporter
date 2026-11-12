@@ -94,6 +94,25 @@
       prevSel: '.vxe-pager--prev-btn',
       isDisabled: (b) => b.classList.contains('is--disabled') || b.disabled === true ||
         b.getAttribute('aria-disabled') === 'true'
+    },
+    { // v2.18 TUX core-pagination（TikTok 商家后台自绘）：翻页项类名为稳定全称
+      //（`-prev` / `-next` / `-active` / `-disabled`），仅外层容器与业务类名带
+      // CSS Modules hash（如 `_ratingListContainer_7870f_28`）；`-jumper`（前进 5 页）
+      // 不是下一页，靠精确类名排除。也认 aria-label（文案随界面语言，中英两套）
+      name: 'core-pagination',
+      rootSel: '.core-pagination',
+      nextSel: '.core-pagination-item-next, [aria-label="下一个"], [aria-label="Next"]',
+      prevSel: '.core-pagination-item-prev, [aria-label="上一个"], [aria-label="Previous"]',
+      pageSel: '.core-pagination-item',
+      isDisabled: (b) => b.classList.contains('core-pagination-item-disabled') ||
+        b.classList.contains('disabled') || b.classList.contains('is-disabled') ||
+        b.disabled === true || b.getAttribute('aria-disabled') === 'true',
+      // 当前页码：激活态项文本
+      current: (pr) => {
+        const li = pr.querySelector('.core-pagination-item-active');
+        const n = li ? parseInt(String(li.textContent || '').trim(), 10) : NaN;
+        return Number.isFinite(n) ? n : 0;
+      }
     }
   ];
 

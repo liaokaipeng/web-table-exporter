@@ -27,6 +27,7 @@
   - 识别 = 组件根特征类（`.el-table-v2__root` / `.ag-root-wrapper` / `.MuiDataGrid-root` / `.tabulator`，后者另校验 `.tabulator-tableHolder`；v2.16 增 `.todo_grid`，后者为「通栏摘要行 + 数据行」结构，摘要行导出为独立行、摘要落首列其余补空）
   - 适配器可声明 `virtual:false`（v2.16）：该网格行全量渲染、按分页取数，`isVirtualTable()` 不再恒判虚拟——点选即取数不滚动，「采集全部页」可用（多客 todo 网格即此类）
   - 通用兜底（v2.16）：已知适配器都不命中时，`detectGenericGrid()` 按「结构重复 + 表头视觉列对齐」识别自绘 div 表格——①单元格 = 父级下 ≥2 个同标签同首类名兄弟；②向上逐层找同类名重复行（≥2 行、列数一致、可见）；③首行上方最近一组同列数、整组文字非空、左边界 ±8px / 宽度 ±max(12px,10%) 对齐的兄弟组（`columnsAligned()` 纯函数）。任一不满足即放弃（宁漏不误）；结果按根缓存在 WeakMap（根/行/单元格 → 根，候选行负缓存），取数时按选择器重查。通用网格无精确适配器的 `virtual` 声明，仍按虚拟滚动采集（滚动无新行时重叠合并零新增），分页走手动指定按钮
+  - 表头锚定兜底（v2.18，先于 v2.16 通用兜底尝试）：针对「真 `<table>` 只渲表头（tbody 仅占位空行）+ 数据行是同容器内的 div 列表 + 同一行内每格 class 各异」的自绘表（TUX core-table / TikTok 商家后台）。①`headerAnchorOf()` 判纯表头表（tbody 行数 >3 直接排除，免逐行读文本），取格数最多的表头行、剔除 0 宽格作列锚点；②`rowGroupUnder()` 在最近容器内找「父级全部子元素都是行」的组：可见子格数 = 列数（0 宽隐藏列剔除）、位于表头下方、`headerAnchoredRowOk()` 视觉列对齐（左容差 max(8px, 列宽 6%)——TH 与 TD 内边距常致首列错位十余像素）、同一首类名选择器，≥2 行；③只从行组内或表头表内起意，容器里的标题/筛选栏/分页器不受影响（避免翻页按钮被拦成选表）。根取行组父级（分页器留在根外），`virtual:false` 点选即取数；`gridRootOfHeaderTable()` 让鼠标落在表头表上时命中网格根。纯几何 + 结构判定，不依赖类名（CSS Modules hash 变更无感）
   - `gridRowsOf()` = `headerRowsOf()` 表头行 + `bodyRowsOf()` 数据行：多分区组件（el-table-v2 left/main/right、AG Grid pinned/center）表头行按行号对齐拼接、数据行按视觉序 zip；行节点复用组件（AG Grid / MUI X）DOM 序非视觉序，先经 `rowsSortedByRowIndex()` 按 `aria-rowindex` 数值升序（全部行带该属性才排序，部分缺失保持 DOM 序）
   - `gridScrollEls()`：el-table-v2 多分区各返回一个（联动 scrollTop），其余单滚动容器
 
@@ -82,7 +83,8 @@
 
 - **分页翻页采集**（pagination.js，v2.5）
   - 主流程：`collectPaged()` 把虚拟采集的「窗口」换成「页」——逐页 `extractTable` 后数据行经 `overlapLen` 重叠合并（页间通常无重叠 k=0 直接拼接；渲染未完成时窗口仍为上一页内容，重叠自然消重），表头只留第一页并逐页经 `tableKeyOf` 指纹校验；快照与 collectVirtual 同构（不含 merges——跨页拼接的合并行号无法稳定对齐），入 main.js `snapshots` 供导出与列设置取样
-  - 分页定位：`PAGER_ADAPTERS` 注册表三适配器（el-pagination / ant-pagination / vxe-pager），`detectPager()` 自表格根向上找分页器；`manualPager()` 用户指定按钮定位器（`locatorOf` / `resolveLocator` 跨页重解析），`pagerByLocator()` 解析不到返回 null，由主 UI 回落「指定翻页按钮」子模式
+  - 分页定位：`PAGER_ADAPTERS` 注册表（v2.18 四适配器：el-pagination / ant-pagination / vxe-pager / TUX core-pagination），`detectPager()` 自表格根向上找分页器；`manualPager()` 用户指定按钮定位器（`locatorOf` / `resolveLocator` 跨页重解析），`pagerByLocator()` 解析不到返回 null，由主 UI 回落「指定翻页按钮」子模式
+  - TUX core-pagination（v2.18）：根 `.core-pagination`，翻页项类名为稳定全称（`.core-pagination-item-next` / `-prev` / `-active` / `-disabled`，仅外层与业务类名带 CSS Modules hash），`-jumper`（前进 5 页）不是下一页；同时接受 `aria-label`（下一个/上一个/Next/Previous，文案随界面语言）作兜底；`pageSel` 取页码项、`current` 取 `-active` 文本
   - 适配器钩子：`next`/`prev` 翻页按钮；`current(root)` 读当前页码（el 取 `.el-pager li.active`，ant 取 `.ant-pagination-item-active` 的 title；0 = 读不到）；`pageSel` 页码项选择器（末页号即总页数）+ `total(root)`（0 = 未知）；`first(root)`（pageSel 内找文本/title=1 的页码项；无 pageSel 的 vxe/自建返回 null）
   - 翻页按钮编程式点击经 `isPagingClick()` 豁免采集期拦截（分页器常为 a\[href]，否则 v2.4 链接拦截会使翻页永不发生）
   - 表格根重建：翻页中表格根被整段重建时经指纹重解析找回新根（`resolveRoot`），选中随之迁移

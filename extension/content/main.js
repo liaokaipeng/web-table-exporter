@@ -71,6 +71,7 @@
   if (!ns || ns.aborted) return; // 守卫已退出（再次点击图标 = 退出选择模式），不初始化
   const { timestamp, sanitizeFilename, draggable } = ns.util;
   const { extractTable, makeSheetName, splitGroupOf, gridRootOf, GRID_ROOT_SELECTOR } = ns.table;
+  const gridRootOfHeaderTable = ns.table.gridRootOfHeaderTable; // v2.18 纯表头表 → 锚定网格根
   const { isVirtualTable, collectVirtual } = ns.virtual;
   const { detectPager, manualPager, collectPaged, isPagingClick, pagerByLocator } = ns.pagination;
   const { applyColumnSplits, columnLayout, filterColumns, reorderColumns, colKeys, formatColumns, applyColFormats, autoColWidths } = ns.split;
@@ -929,6 +930,10 @@
   function hitRoot(target) {
     const tbl = target.closest('table');
     if (tbl) {
+      // v2.18：纯表头表（数据行是同级 div 列表）→ 命中其锚定网格根，避免把
+      // 表头单独当成一张「只有表头的表」选中（v2.16 通用兜底 + 表头锚定）
+      const anchored = gridRootOfHeaderTable ? gridRootOfHeaderTable(tbl) : null;
+      if (anchored) return anchored;
       const g = splitGroupOf(tbl);
       return g ? g.root : tbl;
     }

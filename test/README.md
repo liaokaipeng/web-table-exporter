@@ -4,7 +4,7 @@
 
 ## 覆盖矩阵
 
-除 `pagination-ant-fixture.html`（无 harness，手工核对）外，10 个 fixture 页各配一个注入 harness；`auto-check.html` 与 `algo-check.cjs` 为另两种回归形态。pass 计数只在本表「预期」列定义，别处引用不复述。
+除 `pagination-ant-fixture.html`（无 harness，手工核对）外，11 个 fixture 页各配一个注入 harness；`auto-check.html` 与 `algo-check.cjs` 为另两种回归形态。pass 计数只在本表「预期」列定义，别处引用不复述。
 
 | 页面 | harness | 覆盖要点 | 预期 |
 |---|---|---|---|
@@ -16,16 +16,17 @@
 | `mui-fixture.html` | `e2e-harness-mui.js` | MUI X DataGrid（v6/v7）网格：div+ARIA role、单滚动容器 `virtualScroller`、pinned 为同行 sticky cell、行节点复用（`aria-rowindex`，DOM 序倒置注入）、300 行含 3 条分散重复行、JS 属性设值控件、普通 `table` 回归。harness：网格识别、滚动采集全量、行序排序、控件实时值、导出断言 | 悬浮高亮、一次点选采集 301 行（含表头）、行序按 `aria-rowindex` 还原、重复行保留；harness `__TEST_RESULT` 24/24 pass |
 | `tabulator-fixture.html` | `e2e-harness-tabulator.js` | Tabulator（v6，vdom）网格：div 结构、滚动容器 `tableHolder`、冻结列为同行 frozen cell、行追加序即视觉序（无节点复用）、300 行含 3 条分散重复行+无冻结列 150 行例、JS 属性设值控件、普通 `table` 回归。harness：网格识别、滚动采集全量、控件实时值、导出断言 | 悬浮高亮、一次点选采集 301 行（含表头）、重复行保留；harness `__TEST_RESULT` 23/23 pass |
 | `todo-fixture.html` | `e2e-harness-todo.js` | 多客 todo 网格（`.todo_grid`，div+flex、无 table/role）：粘性表头 + 3 条「通栏摘要行 + 数据行」记录、行全量渲染、容器内滚动；通用 div 网格（`.gen-grid`，无组件特征类，3 列 3 行）；无表头列表负例；普通表回归。harness：精确适配器识别/整体高亮、`virtual:false` 点选即取数（不滚动、无采集完成 toast）、摘要行导出（摘要落首列、其余补空、inline 字段空格分隔）、通用兜底悬浮/点选/导出、负例不识别（悬浮框隐藏 + `gridRootOf` null） | 悬浮高亮 760px、点选即「已选 1 个」且容器 scrollTop 不变、导出 7 行逐行一致；通用网格高亮 360px、导出 4 行；负例不识别；harness `__TEST_RESULT` 15/15 pass |
+| `header-anchored-fixture.html` | `e2e-harness-header-anchored.js` | v2.18 表头锚定网格（复刻 TikTok 商家后台 TUX core-table）：真 `table` 只渲表头（`tbody` 一条空占位行）+ 同级 div 行组，同一行内 5 格 class 各异、第 6 格为 0 宽隐藏列，容器内 TUX 自绘分页器 `.core-pagination`（`-prev`/`-next`/`-active`/`-disabled` 类名 + `aria-label`）；2 页×3 行；负例（纯表头表 + 列数不对齐的卡片列表）；普通表回归。harness：悬浮数据格/表头均命中同一根（高亮 1020px）、`virtual:false` 点选即取数（无采集完成 toast）、隐藏 0 宽列不导出、CSV 逐行一致、`detectPager` 命中 `core-pagination`（`-next` 非 `-jumper`、总页数 2）、分页器本身不被识别为表格、自动翻页采 2 页（进度含 `/2`、导出 7 行、采完回第 1 页） | 悬浮/点选识别为一张表、导出 4 行（1 表头+3 数据）5 列；分页采集 7 行（1 表头+2 页×3 行）、末行第二页最后一条；负例 `gridRootOf` 为 null 且不亮框；harness `__TEST_RESULT` 19/19 pass |
 | `pagination-el-fixture.html` | `e2e-harness-paged-el.js` | 分页表格（仿 `el-pagination` 类名结构：`button.btn-prev`/`ul.el-pager`/`button.btn-next`，disabled 态类+属性双写）：5 页×8 行、翻页仅重建 `tbody`、`input` 控件列（JS 设值）、普通无分页表回归；慢异步模式（harness 置 `window.__SLOW_MS` 后翻页改为「页码立即更新、数据延迟落地」，复刻受控分页器+异步拉取；`__SLOW_GUARD` 追加加载中点击守卫、`__SLOW_DROP_FIRST` 追加落地后首击丢弃）。harness 轮次：全页采集与进度逐页推进（`MutationObserver` 记录每次提示文案）、页数上限、起点归一、`input` 实时值导出断言、v2.12 慢异步三态（含守卫站点点击被吞、落地后首击被丢后重点）、v2.13 翻页间隔（默认值/标签/单位断言+默认 0.5s 端到端生效）、v2.14 直跳首页（提醒框观察器断言+结束收起）与距第一页超 10 页不归一、轮次 G 超慢站点（`__SLOW_MS=3500` 超 waitTurn 3s 预算） | 选中表→「采集全部页」展开设置→「开始采集」（页数上限留空=全部页）：toast 41 行（含表头）、首行「商品 P1-1」末行「商品 P5-8」、一口价列取 `input` 实时值；先翻第 3 页再采集应先回第 1 页采全量、完成回第 1 页；页数上限填 2→只采前 2 页（toast 17 行+「已采集指定 2 页」，输入框 Enter 同效）；采集中「停止采集」→保留已采页（toast「已停止采集，保留已采集的 N 页」）且导出即已采部分、采集后「列设置」可取样；单表限定（v2.5.3）：再选中普通无分页表→「采集全部页」禁用、悬浮提示「多表选择时不支持分页采集」，取消后恢复；v2.9 进度带总页数（「第 1/5 页，已采集 9 行」，页数上限不改显示总页数）；v2.12 慢异步三态仍采全量 41 行、不误停、完成回第 1 页（旧版固定 sleep 会在第 3 页误判「连续翻页无新数据」停止）；v2.13「翻页间隔」槽默认 0.5 秒（标签「翻页间隔」+ 单位「秒」，轮次 A 端到端生效，其余轮次置 0 提速）；v2.14 起点归一（harness 置 `window.__setPages(n)` 动态改总页数）：距第一页 ≤10 页直跳「1」页项一次回第一页（归一期间右侧提醒框显示「正在回到第一页… 第 3 页」、结束收起）；第 12 页（>10 页）不自动归一——右侧提醒「请先返回第一页」并注明当前页、不开始采集（无完成 toast、主按钮恢复可用），手动回第 1 页后再开始即采全量 97 行（末行「商品 P12-8」），提醒框可手动关闭；超慢站点（`__SLOW_MS=3500` 超过 waitTurn 3s 预算，先翻第 3 页等表体落地）：直跳后等表体换成第一页再取数，导出首行仍是「商品 P1-1」不被旧页污染、41 行不误停、完成回第 1 页；harness `__TEST_RESULT` 52/52 pass |
 | `pagination-ant-fixture.html` | —（无 harness，手工核对） | 分页表格（仿 `ant-pagination` 类名结构：`li.ant-pagination-prev/item/next`，页码为 `a` 链接，禁用态 `aria-disabled`+`.ant-pagination-disabled`）：4 页×6 行 | 选中表→「采集全部页」展开设置→「开始采集」（留空=全部页）采集 25 行（含表头）、首行「订单 A-1」末行「订单 D-6」、完成回第 1 页；翻页按钮为链接结构时编程式点击豁免采集期拦截；选择模式下手动点页码可翻页（v2.4 点击放行） |
 | `pagination-manual-fixture.html` | `e2e-harness-paged-manual.js` | 分页表格（自建分页器，类名与组件库无交集，「下一页」为 `a` 链接且末页无 disabled 态）：3 页×5 行。harness：指定翻页按钮并记住（定位器 sel/tag 断言）、复用记忆按钮（不进子模式+复用 toast）、生效记忆保留、按钮失联回落子模式且不清记忆、无总页数时进度只显示当前页、Esc 取消子模式不丢选区 | 选中表→「采集全部页」展开设置→「开始采集」进入「指定翻页按钮」子模式（hint 提示+悬浮高亮任意元素）→点「下一页 »」后采集：toast 16 行（含表头）+「自当前页开始采集，连续翻页无新数据，已停止」；子模式拦截所有点击（含链接）、Esc 取消不丢选区、停止条件（连续 2 页无新行）；v2.9 指定一次即按页面记住（`h2x.pager.v1`）、再次采集直接复用（toast「已复用上次指定的翻页按钮」），按钮消失时回落子模式且保留记忆；harness `__TEST_RESULT` 16/16 pass |
 | `auto-check.html` | —（无扩展环境，页内自判） | DOM 层自动化回归（页内自判 PASS/FAIL）：控件取值（`controls.controlValue`）：`input`/`checkbox`/`radio`/`hidden`/`date`/`textarea`/`output`、`select` 单/多选、ARIA `switch`/`slider`、`el-switch` 类名开关、类名形似回退 `null`；单元格四通道（`cell.openBatch`）：空白归一化、nbsp/换行/连续空格压缩、控件 `merged`/`text`/`ctrl` 三通道、多控件对齐、嵌套开关不重复计数、图片绝对链接、无 `src` 图片为空；表格提取（`table.extractTable`）：常规 `thead`、`rowspan`/`colspan` 展开+merges、多行表头、无 `thead` 全 `th` 行计表头、`display:none` 行过滤；导出管线端到端：提取→拆分→列筛选→数字格式→csv/json 精确对比（JS 属性设值复刻 Vue 状态） | 页内 summary「37 项全部 PASS」 |
-| `algo-check.cjs` | —（Node 直接运行，不碰 DOM） | 纯函数离线回归：采集算法、列拆分/列筛选/列顺序/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具（含 v2.15 clampPos 视口钳制）、模块清单一致性、国际化词条一致性 | 全部 PASS（235 项）；明细见下节 |
+| `algo-check.cjs` | —（Node 直接运行，不碰 DOM） | 纯函数离线回归：采集算法、列拆分/列筛选/列顺序/列格式/列宽、分体配对、网格适配器、分页适配器、持久化、格式序列化、通用工具（含 v2.15 clampPos 视口钳制）、模块清单一致性、国际化词条一致性 | 全部 PASS（239 项）；明细见下节 |
 
 ### 共享测试基建
 
-- **`e2e-common.js`**（10 个 harness 共享的注入基建）：IIFE 挂 `window.__h2xT`，导出 `boot`/`stubChrome`/`stubExport`/`makeInjector`/`uiHost`/`makeRound`/`waitSelected`/`normalTableRound`/`pagedCollect`/`summarize`/`FILES` 与便捷工厂 `create(config)`。加载协议：harness 在并发守卫之后、业务轮次之前按需拉取——`if (!window.__h2xT) (0, eval)(await (await fetch('/test/e2e-common.js?v=' + Date.now())).text())`（已加载则跳过），之后只调 `create()` 装配，不再自行接线各粒度件。`FILES`（13 个内容脚本注入清单，与 service-worker 注入序逐项一致）为全库唯一来源，algo-check 模块清单一致性检查以本文件为准。
-- **`e2e-boot.js`**（10 个 fixture 页共享的 bootstrap，取代原页内约 30 行同款脚本；`pagination-ant-fixture.html` 无 harness 亦不引入）：各页尾部两行声明——`<script>window.__E2E_HARNESS = '<harness 文件名>';</script>` + `<script src="/test/e2e-boot.js"></script>`；虚拟滚动类 5 页（virtual/tablev2/aggrid/mui/tabulator）另声明可选 `window.__E2E_WAIT_TEXT`（浮层初始文案追加时长后缀，如「（虚拟滚动采集，约需 10-30 秒）」）。行为与重构前逐字一致：search/hash 双路 `e2e=1` 探测 → load 事件+50ms → fetch harness+eval → 页底浮层渲染 PASS/FAIL → 标题打 `[全部 PASS]`/`[FAIL n]`/`[ERROR]` 徽标；`run-all.ps1` 解析依赖（标题徽标 + `id="e2e-summary"`）未变。
+- **`e2e-common.js`**（11 个 harness 共享的注入基建）：IIFE 挂 `window.__h2xT`，导出 `boot`/`stubChrome`/`stubExport`/`makeInjector`/`uiHost`/`makeRound`/`waitSelected`/`normalTableRound`/`pagedCollect`/`summarize`/`FILES` 与便捷工厂 `create(config)`。加载协议：harness 在并发守卫之后、业务轮次之前按需拉取——`if (!window.__h2xT) (0, eval)(await (await fetch('/test/e2e-common.js?v=' + Date.now())).text())`（已加载则跳过），之后只调 `create()` 装配，不再自行接线各粒度件。`FILES`（13 个内容脚本注入清单，与 service-worker 注入序逐项一致）为全库唯一来源，algo-check 模块清单一致性检查以本文件为准。
+- **`e2e-boot.js`**（11 个 fixture 页共享的 bootstrap，取代原页内约 30 行同款脚本；`pagination-ant-fixture.html` 无 harness 亦不引入）：各页尾部两行声明——`<script>window.__E2E_HARNESS = '<harness 文件名>';</script>` + `<script src="/test/e2e-boot.js"></script>`；虚拟滚动类 5 页（virtual/tablev2/aggrid/mui/tabulator）另声明可选 `window.__E2E_WAIT_TEXT`（浮层初始文案追加时长后缀，如「（虚拟滚动采集，约需 10-30 秒）」）。行为与重构前逐字一致：search/hash 双路 `e2e=1` 探测 → load 事件+50ms → fetch harness+eval → 页底浮层渲染 PASS/FAIL → 标题打 `[全部 PASS]`/`[FAIL n]`/`[ERROR]` 徽标；`run-all.ps1` 解析依赖（标题徽标 + `id="e2e-summary"`）未变。
 
 ## algo-check 覆盖明细
 
@@ -38,23 +39,23 @@
 | 列格式（split.js） | toNumValue 千分位剥离/解析失败保原值、formatColumns 输出列号映射（拆分新列继承、筛选后对齐）、applyColFormats 表头不动/同引用短路、拆分+筛选+数字格式端到端 |
 | 自适应列宽（split.js） | cellWidth 半角/全角/谚文宽度与内嵌换行、autoColWidths 逐列最大宽度与 6~50 钳制、空表/空行边界 |
 | 分体配对（table.js `pairSplitGroup`） | 基础配对、gutter 列容忍（列数差 1）、间隙/对齐/宽度/列数阈值、轻微重叠容忍、完整表格零回归、颠倒不配对、多候选首个命中 |
-| 网格适配器（table.js v2.2；通用兜底 v2.16） | 注册表完整性（五适配器、五钩子齐备，rootSel 互异且单类名，GRID_ROOT_SELECTOR 组合，todo-grid 声明 `virtual:false`）、rowsSortedByRowIndex 行序排序（全带 aria-rowindex 数值升序、无/部分缺失保持 DOM 序、纯函数不原地重排、数值比较非字典序）、columnsAligned 视觉列对齐（边界/宽度一致、超限不对齐、≥75% 列容忍、<2 列与空数组、窄列 12px 容差下限）、tableKeyOf 网格分支（适配器表头格拼接、无表头格返回 null、非网格 div 回落内部 table） |
-| 分页适配器（pagination.js v2.5） | 注册表完整性（三适配器、四要素齐备，rootSel 互异，next/prev 均为单类名选择器，v2.9 总页数选择器 pageSel、v2.12 当前页码钩子 current 均可选且类型正确）；v2.13 采集引擎页间停顿（collectPaged pageSleep：无停顿对照 3 页 7 行、400ms×2 次翻页显著拉长耗时、缺参按默认 500ms、停顿不改变结果、停顿中「停止」分块及时中断且保留已采页 reason=stopped）；v2.14 起点归一（collectPaged：≤10 页经 first 钩子一次点击直跳首页、从第 1 页起采且 onNorm 回传 [起始页, null]、结束后回退到起始页；超过 10 页返回 aborted:tooFar 且不点击不采集；边界第 10 页仍自动归一；无 first 钩子落回逐页回点、onNorm 序列 [3,2,1,null]；直跳后表体超 3s 才落地（landMs 桩）仍取到第 1 页数据而非旧页、读数已是第 1 页的不规范分页器不弹提醒框且零导航）；采集引擎页级重叠合并复用 virtual.js overlapLen 既有用例 |
+| 网格适配器（table.js v2.2；通用兜底 v2.16；表头锚定 v2.18） | 注册表完整性（五适配器、五钩子齐备，rootSel 互异且单类名，GRID_ROOT_SELECTOR 组合，todo-grid 声明 `virtual:false`）、rowsSortedByRowIndex 行序排序（全带 aria-rowindex 数值升序、无/部分缺失保持 DOM 序、纯函数不原地重排、数值比较非字典序）、columnsAligned 视觉列对齐（边界/宽度一致、超限不对齐、≥75% 列容忍、<2 列与空数组、窄列 12px 容差下限）、headerAnchoredRowOk 表头锚定行判定（格数=列数、左容差按列宽 6% 伸缩、隐藏 0 宽列剔除、错位/列数不符判否）、tableKeyOf 网格分支（适配器表头格拼接、无表头格返回 null、非网格 div 回落内部 table） |
+| 分页适配器（pagination.js v2.5） | 注册表完整性（v2.18 四适配器、四要素齐备，rootSel 互异，next/prev 均为合法选择器——单类名或 aria-label 精确匹配，v2.9 总页数选择器 pageSel、v2.12 当前页码钩子 current 均可选且类型正确）；v2.13 采集引擎页间停顿（collectPaged pageSleep：无停顿对照 3 页 7 行、400ms×2 次翻页显著拉长耗时、缺参按默认 500ms、停顿不改变结果、停顿中「停止」分块及时中断且保留已采页 reason=stopped）；v2.14 起点归一（collectPaged：≤10 页经 first 钩子一次点击直跳首页、从第 1 页起采且 onNorm 回传 [起始页, null]、结束后回退到起始页；超过 10 页返回 aborted:tooFar 且不点击不采集；边界第 10 页仍自动归一；无 first 钩子落回逐页回点、onNorm 序列 [3,2,1,null]；直跳后表体超 3s 才落地（landMs 桩）仍取到第 1 页数据而非旧页、读数已是第 1 页的不规范分页器不弹提醒框且零导航）；采集引擎页级重叠合并复用 virtual.js overlapLen 既有用例 |
 | 持久化（persist.js） | pageKeyOf 忽略 query/hash、tableKeyOf 指纹（thead 无 tr 的 vxe-table 取 th 子元素而非数据行；v2.1 网格取 dynamic-header-row 表头格、优先内部 table 回退）与空值、sanitizeRecord 损坏剔除自愈（含 formats 键值对、v2.8 order 列顺序数组）与「仅 order 也保留」、evictKeys LRU 淘汰 |
 | 格式序列化（format.js） | csvCell RFC4180 转义、toCsv BOM/CRLF、tsvCell 制表符/换行转空格（v2.7 剪贴板）、toTsv 分隔与空表边界、headerKeys 列名兜底、toJson 行对象/表名嵌套、mdCell 转义与 toMarkdown 结构（含无表头生成列N）、toHtmlDocument 结构 |
 | 通用工具 | util.js sanitizeFilename/escapeHtml/clampPos（v2.15 视口钳制：正常不动/越界贴边/元素不小于视口贴 0）；table.js makeSheetName 四级兜底、非法字符、31 字符截断、重名后缀 |
-| 模块清单一致性 | service-worker 注入列表 / `e2e-common.js` `FILES`（全库唯一来源）/ `extension/content` 实际文件对齐+依赖序，外加十个 harness 引用校验（经 `__h2xT` 守卫接入 + `const FILES = T.FILES` 引用清单）（防漏同步；v2.5.2 六个分页 harness 漏注入 `pagination.js` 致 E2E 全线失败后扩全；v2.9 新增两个分页 harness） |
+| 模块清单一致性 | service-worker 注入列表 / `e2e-common.js` `FILES`（全库唯一来源）/ `extension/content` 实际文件对齐+依赖序，外加十一个 harness 引用校验（经 `__h2xT` 守卫接入 + `const FILES = T.FILES` 引用清单）（防漏同步；v2.5.2 六个分页 harness 漏注入 `pagination.js` 致 E2E 全线失败后扩全；v2.9 新增两个分页 harness；v2.18 新增表头锚定 harness） |
 | 国际化词条一致性（v2.6） | 内容脚本与 manifest 引用的全部 `t()`/`__MSG_` 词条 ⊆ `_locales/en`（新增硬编码中文即失败）；manifest `__MSG_` 词条 ⊆ `_locales/zh_CN`（default_locale，缺则显示 key 名）；占位符词条消息须含声明的全部 `$XXX$`；以 en 语言包桩 `chrome.i18n` 驱动 headerKeys/makeSheetName 验证 `$1` 注入（回归：`t()` 曾误用箭头函数 `arguments` 致 subs 恒空） |
 
 ## 命令
 
 ```powershell
 # 一键回归（全链路自动判定）：语法检查 → algo-check → 起静态服务 →
-# headless Chromium 跑十个 E2E 页面（虚拟时间快进定时器，约 5 秒），退出码即结果
+# headless Chromium 跑十一个 E2E 页面（虚拟时间快进定时器，约 5 秒），退出码即结果
 # run-all.ps1 须保持 UTF-8 带 BOM（PowerShell 5 中文兼容）
 .\test\run-all.ps1
 
-# 交互模式（旧行为）：十个 E2E 页面人工核对
+# 交互模式（旧行为）：十一个 E2E 页面人工核对
 .\test\run-all.ps1 -Interactive
 
 # 分步执行：
@@ -82,16 +83,17 @@ http://localhost:3000/test/aggrid-fixture.html#e2e=1
 http://localhost:3000/test/mui-fixture.html#e2e=1
 http://localhost:3000/test/tabulator-fixture.html#e2e=1
 http://localhost:3000/test/todo-fixture.html#e2e=1
+http://localhost:3000/test/header-anchored-fixture.html#e2e=1
 http://localhost:3000/test/pagination-el-fixture.html#e2e=1
 http://localhost:3000/test/pagination-manual-fixture.html#e2e=1
 ```
 
-`run-all.ps1` 默认 headless Chromium+`--virtual-time-budget`（快进定时器），十页并行约 5 秒、退出码 0/1 作门禁，无 Chrome/Edge 时降级交互模式；harness 用 `waitFor`+模块缓存（13 内容脚本）+25ms 轮询，分页页用 `MutationObserver` 记录 hint，未跑完的页串行补跑。
+`run-all.ps1` 默认 headless Chromium+`--virtual-time-budget`（快进定时器），十一页并行约 5 秒、退出码 0/1 作门禁，无 Chrome/Edge 时降级交互模式；harness 用 `waitFor`+模块缓存（13 内容脚本）+25ms 轮询，分页页用 `MutationObserver` 记录 hint，未跑完的页串行补跑。
 
 手动执行（`__TEST_RESULT` 结构 `{total, passed, results}`；harness 会经加载守卫自动拉取 `e2e-common.js`，无需手动引入）：
 
 ```js
-const c = await (await fetch('/test/e2e-harness.js?v=' + Date.now())).text();   // 其余页换对应 harness：virtual / tablev2 / antdv / aggrid / mui / tabulator / todo / paged-el / paged-manual
+const c = await (await fetch('/test/e2e-harness.js?v=' + Date.now())).text();   // 其余页换对应 harness：virtual / tablev2 / antdv / aggrid / mui / tabulator / todo / header-anchored / paged-el / paged-manual
 window.__TEST_RESULT = await (0, eval)(c);
 ```
 
@@ -112,6 +114,7 @@ window.__TEST_RESULT = await (0, eval)(c);
 11. 起点归一提醒（v2.14）：分页页先手动翻到第 3 页→选中表格→「采集全部页 ▾」→「开始采集」：右侧弹出提醒框「正在回到第一页… 当前第 3 页」，随即直跳第 1 页开始采集（进度从第 1 页起）、提醒框自动收起，采完回到第 1 页；翻到第 12 页（>10 页）再开始采集：不自动回退，右侧警示提醒「请先返回第一页」并注明当前页、不开始采集——手动翻回第 1 页后再点「开始采集」即采全量；提醒框可点 × 关闭。
 12. 窗口拖拽移动（v2.15）：选中表格后按住工具栏状态行提示文案区（光标为移动状）拖动整栏换位——按钮/弹层上按下不拖动、点选照常；拖到屏幕外会自动收拢在视口内；缩小浏览器窗口后界面不会被移出屏外；退出选择模式再进入回到底部居中。打开「列设置」后按住标题栏「列设置」文字处拖动对话框换位，点右上角「×」仍可关闭（不会误拖）；面板内勾选/输入/滚动不受影响。
 13. 自绘 div 网格（v2.16）：多客客服工作台「退款订单」页（`.todo_grid`）悬浮整表高亮、点选即「已选 1 个」（点选不滚动容器）、「列设置」预览为 9 列且行数为记录数×2（通栏摘要行 + 数据行，摘要落首列）；「采集全部页」进入「指定翻页按钮」子模式（分页器自绘，识别不到）；列表页（无表头）悬浮不亮框。
-14. 全新 UI 与「⋯」更多菜单（v2.17）：工具栏两行式（状态行提示/计数 + 操作行按钮组）；「⋯」展开菜单——文件名模板、语言开关、快捷键提示（Enter 导出 · Esc 退出）收纳于此，打开即聚焦文件名槽、点外/Esc/再点收拢，与「▾」输出方式菜单、分页面板互斥（同时只开一个）；菜单内改文件名导出生效且重进记住；采集/导出期间工具栏底边细进度条（分页采集按页数比例推进、导出为微光动画）、「取消」转 danger 色「停止…」、结束恢复；首次进入显示一步式引导文案，选中首个表格后回落常规提示且此后不再出现；切换系统深浅色验证两套配色。
+14. 表头锚定网格与 TUX 分页（v2.18）：TikTok 商家后台「商品评价」页（`seller.tiktokshopglobalselling.com/product/rating`）悬浮数据行/表头都亮框（框住数据行组）、点选即「已选 1 个」且不滚动；「列设置」预览 5 列（评分和评价/你的回复/商品和订单 ID/用户名/操作）、隐藏收藏列不出现；「导出 Excel」首行为表头、每行 5 格（商品格含图片链接）；「采集全部页 ▾」不再进入「指定翻页按钮」子模式——直接弹分页面板，页数上限填 1 开始采集后 toast「采集完成，共 11 行（含表头），已采集指定 1 页」（进度含「/总页数」）；分页器按钮本身悬浮不亮框、手动点页码可正常翻页。
+15. 全新 UI 与「⋯」更多菜单（v2.17）：工具栏两行式（状态行提示/计数 + 操作行按钮组）；「⋯」展开菜单——文件名模板、语言开关、快捷键提示（Enter 导出 · Esc 退出）收纳于此，打开即聚焦文件名槽、点外/Esc/再点收拢，与「▾」输出方式菜单、分页面板互斥（同时只开一个）；菜单内改文件名导出生效且重进记住；采集/导出期间工具栏底边细进度条（分页采集按页数比例推进、导出为微光动画）、「取消」转 danger 色「停止…」、结束恢复；首次进入显示一步式引导文案，选中首个表格后回落常规提示且此后不再出现；切换系统深浅色验证两套配色。
 
 控件取值规则见 [docs/controls.md](../docs/controls.md)；真实页面回归：点三咪折扣活动编辑页（长列表+一口价 input 列）。

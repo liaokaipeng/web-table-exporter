@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>表头锚定网格 / TUX 分页器测试页</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 40px auto; max-width: 1100px; color: #333; }
+  h2 { border-left: 4px solid #2f9e6e; padding-left: 10px; font-size: 17px; }
+
+  /* 复刻 TikTok 商家后台（TUX core-table）形态：真 <table> 只渲表头（tbody 一条
+   * 占位空行），数据行是同容器内的 div 列表，且同一行内每格 class 各不相同、
+   * 末尾还有一个宽度为 0 的隐藏列。识别靠表头列几何锚定，与类名无关 */
+  .rating-list-container { width: 1020px; font-size: 13px; }
+  .core-table { width: 1020px; table-layout: fixed; border-collapse: collapse; background: #f4f5f7; }
+  .core-table th { box-sizing: border-box; text-align: left; padding: 10px 12px; border-bottom: 1px solid #dcdfe6; font-weight: 600; }
+  .core-table th:nth-child(1) { width: 220px; }
+  .core-table th:nth-child(2) { width: 200px; }
+  .core-table th:nth-child(3) { width: 300px; }
+  .core-table th:nth-child(4) { width: 160px; }
+  .core-table th:nth-child(5) { width: 140px; }
+  .core-table-redirect { color: #999; font-size: 12px; }
+  .rating-list-main { margin-top: 0; }
+  .rating-item { display: flex; border-bottom: 1px solid #ebeef5; }
+  .rating-review, .seller-reply, .product-item, .user-name, .action, .mark-action {
+    box-sizing: border-box; flex: 0 0 auto; padding: 10px 12px; overflow: hidden;
+  }
+  .rating-review { width: 220px; }
+  .seller-reply { width: 200px; }
+  .product-item { width: 300px; }
+  .user-name { width: 160px; }
+  .action { width: 140px; color: #2f9e6e; }
+  .mark-action { width: 0; display: none; }
+
+  .core-pagination { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+  .core-pagination-list { display: flex; gap: 6px; list-style: none; margin: 0; padding: 0; }
+  .core-pagination-item { min-width: 28px; height: 28px; padding: 0 8px; box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center; border: 1px solid #dcdfe6;
+    border-radius: 4px; cursor: pointer; user-select: none; }
+  .core-pagination-item-active { border-color: #2f9e6e; color: #2f9e6e; font-weight: 600; }
+  .core-pagination-item-disabled { color: #bbb; border-color: #eee; cursor: not-allowed; }
+
+  /* 负例：纯表头表 + 列数/位置都不对齐的卡片列表（不应识别） */
+  .mis-wrap { width: 520px; margin-top: 12px; }
+  .mis-head { width: 520px; table-layout: fixed; border-collapse: collapse; background: #f4f5f7; }
+  .mis-head th { padding: 8px; border-bottom: 1px solid #dcdfe6; text-align: left; }
+  .mis-head th:nth-child(1) { width: 160px; }
+  .mis-head th:nth-child(2) { width: 160px; }
+  .mis-head th:nth-child(3) { width: 200px; }
+  .mis-list { margin-top: 8px; }
+  .m-card { display: flex; justify-content: space-between; width: 360px; padding: 8px; border-bottom: 1px solid #eee; }
+  .m-title { width: 200px; }
+  .m-price { width: 90px; text-align: right; }
+</style>
+</head>
+<body>
+<h1>表头锚定网格 / TUX 分页器测试页</h1>
+<p>上半部分复刻 TikTok 商家后台「商品评价」列表：表头是真 <code>&lt;table&gt;</code>（
+<code>tbody</code> 只有一条空占位行），数据行是同容器内的 div 列表，每格 class 各不相同
+（<code>rating-review</code> / <code>seller-reply</code> …）且末尾有一个宽度 0 的隐藏列。
+识别走 v2.18 表头锚定（表头列几何 + 行格对齐），不依赖类名。</p>
+<p>分页器为 TUX 自绘 <code>.core-pagination</code>（<code>aria-label</code> 为上一个/下一个/第 N 页），
+走 v2.18 新增的分页适配器；「采集全部页」应自动翻页采全量。最下方为纯表头表 + 不对齐卡片列表的负例。</p>
+
+<h2>商品评价列表（2 页 × 3 行，导出 = 1 表头 + 6 行）</h2>
+<div class="wrap">
+  <div class="rating-list-container" id="rating">
+    <table class="core-table">
+      <thead>
+        <tr>
+          <th>评分和评价</th>
+          <th>你的回复</th>
+          <th>商品和订单 ID</th>
+          <th>用户名</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="core-table-empty-row"><td class="core-table-td"></td></tr>
+      </tbody>
+    </table>
+    <div class="rating-list-main" id="rows"></div>
+    <div class="core-pagination">
+      <ul class="core-pagination-list">
+        <li class="core-pagination-item core-pagination-item-prev" aria-label="上一个">‹</li>
+        <li class="core-pagination-item core-pagination-item-active" aria-label="第 1 页">1</li>
+        <li class="core-pagination-item" aria-label="第 2 页">2</li>
+        <li class="core-pagination-item core-pagination-item-next" aria-label="下一个">›</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<h2>负例：纯表头表 + 不对齐卡片列表（不应识别）</h2>
+<div class="mis-wrap" id="mis">
+  <table class="mis-head">
+    <thead><tr><th>名称</th><th>价格</th><th>备注</th></tr></thead>
+    <tbody><tr class="mis-empty"><td></td></tr></tbody>
+  </table>
+  <div class="mis-list">
+    <div class="m-card"><div class="m-title">条目一</div><div class="m-price">¥10</div></div>
+    <div class="m-card"><div class="m-title">条目二</div><div class="m-price">¥20</div></div>
+    <div class="m-card"><div class="m-title">条目三</div><div class="m-price">¥30</div></div>
+  </div>
+</div>
+
+<h2>普通表格（回归验证）</h2>
+<table id="normal">
+  <tr><th>姓名</th><th>部门</th></tr>
+  <tr><td>张三</td><td>研发部</td></tr>
+  <tr><td>李四</td><td>市场部</td></tr>
+</table>
+
+<script>
+  (() => {
+    // 2 页 × 3 行；每行 6 个 div（第 6 个为宽度 0 的隐藏收藏列）
+    const DATA = [
+      [
+        ['★★★★ 2026-11-12', '0条回复', '订单 ID:A-1 商品:甲', '@alice', '回复 评价详情'],
+        ['★★★ 2026-11-12', '0条回复', '订单 ID:A-2 商品:乙', '@bob', '回复 评价详情'],
+        ['★★★★★ 2026-11-12', '0条回复', '订单 ID:A-3 商品:丙', '@dave', '回复 评价详情']
+      ],
+      [
+        ['★★ 2026-11-12', '0条回复', '订单 ID:B-1 商品:丁', '@erin', '回复 评价详情'],
+        ['★★★★ 2026-11-12', '0条回复', '订单 ID:B-2 商品:戊', '@frank', '回复 评价详情'],
+        ['★★★ 2026-11-12', '0条回复', '订单 ID:B-3 商品:己', '@carol', '回复 评价详情']
+      ]
+    ];
+    const st = { cur: 1, total: 2 };
+    const rowsEl = document.getElementById('rows');
+    const pager = document.querySelector('.core-pagination');
+
+    function render() {
+      rowsEl.innerHTML = DATA[st.cur - 1].map(r =>
+        '<div class="rating-item">' +
+          '<div class="rating-review">' + r[0] + '</div>' +
+          '<div class="seller-reply">' + r[1] + '</div>' +
+          '<div class="product-item">' + r[2] + '</div>' +
+          '<div class="user-name">' + r[3] + '</div>' +
+          '<div class="action">' + r[4] + '</div>' +
+          '<div class="mark-action"></div>' +
+        '</div>').join('');
+      for (const li of pager.querySelectorAll('.core-pagination-item')) {
+        const label = li.getAttribute('aria-label') || '';
+        if (label.indexOf('第 ') === 0) {
+          li.classList.toggle('core-pagination-item-active', parseInt(li.textContent, 10) === st.cur);
+        }
+      }
+      for (const [li, off] of [[pager.querySelector('.core-pagination-item-prev'), st.cur === 1],
+        [pager.querySelector('.core-pagination-item-next'), st.cur === st.total]]) {
+        li.classList.toggle('core-pagination-item-disabled', off);
+        li.setAttribute('aria-disabled', off ? 'true' : 'false');
+      }
+    }
+
+    pager.addEventListener('click', (e) => {
+      const li = e.target.closest('li');
+      if (!li || li.classList.contains('core-pagination-item-disabled')) return;
+      const label = li.getAttribute('aria-label') || '';
+      if (label === '下一个' && st.cur < st.total) st.cur++;
+      else if (label === '上一个' && st.cur > 1) st.cur--;
+      else if (label.indexOf('第 ') === 0) st.cur = parseInt(li.textContent, 10);
+      render();
+    });
+    render();
+  })();
+</script>
+<script>window.__E2E_HARNESS = 'e2e-harness-header-anchored.js';</script>
+<script src="/test/e2e-boot.js"></script>
+</body>
+</html>

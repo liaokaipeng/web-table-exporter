@@ -469,6 +469,178 @@
     return ok >= Math.max(2, Math.ceil(n * 0.75));
   }
 
+  /* ---------- 表头锚定网格（v2.18） ----------
+   * 自绘表格的另一常见形态：真 <table> 只渲表头（tbody 是占位空行），数据行
+   * 放在同级子树的 div 列表里，且同一行内每格 class 各不相同（TUX core-table /
+   * TikTok 商家后台即此类）。通用兜底的「同首个类名兄弟」前提在这里不成立，
+   * 故另设一层识别：以表头列几何（left/width）为锚点，在最近容器里找「≥2 行、
+   * 每行可见格数 = 列数、且视觉列对齐」的重复行组。纯几何 + 结构，不依赖 class
+   * 名（CSS Modules hash 变更无感），也不受界面语言影响。
+   * 与通用兜底同走「结果按根缓存、取数按选择器重查」的路径，但声明
+   * virtual:false（分页表格行全量渲染，点选即取数、不滚动采集）。 */
+
+  const HEADER_ANCHOR_MISS = new WeakSet(); // 已判定无可锚定网格的悬停元素（负缓存）
+
+  /** 纯表头表 → { el, cells, cols }；表体有任何非空文字行即判为普通表返回 null。
+   *  先按行数快速排除（占位行只会是零星一两条，大表不必逐行读文本） */
+  function headerAnchorOf(tbl) {
+    if (!tbl || tbl.tagName !== 'TABLE' || !tbl.tHead) return null;
+    let n = 0;
+    for (const tb of tbl.tBodies) n += tb.rows.length;
+    if (n > 3) return null;
+    for (const tb of tbl.tBodies) {
+      for (const tr of tb.rows) {
+        if ((tr.textContent || '').replace(/\s+/g, '')) return null; // 有数据行：普通表格
+      }
+    }
+    const trs = Array.from(tbl.tHead.rows).filter(tr => tr.cells.length >= 2);
+    if (!trs.length) return null;
+    // 多行表头取格数最多的一行作列锚点（最细粒度那行与数据行一一对应）
+    let best = trs[0].cells;
+    for (const tr of trs) if (tr.cells.length > best.length) best = tr.cells;
+    const cells = Array.from(best).filter(c => {
+      const r = c.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    });
+    if (cells.length < 2) return null;
+    return { el: tbl, cells: cells, cols: cells.map(rectInfo) };
+  }
+
+  /** 表头锚定行判定（纯函数，algo-check 离线回归）：格数须与表头列数一致且
+   *  视觉列对齐。左容差按列宽 6% 伸缩——表头 TH 与数据格的内边距不同，首列常
+   *  错位十余像素（TikTok 实测 12px），固定 8px 会误杀真实表格 */
+  function headerAnchoredRowOk(cols, cells) {
+    if (!cols || !cells || cols.length < 2 || cells.length !== cols.length) return false;
+    let ok = 0;
+    for (let i = 0; i < cols.length; i++) {
+      const h = cols[i];
+      const d = cells[i];
+      if (!h || !d) continue;
+      if (Math.abs(h.left - d.left) <= Math.max(8, d.width * 0.06) &&
+          Math.abs(h.width - d.width) <= Math.max(12, d.width * 0.1)) ok++;
+    }
+    return ok >= Math.max(2, Math.ceil(cols.length * 0.75));
+  }
+
+  /** 行的可见子格（宽高均 >0；隐藏列如 TikTok 的收藏列宽度为 0 须剔除）；
+   *  超过列数即判定不是该表的行（早退，免全量子元素测量） */
+  function visibleCellsOf(row, n) {
+    const cells = [];
+    for (const c of row.children) {
+      const r = c.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) cells.push(c);
+      if (cells.length > n) return null;
+    }
+    return cells.length === n ? cells : null;
+  }
+
+  /** 容器内找重复行组：父级的全部子元素都是「可见子格数 = 列数、位于表头下方、
+   *  视觉列对齐、同一首类名选择器」的行，≥2 行即命中（取行数最多的一组）。
+   *  要求整组子元素都是行（含一个非行元素即放弃），避免把页面级容器误当行组 */
+  function rowGroupUnder(root, anchor, headerBottom) {
+    const n = anchor.cols.length;
+    let best = null;
+    for (const p of root.querySelectorAll('*')) {
+      const kids = Array.from(p.children);
+      if (kids.length < 2 || kids.length > 200) continue;
+      let rows = 0;
+      let rowSel = '';
+      for (const k of kids) {
+        const cells = visibleCellsOf(k, n);
+        if (!cells) break;
+        const rr = k.getBoundingClientRect();
+        if (rr.width <= 0 || rr.height <= 0 || rr.top < headerBottom - 1) break;
+        if (!headerAnchoredRowOk(anchor.cols, cells.map(rectInfo))) break;
+        if (!firstClassOf(k)) break; // 无类名的行无法按选择器重查，放弃
+        const sel = familySelOf(k);
+        if (!rowSel) rowSel = sel;
+        else if (sel !== rowSel) break;
+        rows++;
+      }
+      if (rows >= 2 && (!best || rows > best.rows)) best = { parent: p, rowSel: rowSel, rows: rows };
+    }
+    return best;
+  }
+
+  /** 识别入口：自鼠标元素向上 ≤10 层，找同时含「纯表头 table」与「对齐行组」的
+   *  最近容器，命中后按根缓存。容器越紧越可信，故取首个命中 */
+  function detectHeaderAnchoredGrid(el) {
+    if (!(el && el.nodeType === 1) || HEADER_ANCHOR_MISS.has(el)) return null;
+    let depth = 0;
+    for (let a = el; a && a !== document.body && depth < 10; a = a.parentElement, depth++) {
+      const tables = a.querySelectorAll('table');
+      if (!tables.length || tables.length > 8) continue;
+      for (const tbl of tables) {
+        const anchor = headerAnchorOf(tbl);
+        if (!anchor) continue;
+        const headerBottom = tbl.getBoundingClientRect().bottom;
+        const g = rowGroupUnder(a, anchor, headerBottom);
+        if (!g) continue;
+        // 只允许从「行组内」或「表头表内」起意：容器里的标题、筛选栏、分页器等
+        // 不属于表格，不能因同处一个容器就被点选（否则翻页按钮会被拦成选表）
+        if (!g.parent.contains(el) && !anchor.el.contains(el)) continue;
+        // 根取「行组父级」而非更外层的 a：与 v2.16 通用兜底一致，且让组件分页器
+        // （常在行组之外、同容器内）落在根之外，findPagerRoot 才能向上命中
+        return rememberHeaderGrid(g.parent, g, anchor);
+      }
+    }
+    HEADER_ANCHOR_MISS.add(el);
+    return null;
+  }
+
+  /** 表头锚定结果缓存：根/表头表/表头格/行/格 → 根（hover 与点选据此快速命中）；
+   *  选择器只存一次，取数时按 root.querySelectorAll 重查（翻页重建后仍可用） */
+  function rememberHeaderGrid(root, group, anchor) {
+    const info = {
+      mode: 'header-anchored', rowSel: group.rowSel, n: anchor.cols.length,
+      headerEl: anchor.el, virtual: false
+    };
+    GENERIC_INFO.set(root, info);
+    GENERIC_ROOT.set(root, root);
+    GENERIC_ROOT.set(anchor.el, root);
+    for (const c of anchor.cells) GENERIC_ROOT.set(c, root);
+    for (const tr of anchor.el.tHead.rows) GENERIC_ROOT.set(tr, root);
+    for (const row of root.querySelectorAll(group.rowSel)) {
+      GENERIC_ROOT.set(row, root);
+      for (const c of row.children) GENERIC_ROOT.set(c, root);
+    }
+    return root;
+  }
+
+  /** 表头锚定网格 → 与组件适配器同构的钩子（不注册进 GRID_ADAPTERS，按需生成） */
+  function headerAnchoredAdapter(root, info) {
+    return {
+      name: 'header-anchored-grid',
+      rootSel: '',
+      virtual: false, // 行全量渲染：点选即取数，不滚动
+      isRoot: () => false,
+      headerRowsOf: () => {
+        const t = info.headerEl;
+        return (t && t.isConnected) ? rowsOfTable(t).filter(r => r.isHeader) : [];
+      },
+      bodyRowsOf: (r) => {
+        const out = [];
+        for (const row of r.querySelectorAll(info.rowSel)) {
+          const cells = visibleCellsOf(row, info.n);
+          if (cells) out.push({ cells: cells, el: row, isHeader: false });
+        }
+        return out;
+      },
+      scrollElsOf: () => [],
+      headerCellsOf: () => {
+        const a = (info.headerEl && info.headerEl.isConnected) ? headerAnchorOf(info.headerEl) : null;
+        return a ? a.cells : [];
+      }
+    };
+  }
+
+  /** 表头表 → 所属锚定网格根（main.js hitRoot 用）：纯表头表若已缓存/可探测出
+   *  行组，返回其网格根；普通表（表体有数据）或找不到行组返回 null */
+  function gridRootOfHeaderTable(tbl) {
+    if (!headerAnchorOf(tbl)) return null;
+    return genericRootOf(tbl) || detectHeaderAnchoredGrid(tbl);
+  }
+
   /** 候选行（自鼠标元素向上 ≤8 层）：父级下同标签同首类名兄弟 2~30 个，
    *  且过半兄弟有文本（滤掉图标/装饰容器）；首类名为空的层不参与 */
   function candidateRows(el) {
@@ -537,9 +709,13 @@
     return null;
   }
 
-  /** 通用网格探测入口：命中返回根元素并写缓存，否则 null */
+  /** 通用网格探测入口：命中返回根元素并写缓存，否则 null。
+   *  v2.18 先试表头锚定（纯表头 table + 异构 class 行组，见上方注释），
+   *  不命中再走 v2.16 的同首类名结构重复兜底 */
   function detectGenericGrid(el) {
     if (!(el && el.nodeType === 1)) return null;
+    const anchored = detectHeaderAnchoredGrid(el);
+    if (anchored) return anchored;
     for (const cand of candidateRows(el)) {
       if (GENERIC_MISS.has(cand.row)) continue;
       const rep = repeatedRows(cand);
@@ -573,6 +749,7 @@
   function genericAdapterOf(root) {
     const info = GENERIC_INFO.get(root);
     if (!info) return null;
+    if (info.mode === 'header-anchored') return headerAnchoredAdapter(root, info); // v2.18
     const headerEl = () => {
       if (info.headerEl && info.headerEl.isConnected) return info.headerEl;
       const first = root.querySelector(info.rowSel); // 翻页整根重建：按首行重找表头
@@ -779,7 +956,9 @@
     splitGroupOf: splitGroupOf, pairSplitGroup: pairSplitGroup,
     isGridTable: isGridTable, gridScrollEls: gridScrollEls, gridIsVirtual: gridIsVirtual,
     gridRootOf: gridRootOf, gridHeaderCellsOf: gridHeaderCellsOf,
+    gridRootOfHeaderTable: gridRootOfHeaderTable, // v2.18 纯表头表 → 锚定网格根
     rowsSortedByRowIndex: rowsSortedByRowIndex, columnsAligned: columnsAligned,
+    headerAnchoredRowOk: headerAnchoredRowOk,     // v2.18 纯函数（algo-check 离线回归）
     GRID_ROOT_SELECTOR: GRID_ROOT_SELECTOR, adapters: GRID_ADAPTERS
   };
 })();

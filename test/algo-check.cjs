@@ -27,7 +27,7 @@ const {
   toNumValue, formatColumns, applyColFormats, cellWidth, autoColWidths
 } = splitMod;
 const { pairSplitGroup, makeSheetName, gridHeaderCellsOf, rowsSortedByRowIndex, columnsAligned,
-  adapters: GRID_ADAPTERS, GRID_ROOT_SELECTOR } = loadModule('table.js', 'table');
+  headerAnchoredRowOk, adapters: GRID_ADAPTERS, GRID_ROOT_SELECTOR } = loadModule('table.js', 'table');
 // persist 的 tableKeyOf 经 ns.table.gridHeaderCellsOf 分发（浏览器由注入序保证
 // table.js 先行；此处以 preNs 注入同一实现，离线等价）
 const { pageKeyOf, tableKeyOf, sanitizeRecord, evictKeys } = loadModule('persist.js', 'persist', {
@@ -1090,10 +1090,10 @@ check('模块清单：common FILES 与 service-worker 注入顺序一致（依�
 // service-worker/实际文件一致即等价于旧版逐 harness 比对，任何一份缺文件仍 FAIL
 const harnessFiles = fs.readdirSync(__dirname).filter(f => /^e2e-harness(-\w+)*\.js$/.test(f));
 const harnessSrcs = new Map(harnessFiles.map(f => [f, fs.readFileSync(path.join(__dirname, f), 'utf8')]));
-check('模块清单：e2e-harness 数量齐备（十个页面 harness）', harnessFiles.length, 10);
-check('模块清单：十个 harness 均经 __h2xT 加载守卫接入 common',
+check('模块清单：e2e-harness 数量齐备（十一个页面 harness）', harnessFiles.length, 11);
+check('模块清单：十一个 harness 均经 __h2xT 加载守卫接入 common',
   harnessFiles.filter(f => !harnessSrcs.get(f).includes('__h2xT')), []);
-check('模块清单：十个 harness 均以 const FILES = T.FILES 引用 common 清单',
+check('模块清单：十一个 harness 均以 const FILES = T.FILES 引用 common 清单',
   harnessFiles.filter(f => !/const FILES = T\.FILES;/.test(harnessSrcs.get(f))), []);
 check('模块清单：注入顺序首尾正确（entry 先行守卫 / main 殿后建 UI）',
   [swModules[0], swModules[swModules.length - 1]], ['entry', 'main']);
@@ -1127,6 +1127,20 @@ check('columnsAligned：列数不足 2 / 空数组返回 false',
   [columnsAligned([rect(0, 100)], [rect(0, 100)]), columnsAligned([], [])], [false, false]);
 check('columnsAligned：宽度容差下限 12px（窄列）',
   columnsAligned([rect(0, 20), rect(20, 20)], [rect(0, 30), rect(20, 30)]), true);
+check('headerAnchoredRowOk：格数等于列数且视觉对齐（表头/格内边距差 12px 仍通过，左容差按列宽 6% 伸缩）',
+  headerAnchoredRowOk([rect(139, 213), rect(352, 200), rect(552, 307), rect(859, 154), rect(1013, 164)],
+    [rect(151, 201), rect(352, 200), rect(552, 307), rect(859, 154), rect(1013, 135)]), true);
+check('headerAnchoredRowOk：格数与列数不一致即判否（隐藏列须先剔除）',
+  [headerAnchoredRowOk([rect(0, 100), rect(100, 100)], [rect(0, 100)]),
+    headerAnchoredRowOk([rect(0, 100), rect(100, 100)],
+      [rect(0, 100), rect(100, 100), rect(200, 100)])], [false, false]);
+check('headerAnchoredRowOk：列数不足 2 / 空入参返回 false',
+  [headerAnchoredRowOk([rect(0, 100)], [rect(0, 100)]),
+    headerAnchoredRowOk(null, [rect(0, 100)]), headerAnchoredRowOk([rect(0, 100)], [])],
+  [false, false, false]);
+check('headerAnchoredRowOk：列几何明显错位判否（防卡片列表误判）',
+  headerAnchoredRowOk([rect(0, 100), rect(100, 100)],
+    [rect(0, 100), rect(140, 60)]), false);
 check('适配器 virtual 标记：todo-grid 声明非虚拟，其余按虚拟',
   [GRID_ADAPTERS.find(a => a.name === 'todo-grid').virtual,
     GRID_ADAPTERS.filter(a => a.name !== 'todo-grid').every(a => a.virtual === undefined)],
@@ -1183,17 +1197,22 @@ check('tableKeyOf 空根 / null 根防御',
   [tableKeyOf({ tagName: 'DIV', querySelectorAll: () => [], querySelector: () => null }), tableKeyOf(null)],
   [null, null]);
 
-// 47. 分页适配器注册表（pagination.js v2.5：el-pagination / ant-pagination / vxe-pager）
+// 47. 分页适配器注册表（pagination.js v2.5：el-pagination / ant-pagination / vxe-pager；
+//     v2.18 增 TUX core-pagination）
 const { adapters: PAGER_ADAPTERS } = loadModule('pagination.js', 'pagination');
-check('分页适配器：三适配器齐备且命名稳定（增删组件须同步本用例）',
-  PAGER_ADAPTERS.map(a => a.name), ['el-pagination', 'ant-pagination', 'vxe-pager']);
+check('分页适配器：四适配器齐备且命名稳定（增删组件须同步本用例）',
+  PAGER_ADAPTERS.map(a => a.name),
+  ['el-pagination', 'ant-pagination', 'vxe-pager', 'core-pagination']);
 check('分页适配器：每适配器四要素齐备（rootSel/nextSel/prevSel/isDisabled）',
   PAGER_ADAPTERS.map(a => [typeof a.rootSel, typeof a.nextSel, typeof a.prevSel, typeof a.isDisabled]),
   PAGER_ADAPTERS.map(() => ['string', 'string', 'string', 'function']));
 check('分页适配器：rootSel 互不相同（findPagerRoot 按注册序分发，重叠会互相遮蔽）',
   new Set(PAGER_ADAPTERS.map(a => a.rootSel)).size, PAGER_ADAPTERS.length);
-check('分页适配器：next/prev 均为单类名选择器（querySelector 可用）',
-  PAGER_ADAPTERS.every(a => /^\.[\w-]+$/.test(a.nextSel) && /^\.[\w-]+$/.test(a.prevSel)), true);
+// v2.18：TUX 翻页按钮类名带截断缩写（-nex），改用 aria-label 精确匹配；
+// 校验每段要么是单类名、要么是 aria-label 精确等值（不含后代组合符）
+const pagerSelOk = (sel) => sel.split(',').every(s => /^(\.[\w-]+|\[aria-label="[^"]+"\])$/.test(s.trim()));
+check('分页适配器：next/prev 均为合法选择器（单类名或 aria-label 精确匹配，多个用逗号并列）',
+  PAGER_ADAPTERS.every(a => pagerSelOk(a.nextSel) && pagerSelOk(a.prevSel)), true);
 check('分页适配器：总页数选择器可选且非空（v2.9 取页码项最大值为总页数，缺省 = 不显示总数）',
   PAGER_ADAPTERS.map(a => a.pageSel == null || (typeof a.pageSel === 'string' && a.pageSel.length > 0)),
   PAGER_ADAPTERS.map(() => true));

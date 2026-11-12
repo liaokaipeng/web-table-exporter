@@ -82,16 +82,17 @@
   - `gridRootOf()` / `GRID_ROOT_SELECTOR` 命中入口（已知适配器 → 通用缓存 → `detectGenericGrid()` 兜底）
   - `gridHeaderCellsOf()` 指纹表头分发（通用网格同样给表头格）
   - `rowsSortedByRowIndex()` 行序排序纯函数（aria-rowindex，复用行节点组件）；`columnsAligned()` 视觉列对齐纯函数（通用兜底，algo-check 离线回归）
+  - v2.18 增「表头锚定」通用识别层（TUX core-table / TikTok 商家后台这类「真 table 只渲表头、数据行是同级 div 列表、同一行内每格 class 各异」的自绘表）：以纯表头表的列几何为锚点（`headerAnchorOf()`：thead ≥1 行且 tbody 无非空文字行，占位空行先行数 ≤3 快速排除），在最近容器内找「≥2 行、每行可见格数 = 列数、位于表头下方、视觉列对齐、同一行选择器」的重复行组（`rowGroupUnder()`）。根取行组父级（分页器留在根外，`findPagerRoot` 可向上命中），声明 `virtual:false`；`gridRootOfHeaderTable()` 供 `hitRoot()` 把纯表头表映射到网格根（否则点表头只会选中一张「只有表头的表」）；只允许从行组内或表头表内起意（容器里的标题/筛选栏/分页器不被选中）
 
 #### virtual.js（依赖：table）
 
 - 虚拟滚动采集：`isVirtualTable()` 识别 → `collectVirtual()` 回顶、按视口 80% 步长下滚、逐窗提取并经 `overlapLen()` 重叠合并衔接（v2.9 起「元素身份优先、内容匹配兜底」：`refOverlapLen()` / `refTopsMatch()`）
-- v2.1：网格表格恒走滚动采集，固定列多分区（left/main/right）联动设置 scrollTop；v2.16 起 `virtual:false` 的网格（多客 todo 网格，行全量渲染）点选即取数，不进滚动采集
+- v2.1：网格表格恒走滚动采集，固定列多分区（left/main/right）联动设置 scrollTop；v2.16 起 `virtual:false` 的网格（多客 todo 网格，行全量渲染）点选即取数，不进滚动采集；v2.18 表头锚定网格同此（每页行全量渲染）
 - 机制与参数（识别规则、窗口衔接、停止与快照结构）见 [mechanisms.md](mechanisms.md)「虚拟滚动」
 
 #### pagination.js（依赖：table, persist, virtual）
 
-- 分页表格自动翻页采集（v2.5）：`PAGER_ADAPTERS` 适配器注册表 + `manualPager()` 手动指定两层定位；`collectPaged()` 采集引擎（逐页 extractTable + overlapLen 页级重叠合并、起点归一、指纹校验、多重停止兜底、页间停顿）；`isPagingClick()` 编程式点击豁免
+- 分页表格自动翻页采集（v2.5）：`PAGER_ADAPTERS` 适配器注册表（v2.18 四家：el-pagination / ant-pagination / vxe-pager / TUX core-pagination）+ `manualPager()` 手动指定两层定位；`collectPaged()` 采集引擎（逐页 extractTable + overlapLen 页级重叠合并、起点归一、指纹校验、多重停止兜底、页间停顿）；`isPagingClick()` 编程式点击豁免
 - 机制与参数（翻页等待预算、停止条件、起点归一阈值、页间停顿）见 [mechanisms.md](mechanisms.md)「分页翻页采集」；用户向行为（采集组件、进度提示、提醒框）见 [product.md](product.md)「分页表格」
 
 #### persist.js（依赖：entry）
